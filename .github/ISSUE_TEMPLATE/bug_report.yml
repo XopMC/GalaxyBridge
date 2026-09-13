@@ -1,0 +1,62 @@
+name: Bug report / Ошибка
+description: Report reproducible behavior with minimal, redacted details.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English or Russian is welcome. / Можно писать по-русски или по-английски.
+        Do not include device serials, pairing secrets, signing keys, personal files, or message/notification contents.
+        Не добавляйте серийные номера, секреты сопряжения, ключи подписи, личные файлы и содержимое сообщений/уведомлений.
+  - type: input
+    id: app_version
+    attributes:
+      label: App versions / Версии приложений
+      description: Both Mac and Android versions; release download or source build.
+      placeholder: "Mac 0.1.0 Direct; Android 0.1.0 Direct"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS and phone model / ОС и модель телефона
+      description: macOS version, Apple Silicon model, Android/One UI version, and phone model. No serial numbers.
+    validations:
+      required: true
+  - type: dropdown
+    id: route
+    attributes:
+      label: Connection / Подключение
+      options:
+        - USB
+        - Wireless ADB
+        - Companion local network
+        - Installation or setup
+        - Other or unknown
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce / Как воспроизвести
+      description: Use synthetic text or files where possible.
+    validations:
+      required: true
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected and actual result / Ожидаемый и фактический результат
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Optional redacted diagnostics / Обезличенная диагностика
+      description: Minimal relevant error text or a screenshot with all personal content removed. Avoid full logs.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy / Приватность
+      options:
+        - label: I removed personal content and secrets. / Я удалил личное содержимое и секреты.
+          required: true

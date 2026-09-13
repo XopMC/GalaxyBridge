@@ -1,0 +1,157 @@
+--- a/subprojects/libusb-1.0.29/libusb/os/darwin_usb.c
++++ b/subprojects/libusb-1.0.29/libusb/os/darwin_usb.c
+@@ -48,6 +48,7 @@
+ #endif
+ 
+ #include "darwin_usb.h"
++#include "galaxybridge_usb_policy.h"
+ 
+ static int init_count = 0;
+ 
+@@ -1114,11 +1115,18 @@
+   return (*device)->DeviceRequestTO (device, &req);
+ }
+ 
++/* Galaxy Bridge: try the ordinary non-seizing open exactly once. An occupied
++ * device is unavailable; no fallback may detach its existing owner. */
++static int galaxybridge_darwin_try_open(void *opaque) {
++  usb_device_t device = (usb_device_t)opaque;
++  return (*device)->USBDeviceOpen(device);
++}
++
+ static enum libusb_error darwin_cache_device_descriptor (struct libusb_context *ctx, struct darwin_cached_device *dev) {
+   usb_device_t device = dev->device;
+   int retries = 1;
+   long delay = 30000; /* microseconds */
+-  int unsuspended = 0, try_unsuspend = 1, try_reconfigure = 1;
++  int unsuspended = 0, try_unsuspend = 0, try_reconfigure = 0;
+   int is_open = 0;
+   IOReturn ret = 0, ret2;
+   UInt8 bDeviceClass;
+@@ -1133,7 +1141,7 @@
+   /* According to Apple's documentation the device must be open for DeviceRequest but we may not be able to open some
+    * devices and Apple's USB Prober doesn't bother to open the device before issuing a descriptor request.  Still,
+    * to follow the spec as closely as possible, try opening the device */
+-  is_open = ((*device)->USBDeviceOpenSeize(device) == kIOReturnSuccess);
++  is_open = (galaxybridge_usb_open_once(device, galaxybridge_darwin_try_open) == kIOReturnSuccess);
+ 
+   do {
+     /**** retrieve device descriptor ****/
+@@ -1524,16 +1532,11 @@
+ 
+   if (0 == dpriv->open_count) {
+     /* try to open the device */
+-    kresult = (*dpriv->device)->USBDeviceOpenSeize (dpriv->device);
++    kresult = galaxybridge_usb_open_once(dpriv->device, galaxybridge_darwin_try_open);
+     if (kresult != kIOReturnSuccess) {
+       usbi_warn (HANDLE_CTX (dev_handle), "USBDeviceOpen: %s", darwin_error_str(kresult));
+ 
+-      if (kIOReturnExclusiveAccess != kresult) {
+-        return darwin_to_libusb (kresult);
+-      }
+-
+-      /* it is possible to perform some actions on a device that is not open so do not return an error */
+-      priv->is_open = false;
++      return darwin_to_libusb (kresult); /* including exclusive access: decline contention */
+     } else {
+       priv->is_open = true;
+     }
+@@ -1620,6 +1623,7 @@
+ }
+ 
+ static enum libusb_error darwin_set_configuration(struct libusb_device_handle *dev_handle, int config) {
++  return galaxybridge_usb_reject_mutation(); /* preserve other device/interface owners */
+   struct darwin_cached_device *dpriv = DARWIN_CACHED_DEVICE(dev_handle->dev);
+   IOReturn kresult;
+   uint8_t i;
+@@ -2068,6 +2072,7 @@
+ }
+ 
+ static int darwin_reenumerate_device (struct libusb_device_handle *dev_handle, bool capture) {
++  return galaxybridge_usb_reject_mutation(); /* preserve other device/interface owners */
+   struct darwin_cached_device *dpriv = DARWIN_CACHED_DEVICE(dev_handle->dev);
+   unsigned long claimed_interfaces = dev_handle->claimed_interfaces;
+   uint8_t active_config = dpriv->active_config;
+@@ -2167,6 +2172,7 @@
+ }
+ 
+ static int darwin_reset_device (struct libusb_device_handle *dev_handle) {
++  return galaxybridge_usb_reject_mutation(); /* preserve other device/interface owners */
+   struct darwin_cached_device *dpriv = DARWIN_CACHED_DEVICE(dev_handle->dev);
+   IOReturn kresult;
+   enum libusb_error ret;
+@@ -2821,6 +2827,7 @@
+ /* On macOS, we capture an entire device at once, not individual interfaces. */
+ 
+ static int darwin_detach_kernel_driver (struct libusb_device_handle *dev_handle, uint8_t interface) {
++  return galaxybridge_usb_reject_mutation(); /* preserve other device/interface owners */
+   UNUSED(interface);
+   struct darwin_cached_device *dpriv = DARWIN_CACHED_DEVICE(dev_handle->dev);
+   IOReturn kresult;
+@@ -2867,6 +2874,7 @@
+ 
+ 
+ static int darwin_attach_kernel_driver (struct libusb_device_handle *dev_handle, uint8_t interface) {
++  return galaxybridge_usb_reject_mutation(); /* preserve other device/interface owners */
+   UNUSED(interface);
+   struct darwin_cached_device *dpriv = DARWIN_CACHED_DEVICE(dev_handle->dev);
+ 
+--- a/vendor/adb/client/commandline.cpp
++++ b/vendor/adb/client/commandline.cpp
+@@ -1526,7 +1526,7 @@
+ 
+ int adb_commandline(int argc, const char** argv) {
+     if (argc == 1 && strcmp(argv[0], "gb-runtime-contract") == 0) {
+-        printf("galaxybridge-owned-adb-v1 keydir-only no-autostart parent-stdin usb-disabled\n");
++        printf("galaxybridge-owned-adb-v2 keydir-only no-autostart parent-stdin usb-nonseizing-optin\n");
+         return 0;
+     }
+     if (argc == 1 && strcmp(argv[0], "version") == 0) {
+--- a/vendor/adb/client/main.cpp
++++ b/vendor/adb/client/main.cpp
+@@ -107,7 +107,10 @@
+     if (lstat(socket_path.c_str(), &endpoint) == 0 || errno != ENOENT) {
+         LOG(FATAL) << "Galaxy Bridge private endpoint is already occupied";
+     }
+-    setenv("ADB_USB", "0", 1);
++    const char* usb_policy = getenv("GALAXYBRIDGE_ADB_USB_POLICY");
++    const bool nonseizing_usb = usb_policy && strcmp(usb_policy, "usb-nonseizing-v1") == 0;
++    setenv("ADB_USB", nonseizing_usb ? "1" : "0", 1);
++    setenv("ADB_LIBUSB", "1", 1); // Only the patched nonseizing backend is eligible.
+     setenv("ADB_EMU", "0", 1);
+     setenv("ADB_REJECT_KILL_SERVER", "1", 1);
+     umask(0077);
+--- a/vendor/adb/client/usb_libusb_device.cpp
++++ b/vendor/adb/client/usb_libusb_device.cpp
+@@ -167,13 +167,9 @@
+ }
+ 
+ void LibUsbDevice::Reset() {
+-    if (device_handle_ == nullptr) {
+-        return;
+-    }
+-    int rc = libusb_reset_device(device_handle_);
+-    if (rc != 0) {
+-        LOG(ERROR) << "libusb_reset_device failed: " << libusb_error_name(rc);
+-    }
++    // Galaxy Bridge owns an interface lease, never the phone's USB device.
++    // Recovery must close/reopen its own transport instead of resetting others.
++    return;
+ }
+ 
+ std::string LibUsbDevice::GetDeviceAddress() {
+--- /dev/null
++++ b/subprojects/libusb-1.0.29/libusb/os/galaxybridge_usb_policy.h
+@@ -0,0 +1,12 @@
++/* Galaxy Bridge changes, 2026. LGPL-2.1-or-later, same as libusb.
++ * Ordinary open is attempted exactly once. Busy/errors are propagated; there
++ * is no detach, seize, reset, configuration change, or fallback callback. */
++#ifndef GALAXYBRIDGE_USB_POLICY_H
++#define GALAXYBRIDGE_USB_POLICY_H
++static inline int galaxybridge_usb_open_once(void *device, int (*ordinary_open)(void *)) {
++  return ordinary_open(device);
++}
++static inline int galaxybridge_usb_reject_mutation(void) {
++  return -12; /* LIBUSB_ERROR_NOT_SUPPORTED */
++}
++#endif

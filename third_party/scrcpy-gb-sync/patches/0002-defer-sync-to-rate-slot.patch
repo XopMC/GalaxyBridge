@@ -1,0 +1,126 @@
+--- a/server/src/main/java/com/genymobile/scrcpy/video/CaptureControl.java
++++ b/server/src/main/java/com/genymobile/scrcpy/video/CaptureControl.java
+@@ -237,5 +237,5 @@
+                 || requestedEpoch != epoch || requestedConfig != config || config == 0
+                 || (phase != Phase.CONFIG && phase != Phase.RUNNING)
+-                || pendingId != 0 || (called && now - lastCall < WINDOW_NS)) {
++                || pendingId != 0 || (called && deadline - lastCall <= WINDOW_NS)) {
+             return receipt(1, Outcome.REJECTED, id, now, deadline, requestedEpoch, requestedConfig);
+         }
+@@ -252,11 +252,16 @@
+         long id = pendingId;
+         long deadline = pendingDeadline;
+-        pendingId = 0;
+-        long now = sampleClock();
+-        if (now == 0 || deadline <= now || !active || reset != 0 || retired || disabled
+-                || (called && now - lastCall < WINDOW_NS)) {
+-            return receipt(2, Outcome.EXPIRED, id, now, deadline, epoch, config);
+-        }
+-        called = true;
++        long now = sampleClock();
++        if (now == 0 || deadline <= now || !active || reset != 0 || retired || disabled) {
++            pendingId = 0;
++            return receipt(2, Outcome.EXPIRED, id, now, deadline, epoch, config);
++        }
++        if (called && now - lastCall < WINDOW_NS) {
++            // Keep one request until its existing legal rate slot. No blocking,
++            // deadline renewal or extra codec call; unrelated bitrate work runs.
++            return serviceBitrate();
++        }
++        pendingId = 0;
++        called = true;
+         lastCall = now;
+         // Hold exact ownership through the vendor call; its wall time is NOT bounded.
+--- a/server/src/test/java/com/genymobile/scrcpy/video/SyncFrameControlTest.java
++++ b/server/src/test/java/com/genymobile/scrcpy/video/SyncFrameControlTest.java
+@@ -306,9 +306,11 @@
+         Assert.assertEquals(APPLIED, f.control.service());
+         for (int i = 0; i < 10; ++i) {
+-            f.clock.now += W - 1;
+-            Assert.assertEquals(REJECTED, f.queue(1, 1));
+-            f.clock.now++;
+-            Assert.assertEquals(QUEUED, f.queue(1, 1));
+-            Assert.assertEquals(APPLIED, f.control.service());
++            f.clock.now += W - 1;
++            Assert.assertEquals(QUEUED, f.queue(1, 1));
++            Assert.assertEquals(NONE, f.control.service());
++            Assert.assertEquals(i + 1, f.ops.calls);
++            f.clock.now++;
++            Assert.assertEquals(REJECTED, f.queue(1, 1)); // occupied, not renewed
++            Assert.assertEquals(APPLIED, f.control.service());
+         }
+         f.clock.now -= W;
+--- /dev/null
++++ b/server/src/test/java/com/genymobile/scrcpy/video/RecoveryRateWindowTest.java
+@@ -0,0 +1,71 @@
++package com.genymobile.scrcpy.video;
++
++import org.junit.Assert;
++import org.junit.Test;
++import static com.genymobile.scrcpy.video.CaptureControl.Outcome.*;
++import static com.genymobile.scrcpy.video.SyncFrameControlTest.W;
++
++public class RecoveryRateWindowTest {
++    @Test public void secondLossWaitsForRateSlotInsteadOfLosingTheRequest() throws Exception {
++        // Real-device inter-request gaps plus the inclusive rate boundary.
++        for (long gap : new long[] {1, 46_000_000, 69_309_375, W - 1, W}) {
++            SyncFrameControlTest.Fixture f = new SyncFrameControlTest.Fixture();
++            f.ready();
++            long first = f.clock.now;
++            Assert.assertEquals(QUEUED, f.queue(1, 1));
++            Assert.assertEquals(APPLIED, f.control.service());
++            f.clock.now = first + gap;
++            Assert.assertEquals("A valid request must retain the one rate-limited slot", QUEUED, f.queue(1, 1));
++            if (gap < W) {
++                for (int i = 0; i < 100; ++i) { Assert.assertEquals(NONE, f.control.service()); }
++                Assert.assertEquals("No extra vendor call inside 100 ms", 1, f.ops.calls);
++                Assert.assertEquals("Busy slot cannot be replaced or renewed", REJECTED, f.queue(1, 1));
++            }
++            f.clock.now = first + W;
++            Assert.assertEquals(APPLIED, f.control.service());
++            Assert.assertEquals(2, f.ops.calls);
++            Assert.assertEquals(NONE, f.control.service());
++            Assert.assertFalse(f.ops.events.contains("eos"));
++        }
++    }
++
++    @Test public void waitingCannotRenewExpiryOrSurviveOwnerChange() throws Exception {
++        for (int change = 0; change < 5; ++change) {
++            SyncFrameControlTest.Fixture f = new SyncFrameControlTest.Fixture(); f.ready();
++            Assert.assertEquals(QUEUED, f.queue(1, 1)); Assert.assertEquals(APPLIED, f.control.service());
++            f.clock.now += 46_000_000;
++            long deadline = f.clock.now + W;
++            Assert.assertEquals(QUEUED, f.queue(1, 1));
++            Assert.assertEquals(NONE, f.control.service());
++            switch (change) {
++                case 0: f.clock.now = deadline; break;
++                case 1: f.control.reset(CaptureControl.RESET_REASON_CLIENT_RESET); break;
++                case 2: f.control.beginConfig(); f.control.completePublication(); break;
++                case 3: f.control.retire(); break;
++                case 4: f.clock.now--; break;
++                default: throw new AssertionError();
++            }
++            Assert.assertEquals(change == 0 || change == 4 ? EXPIRED : NONE, f.control.service());
++            f.clock.now = deadline + W;
++            Assert.assertEquals(NONE, f.control.service());
++            Assert.assertEquals("Old work must not call a codec", 1, f.ops.calls);
++        }
++    }
++
++    @Test public void impossibleRateWindowIsRejectedAndBitrateDoesNotStarve() throws Exception {
++        SyncFrameControlTest.Fixture f = new SyncFrameControlTest.Fixture(); f.ready();
++        Assert.assertEquals(QUEUED, f.queue(1, 1)); Assert.assertEquals(APPLIED, f.control.service());
++        long first = f.clock.now;
++        Assert.assertEquals("Deadline is exclusive: no legal slot remains", REJECTED, f.queue(1, 1));
++        f.clock.now += 46_000_000;
++        Assert.assertEquals(REJECTED, f.control.enqueue(1, 1, ++f.id, first + W));
++        Assert.assertEquals(QUEUED, f.queue(1, 1));
++        Assert.assertEquals(QUEUED, f.control.enqueueBitrate(1, 1, 1, f.clock.now + W, 2_000_000));
++        Assert.assertEquals(APPLIED, f.control.service());
++        Assert.assertEquals(1, f.ops.calls);
++        Assert.assertEquals(2_000_000, f.ops.target);
++        f.clock.now = first + W;
++        Assert.assertEquals(APPLIED, f.control.service());
++        Assert.assertEquals(2, f.ops.calls);
++    }
++}

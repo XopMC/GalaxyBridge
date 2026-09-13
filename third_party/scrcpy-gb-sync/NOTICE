@@ -1,0 +1,10 @@
+scrcpy-gb-sync is an Internal derivative of scrcpy v4.1.
+Upstream: https://github.com/Genymobile/scrcpy
+Copyright (C) 2018-2026 Genymobile and scrcpy contributors.
+Licensed under the Apache License, Version 2.0; see LICENSE.
+
+Modified 2026-09-06 for Galaxy Bridge: separately versioned fixed-record
+request-sync-frame control, bounded producer mailbox/publication ownership,
+finite encoder dequeue servicing, required route validation and host tests.
+The original media framing and configured media profile are retained.
+This derivative does not replace or relabel the stock scrcpy artifact.

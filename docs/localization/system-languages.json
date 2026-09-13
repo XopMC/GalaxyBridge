@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 2,
+  "locales": [
+    {
+      "id": "en",
+      "macOS": "en.lproj",
+      "android": "values",
+      "translation": "existing",
+      "humanReview": false
+    },
+    {
+      "id": "ru",
+      "macOS": "ru.lproj",
+      "android": "values-ru",
+      "translation": "existing",
+      "humanReview": false
+    },
+    {
+      "id": "de",
+      "macOS": "de.lproj",
+      "android": "values-de",
+      "translation": "existing",
+      "humanReview": false
+    },
+    {
+      "id": "fr",
+      "macOS": "fr.lproj",
+      "android": "values-fr",
+      "translation": "existing",
+      "humanReview": false
+    },
+    {
+      "id": "es",
+      "macOS": "es.lproj",
+      "android": "values-es",
+      "translation": "machine-translated",
+      "humanReview": false
+    },
+    {
+      "id": "pt",
+      "macOS": "pt.lproj",
+      "android": "values-pt",
+      "translation": "machine-translated",
+      "humanReview": false
+    },
+    {
+      "id": "ar",
+      "macOS": "ar.lproj",
+      "android": "values-ar",
+      "translation": "machine-translated",
+      "humanReview": false
+    },
+    {
+      "id": "zh-Hans",
+      "macOS": "zh-Hans.lproj",
+      "android": "values-b+zh+Hans",
+      "translation": "machine-translated",
+      "humanReview": false
+    },
+    {
+      "id": "zh-Hant",
+      "macOS": "zh-Hant.lproj",
+      "android": "values-b+zh+Hant",
+      "translation": "machine-translated",
+      "humanReview": false
+    },
+    {
+      "id": "ja",
+      "macOS": "ja.lproj",
+      "android": "values-ja",
+      "translation": "machine-translated",
+      "humanReview": false
+    },
+    {
+      "id": "ko",
+      "macOS": "ko.lproj",
+      "android": "values-ko",
+      "translation": "machine-translated",
+      "humanReview": false
+    }
+  ],
+  "shippingScope": "user-selected-popular-languages",
+  "fallbackLanguage": "en",
+  "unsupportedLanguagePolicy": "English when no preferred language is supported; otherwise normal ordered system matching.",
+  "languageCount": 10,
+  "regionalMappings": {
+    "pt-PT": "pt",
+    "pt-BR": "pt",
+    "zh-CN": "zh-Hans",
+    "zh-SG": "zh-Hans",
+    "zh-TW": "zh-Hant",
+    "zh-HK": "zh-Hant"
+  }
+}

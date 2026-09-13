@@ -1,0 +1,1607 @@
+--- a/server/src/main/java/com/genymobile/scrcpy/control/ControlMessage.java
++++ b/server/src/main/java/com/genymobile/scrcpy/control/ControlMessage.java
+@@ -30,6 +30,36 @@
+     public static final int TYPE_CAMERA_ZOOM_OUT = 20;
+     public static final int TYPE_RESIZE_DISPLAY = 21;
+     public static final int TYPE_SCAN_FILE = 22;
++    // Private to the full 4.1-gb-sync.1 server version.
++    public static final int TYPE_REQUEST_SYNC_FRAME = 23;
++    public static final int TYPE_SET_VIDEO_BITRATE = 24;
++    private int videoBitrate;
++    public int getVideoBitrate() { return videoBitrate; }
++    public static ControlMessage createSetVideoBitrate(long epoch, long config, long id, long deadline, int bitrate) {
++        ControlMessage msg = createRequestSyncFrame(epoch, config, id, deadline);
++        msg.type = TYPE_SET_VIDEO_BITRATE;
++        msg.videoBitrate = bitrate;
++        return msg;
++    }
++    private long producerEpoch;
++    private long producerConfigOrdinal;
++    private long requestId;
++    private long androidDeadlineNs;
++
++    public static ControlMessage createRequestSyncFrame(long epoch, long config, long id, long deadline) {
++        ControlMessage msg = new ControlMessage();
++        msg.type = TYPE_REQUEST_SYNC_FRAME;
++        msg.producerEpoch = epoch;
++        msg.producerConfigOrdinal = config;
++        msg.requestId = id;
++        msg.androidDeadlineNs = deadline;
++        return msg;
++    }
++
++    public long getProducerEpoch() { return producerEpoch; }
++    public long getProducerConfigOrdinal() { return producerConfigOrdinal; }
++    public long getRequestId() { return requestId; }
++    public long getAndroidDeadlineNs() { return androidDeadlineNs; }
+ 
+     public static final long SEQUENCE_INVALID = 0;
+ 
+--- a/server/src/main/java/com/genymobile/scrcpy/control/ControlMessageReader.java
++++ b/server/src/main/java/com/genymobile/scrcpy/control/ControlMessageReader.java
+@@ -64,11 +64,35 @@
+                 return parseResizeDisplay();
+             case ControlMessage.TYPE_SCAN_FILE:
+                 return parseScanFile();
++            case ControlMessage.TYPE_REQUEST_SYNC_FRAME:
++                return parseRequestSyncFrame();
++            case ControlMessage.TYPE_SET_VIDEO_BITRATE:
++                long epoch = dis.readLong();
++                long config = dis.readLong();
++                long id = dis.readLong();
++                long deadline = dis.readLong();
++                int bitrate = dis.readInt();
++                if (epoch <= 0 || config <= 0 || id <= 0 || deadline <= 0 || bitrate <= 0) {
++                    throw new ControlProtocolException("Invalid video-bitrate record");
++                }
++                return ControlMessage.createSetVideoBitrate(epoch, config, id, deadline, bitrate);
+             default:
+                 throw new ControlProtocolException("Unknown event type: " + type);
+         }
+     }
+ 
++    private ControlMessage parseRequestSyncFrame() throws IOException {
++        // Consume the entire fixed record before validation/dispatch. No resynchronization.
++        long epoch = dis.readLong();
++        long config = dis.readLong();
++        long id = dis.readLong();
++        long deadline = dis.readLong();
++        if (epoch <= 0 || config <= 0 || id <= 0 || deadline <= 0) {
++            throw new ControlProtocolException("Invalid sync-frame record");
++        }
++        return ControlMessage.createRequestSyncFrame(epoch, config, id, deadline);
++    }
++
+     private ControlMessage parseInjectKeycode() throws IOException {
+         int action = dis.readUnsignedByte();
+         int keycode = dis.readInt();
+--- a/server/src/main/java/com/genymobile/scrcpy/control/Controller.java
++++ b/server/src/main/java/com/genymobile/scrcpy/control/Controller.java
+@@ -16,6 +16,7 @@
+ import com.genymobile.scrcpy.video.CaptureControl;
+ import com.genymobile.scrcpy.video.NewDisplayCapture;
+ import com.genymobile.scrcpy.video.SurfaceCapture;
++import com.genymobile.scrcpy.video.SurfaceEncoder;
+ import com.genymobile.scrcpy.video.VideoSource;
+ import com.genymobile.scrcpy.video.VirtualDisplayListener;
+ import com.genymobile.scrcpy.wrappers.ClipboardManager;
+@@ -111,7 +112,18 @@
+ 
+     // Used for resetting video encoding on RESET_VIDEO message or for sending camera controls
+     private SurfaceCapture surfaceCapture;
++    private SurfaceEncoder surfaceEncoder;
+ 
++    public void setSurfaceEncoder(SurfaceEncoder surfaceEncoder) {
++        this.surfaceEncoder = surfaceEncoder;
++    }
++
++    private void retireSyncControl() {
++        if (surfaceEncoder != null) {
++            surfaceEncoder.retireSyncControl();
++        }
++    }
++
+     public Controller(ControlChannel controlChannel, CleanUp cleanUp, Options options) {
+         this.camera = options.getVideoSource() == VideoSource.CAMERA;
+         this.controlChannel = controlChannel;
+@@ -283,6 +295,7 @@
+                 Ln.e("Controller error", e);
+             } finally {
+                 Ln.d("Controller stopped");
++                retireSyncControl();
+                 if (uhidManager != null) {
+                     uhidManager.closeAll();
+                 }
+@@ -297,6 +310,7 @@
+ 
+     @Override
+     public void stop() {
++        retireSyncControl();
+         if (keepActiveThread != null) {
+             keepActiveThread.interrupt();
+         }
+@@ -334,6 +348,18 @@
+ 
+         // Events for all sources (display or camera)
+         switch (type) {
++            case ControlMessage.TYPE_SET_VIDEO_BITRATE:
++                if (surfaceEncoder != null) {
++                    surfaceEncoder.requestVideoBitrate(msg.getProducerEpoch(), msg.getProducerConfigOrdinal(),
++                            msg.getRequestId(), msg.getAndroidDeadlineNs(), msg.getVideoBitrate());
++                }
++                return true;
++            case ControlMessage.TYPE_REQUEST_SYNC_FRAME:
++                if (surfaceEncoder != null) {
++                    surfaceEncoder.requestSyncFrame(msg.getProducerEpoch(), msg.getProducerConfigOrdinal(),
++                            msg.getRequestId(), msg.getAndroidDeadlineNs());
++                }
++                return true;
+             case ControlMessage.TYPE_RESET_VIDEO:
+                 resetVideo();
+                 return true;
+--- a/server/src/main/java/com/genymobile/scrcpy/video/CaptureControl.java
++++ b/server/src/main/java/com/genymobile/scrcpy/video/CaptureControl.java
+@@ -1,23 +1,117 @@
+ package com.genymobile.scrcpy.video;
+ 
+-import android.media.MediaCodec;
++import android.os.SystemClock;
++import android.util.Log;
+ 
+ public class CaptureControl {
+-
+     public static final int RESET_REASON_TERMINATED = 1;
+     public static final int RESET_REASON_DISPLAY_PROPERTIES_CHANGED = 1 << 1;
+     public static final int RESET_REASON_CLIENT_RESET = 1 << 2;
+     public static final int RESET_REASON_CLIENT_RESIZED = 1 << 3;
++    static final long WINDOW_NS = 100_000_000L;
++    interface Clock { long now(); }
++    interface Observer { void record(String line); }
++    interface CodecOps {
++        void requestSyncFrame();
++        void signalEndOfInputStream();
++        void setVideoBitrate(int target);
++    }
++    enum Outcome { REJECTED, QUEUED, NONE, EXPIRED, APPLIED, DISABLED }
++    private enum Phase { IDLE, SESSION, CONFIG, RUNNING }
++    private final Clock clock;
++    private final Observer observer;
++    // Shared enqueue/service budget for this owner object, never reset by a capture cycle.
++    private int receiptCount;
++    private int reset;
++    private CodecOps owner;
++    private Thread videoThread;
++    private Phase phase = Phase.IDLE;
++    private boolean active;
++    private boolean retired;
++    private boolean disabled;
++    private long epoch;
++    private long config;
++    private long highWaterId;
++    private long lastClock;
++    private long lastCall;
++    private boolean called;
++    // A single bounded slot: no queue and no renewable deadline.
++    private long pendingId;
++    private long pendingDeadline;
++    private int bitrateCeiling;
++    private int configuredBitrate;
++    private boolean bitrateUpdated;
++    private long bitrateHigh;
++    private long bitrateId;
++    private long bitrateDeadline;
++    private long bitrateEpoch;
++    private long bitrateConfig;
++    private int bitrateTarget;
++    private boolean bitrateDisabled;
++    private int bitrateReceipts;
++    private final boolean bitrateDiagnostics;
+ 
+-    private int reset = 0;
++    public CaptureControl() { this(SystemClock::elapsedRealtimeNanos, line -> Log.i("scrcpy", line)); }
++    CaptureControl(Clock clock) { this(clock, line -> {}); }
++    CaptureControl(Clock clock, Observer observer) {
++        this(clock, observer, "1".equals(System.getenv("GB_QUIC_BITRATE_DIAGNOSTICS")));
++    }
++    CaptureControl(Clock clock, Observer observer, boolean bitrateDiagnostics) {
++        this.clock = clock; this.observer = observer; this.bitrateDiagnostics = bitrateDiagnostics;
++    }
++    synchronized void setBitrateCeiling(int target) {
++        if (target <= 0 || bitrateCeiling != 0) { throw new IllegalArgumentException("Invalid bitrate ceiling"); }
++        bitrateCeiling = target;
++        configuredBitrate = target;
++    }
++    synchronized int configuredBitrate() { return configuredBitrate; }
++    synchronized boolean bitrateUpdated() { return bitrateUpdated; }
+ 
+-    // Current instance of MediaCodec to "interrupt" on reset
+-    private MediaCodec runningMediaCodec;
+-
+-    public synchronized boolean isResetRequested() {
+-        return reset != 0;
++    private Outcome bitrateReceipt(int stage, Outcome outcome, long id, long deadline, int target, long e, long c, long now) {
++        if (bitrateDiagnostics && bitrateReceipts < 12) {
++            ++bitrateReceipts;
++            try {
++                observer.record("GBJB1 " + stage + " " + outcome.ordinal() + " " + id + " " + e + " " + c
++                        + " " + epoch + " " + config + " " + target + " " + configuredBitrate + " " + now + " " + deadline);
++            } catch (RuntimeException ignored) { }
++        }
++        return outcome;
+     }
++    synchronized Outcome enqueueBitrate(long e, long c, long id, long deadline, int target) {
++        long now = sampleClock();
++        if (id <= 0 || id <= bitrateHigh || e <= 0 || c <= 0 || deadline <= 0 || target <= 0 || target > bitrateCeiling) {
++            return bitrateReceipt(1, Outcome.REJECTED, id, deadline, target, e, c, now);
++        }
++        bitrateHigh = id;
++        if (now == 0 || deadline <= now || deadline - now > WINDOW_NS || !active || retired || bitrateDisabled
++                || owner == null || reset != 0 || e != epoch || c != config || phase != Phase.RUNNING) {
++            return bitrateReceipt(1, Outcome.REJECTED, id, deadline, target, e, c, now);
++        }
++        // Complete parsed records only; replace the one pending target, never a partial wire record.
++        bitrateId = id; bitrateDeadline = deadline; bitrateTarget = target; bitrateEpoch = e; bitrateConfig = c;
++        return bitrateReceipt(1, Outcome.QUEUED, id, deadline, target, e, c, now);
++    }
++    private Outcome serviceBitrate() {
++        if (bitrateId == 0 || phase != Phase.RUNNING) { return Outcome.NONE; }
++        long id = bitrateId; bitrateId = 0;
++        long now = sampleClock();
++        if (now == 0 || now >= bitrateDeadline || !active || retired || reset != 0 || bitrateDisabled
++                || bitrateEpoch != epoch || bitrateConfig != config) {
++            return bitrateReceipt(2, Outcome.EXPIRED, id, bitrateDeadline, bitrateTarget, bitrateEpoch, bitrateConfig, now);
++        }
++        try {
++            owner.setVideoBitrate(bitrateTarget);
++            // Preserve the last API-accepted target on independent codec recreation.
++            configuredBitrate = bitrateTarget;
++            bitrateUpdated = true;
++            return bitrateReceipt(2, Outcome.APPLIED, id, bitrateDeadline, bitrateTarget, bitrateEpoch, bitrateConfig, now);
++        } catch (RuntimeException ignored) {
++            bitrateDisabled = true;
++            return bitrateReceipt(2, Outcome.DISABLED, id, bitrateDeadline, bitrateTarget, bitrateEpoch, bitrateConfig, now);
++        }
++    }
+ 
++    public synchronized boolean isResetRequested() { return reset != 0; }
+     public synchronized int consumeReset() {
+         int value = reset;
+         reset = 0;
+@@ -27,16 +121,151 @@
+     public synchronized void reset(int reason) {
+         assert reason != 0;
+         reset |= reason;
+-        if (runningMediaCodec != null) {
++        active = false;
++        pendingId = 0;
++        if (owner != null) {
+             try {
+-                runningMediaCodec.signalEndOfInputStream();
++                owner.signalEndOfInputStream();
+             } catch (IllegalStateException e) {
+-                // ignore
++                // Preserve stock EOS-on-reset behavior.
+             }
+         }
+     }
+ 
+-    public synchronized void setRunningMediaCodec(MediaCodec runningMediaCodec) {
+-        this.runningMediaCodec = runningMediaCodec;
++    synchronized void bind(CodecOps codec) {
++        bitrateId = 0;
++        bitrateDisabled = false;
++        owner = codec;
++        videoThread = Thread.currentThread();
++        active = reset == 0 && !retired;
++        disabled = false;
++        phase = Phase.IDLE;
++        pendingId = 0;
+     }
++
++    synchronized void clearOwner() {
++        bitrateId = 0;
++        pendingId = 0;
++        active = false;
++        phase = Phase.IDLE;
++        owner = null;
++        videoThread = null;
++    }
++
++    synchronized void retire() {
++        bitrateId = 0;
++        retired = true;
++        pendingId = 0;
++        active = false;
++    }
++
++    synchronized void beginSession() {
++        bitrateId = 0;
++        requireVideoThread();
++        epoch = Math.incrementExact(epoch);
++        config = 0;
++        pendingId = 0;
++        phase = Phase.SESSION;
++    }
++
++    synchronized void beginConfig() {
++        bitrateId = 0;
++        requireVideoThread();
++        config = Math.incrementExact(config);
++        pendingId = 0;
++        phase = Phase.CONFIG;
++    }
++
++    synchronized void completePublication() {
++        requireVideoThread();
++        phase = Phase.RUNNING;
++        // Reset/retirement during a blocking write never revives ownership.
++    }
++
++    private void requireVideoThread() {
++        if (owner == null || Thread.currentThread() != videoThread) {
++            throw new IllegalStateException("Not the live video owner");
++        }
++    }
++
++    private long sampleClock() {
++        long now = clock.now();
++        if (now <= 0 || now < lastClock) {
++            return 0;
++        }
++        lastClock = now;
++        return now;
++    }
++
++    private Outcome receipt(int stage, Outcome outcome, long id, long now, long deadline,
++            long requestedEpoch, long requestedConfig) {
++        if (receiptCount < 12) {
++            ++receiptCount;
++            // Numeric only; APPLIED is vendor API return, not an encoded IDR.
++            // now is the eligibility sample (0 if invalid), not a renewed expiry.
++            try {
++                observer.record("GBJS1 " + stage + " " + phase.ordinal() + " " + id + " " + outcome.ordinal()
++                        + " " + now + " " + deadline + " " + requestedEpoch + " " + requestedConfig
++                        + " " + epoch + " " + config);
++            } catch (RuntimeException e) {
++                // Observation failure must not change the original request decision.
++            }
++        }
++        return outcome;
++    }
++
++    private long receiptClock() {
++        if (receiptCount >= 12) {
++            return 0;
++        }
++        try {
++            return clock.now(); // Early malformed/duplicate rejection never updates the eligibility clock.
++        } catch (RuntimeException e) {
++            return 0;
++        }
++    }
++
++    synchronized Outcome enqueue(long requestedEpoch, long requestedConfig, long id, long deadline) {
++        if (requestedEpoch <= 0 || requestedConfig <= 0 || id <= 0 || deadline <= 0 || id <= highWaterId) {
++            return receipt(1, Outcome.REJECTED, id, receiptClock(), deadline, requestedEpoch, requestedConfig);
++        }
++        // Consume every well-formed new ID, including stale/busy/rate-limited requests.
++        highWaterId = id;
++        long now = sampleClock();
++        if (now == 0 || deadline <= now || deadline - now > WINDOW_NS
++                || !active || retired || disabled || owner == null || reset != 0
++                || requestedEpoch != epoch || requestedConfig != config || config == 0
++                || (phase != Phase.CONFIG && phase != Phase.RUNNING)
++                || pendingId != 0 || (called && now - lastCall < WINDOW_NS)) {
++            return receipt(1, Outcome.REJECTED, id, now, deadline, requestedEpoch, requestedConfig);
++        }
++        pendingId = id;
++        pendingDeadline = deadline;
++        return receipt(1, Outcome.QUEUED, id, now, deadline, requestedEpoch, requestedConfig);
++    }
++
++    synchronized Outcome service() {
++        requireVideoThread();
++        if (pendingId == 0 || phase != Phase.RUNNING) {
++            return serviceBitrate();
++        }
++        long id = pendingId;
++        long deadline = pendingDeadline;
++        pendingId = 0;
++        long now = sampleClock();
++        if (now == 0 || deadline <= now || !active || reset != 0 || retired || disabled
++                || (called && now - lastCall < WINDOW_NS)) {
++            return receipt(2, Outcome.EXPIRED, id, now, deadline, epoch, config);
++        }
++        called = true;
++        lastCall = now;
++        // Hold exact ownership through the vendor call; its wall time is NOT bounded.
++        try {
++            owner.requestSyncFrame();
++            return receipt(2, Outcome.APPLIED, id, now, deadline, epoch, config);
++        } catch (RuntimeException e) {
++            disabled = true;
++            return receipt(2, Outcome.DISABLED, id, now, deadline, epoch, config); // Never enter stock retry/downsize.
++        }
++    }
+ }
+--- a/server/src/main/java/com/genymobile/scrcpy/video/SurfaceEncoder.java
++++ b/server/src/main/java/com/genymobile/scrcpy/video/SurfaceEncoder.java
+@@ -18,11 +18,11 @@
+ import android.media.MediaFormat;
+ import android.os.Build;
+ import android.os.Looper;
++import android.os.Bundle;
+ import android.os.SystemClock;
+ import android.view.Surface;
+ 
+ import java.io.IOException;
+-import java.nio.ByteBuffer;
+ import java.util.List;
+ import java.util.concurrent.atomic.AtomicBoolean;
+ 
+@@ -53,14 +53,20 @@
+     private Thread thread;
+     private final AtomicBoolean stopped = new AtomicBoolean();
+ 
+-    private final CaptureControl captureControl = new CaptureControl();
++    private final CaptureControl captureControl;
+ 
+     private VideoConstraints videoConstraints;
+ 
+     public SurfaceEncoder(SurfaceCapture capture, Streamer streamer, Options options) {
++        this(capture, streamer, options, new CaptureControl());
++    }
++
++    SurfaceEncoder(SurfaceCapture capture, Streamer streamer, Options options, CaptureControl control) {
++        this.captureControl = control;
+         this.capture = capture;
+         this.streamer = streamer;
+         this.videoBitRate = options.getVideoBitRate();
++        control.setBitrateCeiling(videoBitRate);
+         this.maxSize = options.getMaxSize();
+         this.maxFps = options.getMaxFps();
+         this.codecOptions = options.getVideoCodecOptions();
+@@ -120,66 +126,24 @@
+                 format.setInteger(MediaFormat.KEY_WIDTH, size.getWidth());
+                 format.setInteger(MediaFormat.KEY_HEIGHT, size.getHeight());
+ 
+-                Surface surface = null;
+-                boolean mediaCodecStarted = false;
+-                boolean captureStarted = false;
+-                try {
+-                    mediaCodec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+-                    surface = mediaCodec.createInputSurface();
+-
+-                    capture.start(surface);
+-                    captureStarted = true;
+-
+-                    mediaCodec.start();
+-                    mediaCodecStarted = true;
+-
+-                    // Set the MediaCodec instance to "interrupt" (by signaling an EOS) on reset
+-                    captureControl.setRunningMediaCodec(mediaCodec);
+-
+-                    if (stopped.get()) {
+-                        alive = false;
+-                    } else {
+-                        if (!captureControl.isResetRequested()) {
+-                            // The reset is due to a resize initiated by the client
+-                            boolean isClientResize = (resetReasons & CaptureControl.RESET_REASON_CLIENT_RESIZED) != 0
+-                                    && (resetReasons & CaptureControl.RESET_REASON_DISPLAY_PROPERTIES_CHANGED) == 0;
+-                            streamer.writeSessionMeta(size.getWidth(), size.getHeight(), isClientResize);
+-
+-                            // If a reset is requested during encode(), it will interrupt the encoding by an EOS
+-                            encode(mediaCodec, streamer);
+-                        }
+-
+-                        // The capture might have been closed internally (for example if the camera is disconnected)
+-                        alive = !stopped.get() && !capture.isClosed();
+-                    }
+-                } catch (IllegalStateException | IllegalArgumentException | IOException e) {
++                boolean isClientResize = (resetReasons & CaptureControl.RESET_REASON_CLIENT_RESIZED) != 0
++                        && (resetReasons & CaptureControl.RESET_REASON_DISPLAY_PROPERTIES_CHANGED) == 0;
++                boolean[] retried = {false};
++                alive = runCycle(new AndroidCycle(mediaCodec, format), size.getWidth(), size.getHeight(), isClientResize, e -> {
++                    // Keep the stock error/retry decision BEFORE cycle teardown.
+                     if (IO.isBrokenPipe(e)) {
+-                        // Do not retry on broken pipe, which is expected on close because the socket is closed by the client
+-                        throw e;
++                        rethrow(e);
+                     }
+                     Ln.e("Capture/encoding error: " + e.getClass().getName() + ": " + e.getMessage());
+                     if (!prepareRetry(caps, size)) {
+-                        throw e;
++                        rethrow(e);
+                     }
++                    retried[0] = true;
++                    return true;
++                });
++                if (retried[0]) {
+                     // Keep the current resetReasons flags for the retry
+                     retainedResetReasons = resetReasons;
+-                    alive = true;
+-                } finally {
+-                    captureControl.setRunningMediaCodec(null);
+-                    if (captureStarted) {
+-                        capture.stop();
+-                    }
+-                    if (mediaCodecStarted) {
+-                        try {
+-                            mediaCodec.stop();
+-                        } catch (IllegalStateException e) {
+-                            // ignore (just in case)
+-                        }
+-                    }
+-                    mediaCodec.reset();
+-                    if (surface != null) {
+-                        surface.release();
+-                    }
+                 }
+             } while (alive);
+         } finally {
+@@ -249,34 +213,214 @@
+         return 0;
+     }
+ 
+-    private void encode(MediaCodec codec, Streamer streamer) throws IOException {
+-        MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
++    public void requestSyncFrame(long epoch, long config, long id, long deadline) {
++        captureControl.enqueue(epoch, config, id, deadline);
++    }
+ 
+-        boolean eos;
+-        do {
+-            int outputBufferId = codec.dequeueOutputBuffer(bufferInfo, -1);
++    public void requestVideoBitrate(long epoch, long config, long id, long deadline, int target) {
++        captureControl.enqueueBitrate(epoch, config, id, deadline, target);
++    }
++
++    public void retireSyncControl() {
++        captureControl.retire();
++    }
++
++    // Only platform operations cross this seam; the real core below owns all guards/finally order.
++    interface CycleOps extends CaptureControl.CodecOps {
++        void configure();
++        void createSurface();
++        void startCapture() throws IOException;
++        void startCodec();
++        void stopCapture();
++        void stopCodec();
++        void resetCodec();
++        void releaseSurface();
++        boolean captureClosed();
++        void writeSession(int width, int height, boolean resize) throws IOException;
++        int dequeue(Output output, long timeoutUs);
++        void writePacket(int id) throws IOException;
++        void releaseOutput(int id);
++    }
++
++    static final class Output {
++        int flags;
++        int size;
++    }
++
++    static final class PublicationException extends IOException {
++        PublicationException(Throwable cause) { super("Incomplete producer publication", cause); }
++    }
++
++    interface Publication { void write() throws IOException; }
++    interface CycleFailure { boolean handle(Exception failure) throws IOException; }
++
++    private static void rethrow(Exception failure) throws IOException {
++        if (failure instanceof IOException) {
++            throw (IOException) failure;
++        }
++        throw (RuntimeException) failure;
++    }
++
++    void publish(boolean session, Publication write) throws PublicationException {
++        try {
++            if (session) {
++                captureControl.beginSession();
++            } else {
++                captureControl.beginConfig();
++            }
++            // No CaptureControl monitor is held across socket output.
++            write.write();
++            captureControl.completePublication();
++        } catch (IOException | RuntimeException e) {
++            captureControl.retire();
++            throw new PublicationException(e);
++        }
++    }
++
++    boolean runCycle(CycleOps ops, int width, int height, boolean resize) throws IOException {
++        return runCycle(ops, width, height, resize, e -> {
++            rethrow(e);
++            return false;
++        });
++    }
++
++    boolean runCycle(CycleOps ops, int width, int height, boolean resize, CycleFailure failure) throws IOException {
++        boolean captureStarted = false;
++        boolean codecStarted = false;
++        try {
++            ops.configure();
++            ops.createSurface();
++            ops.startCapture();
++            captureStarted = true;
++            ops.startCodec();
++            codecStarted = true;
++            captureControl.bind(ops);
++            if (stopped.get()) {
++                return false;
++            }
++            if (!captureControl.isResetRequested()) {
++                publish(true, () -> ops.writeSession(width, height, resize));
++                encode(ops);
++            }
++            return !stopped.get() && !ops.captureClosed();
++        } catch (PublicationException e) {
++            // Even a non-broken-pipe partial publication is terminal, never a stock retry.
++            throw e;
++        } catch (IllegalStateException | IllegalArgumentException | IOException e) {
++            return failure.handle(e);
++        } finally {
++            // Reset cannot race an API call onto an already-cleared codec.
++            captureControl.clearOwner();
++            if (captureStarted) {
++                ops.stopCapture();
++            }
++            if (codecStarted) {
++                try {
++                    ops.stopCodec();
++                } catch (IllegalStateException e) {
++                    // Stock behavior.
++                }
++            }
++            ops.resetCodec();
++            ops.releaseSurface();
++        }
++    }
++
++    private void encode(CycleOps ops) throws IOException {
++        Output output = new Output();
++        boolean eos = false;
++        while (!eos) {
++            captureControl.service();
++            int id = ops.dequeue(output, 5000);
++            // Negative dequeue results do not define BufferInfo: never consume stale flags.
++            if (id < 0) {
++                continue;
++            }
++            PublicationException publicationFailure = null;
+             try {
+-                eos = (bufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+-                // On EOS, there might be data or not, depending on bufferInfo.size
+-                if (outputBufferId >= 0 && bufferInfo.size > 0) {
+-                    boolean isConfig = (bufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0;
+-                    if (!isConfig) {
+-                        // If this is not a config packet, then it contains a frame
++                eos = (output.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
++                if (output.size > 0) {
++                    boolean config = (output.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0;
++                    if (config) {
++                        publish(false, () -> ops.writePacket(id));
++                    } else {
+                         firstFrameSent = true;
+                         consecutiveErrors = 0;
++                        ops.writePacket(id);
+                     }
+-
+-                    ByteBuffer codecBuffer = codec.getOutputBuffer(outputBufferId);
+-                    streamer.writePacket(codecBuffer, bufferInfo);
+                 }
++            } catch (PublicationException e) {
++                publicationFailure = e;
++                throw e;
+             } finally {
+-                if (outputBufferId >= 0) {
+-                    codec.releaseOutputBuffer(outputBufferId, false);
++                try {
++                    ops.releaseOutput(id);
++                } catch (RuntimeException e) {
++                    if (publicationFailure == null) {
++                        throw e; // Preserve ordinary media-error/retry behavior.
++                    }
++                    // Cleanup must not turn a partial stream into a retryable media error.
++                    publicationFailure.addSuppressed(e);
+                 }
+             }
+-        } while (!eos);
++            captureControl.service();
++        }
+     }
+ 
++    private final class AndroidCycle implements CycleOps {
++        private final MediaCodec codec;
++        private final MediaFormat format;
++        private Surface surface;
++        private MediaCodec.BufferInfo info;
++
++        AndroidCycle(MediaCodec codec, MediaFormat format) {
++            this.codec = codec;
++            this.format = format;
++        }
++        public void configure() {
++            if (captureControl.bitrateUpdated()) {
++                format.setInteger(MediaFormat.KEY_BIT_RATE, captureControl.configuredBitrate());
++            }
++            codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
++        }
++        public void createSurface() { surface = codec.createInputSurface(); }
++        public void startCapture() throws IOException { capture.start(surface); }
++        public void startCodec() { codec.start(); }
++        public void stopCapture() { capture.stop(); }
++        public void stopCodec() { codec.stop(); }
++        public void resetCodec() { codec.reset(); }
++        public void releaseSurface() { if (surface != null) { surface.release(); } }
++        public boolean captureClosed() { return capture.isClosed(); }
++        public void signalEndOfInputStream() { codec.signalEndOfInputStream(); }
++        public void requestSyncFrame() {
++            Bundle params = new Bundle();
++            params.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0);
++            codec.setParameters(params);
++        }
++
++        public void setVideoBitrate(int target) {
++            Bundle params = new Bundle();
++            params.putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, target);
++            codec.setParameters(params);
++        }
++        public void writeSession(int width, int height, boolean resize) throws IOException {
++            streamer.writeSessionMeta(width, height, resize);
++        }
++        public int dequeue(Output output, long timeoutUs) {
++            if (info == null) { info = new MediaCodec.BufferInfo(); }
++            int id = codec.dequeueOutputBuffer(info, timeoutUs);
++            if (id >= 0) {
++                output.flags = info.flags;
++                output.size = info.size;
++            }
++            return id;
++        }
++        public void writePacket(int id) throws IOException {
++            streamer.writePacket(codec.getOutputBuffer(id), info);
++        }
++        public void releaseOutput(int id) { codec.releaseOutputBuffer(id, false); }
++    }
++
+     private static MediaCodec createMediaCodec(Codec codec, String encoderName) throws IOException, ConfigurationException {
+         if (encoderName != null) {
+             Ln.d("Creating encoder by name: '" + encoderName + "'");
+@@ -373,6 +517,7 @@
+ 
+     @Override
+     public void stop() {
++        captureControl.retire();
+         if (thread != null) {
+             stopped.set(true);
+             captureControl.reset(CaptureControl.RESET_REASON_TERMINATED);
+--- a/server/src/main/java/com/genymobile/scrcpy/Server.java
++++ b/server/src/main/java/com/genymobile/scrcpy/Server.java
+@@ -156,6 +156,7 @@
+ 
+                 if (controller != null) {
+                     controller.setSurfaceCapture(surfaceCapture);
++                    controller.setSurfaceEncoder(surfaceEncoder);
+                 }
+             }
+ 
+--- a/server/src/main/java/com/genymobile/scrcpy/Options.java
++++ b/server/src/main/java/com/genymobile/scrcpy/Options.java
+@@ -579,6 +579,9 @@
+             options.displayId = Device.DISPLAY_ID_NONE;
+         }
+ 
++        if (!options.video || !options.control || !options.sendStreamMeta || !options.sendFrameMeta) {
++            throw new IllegalArgumentException("gb-sync requires video, control, stream metadata and frame metadata");
++        }
+         return options;
+     }
+ 
+--- a/server/build.gradle
++++ b/server/build.gradle
+@@ -8,7 +8,7 @@
+         minSdkVersion 21
+         targetSdkVersion 36
+         versionCode 40100
+-        versionName "4.1"
++        versionName "4.1-gb-sync.1"
+         testInstrumentationRunner = "android.support.test.runner.AndroidJUnitRunner"
+     }
+     buildTypes {
+--- a/server/build_without_gradle.sh
++++ b/server/build_without_gradle.sh
+@@ -12,7 +12,7 @@
+ set -e
+ 
+ SCRCPY_DEBUG=false
+-SCRCPY_VERSION_NAME=4.1
++SCRCPY_VERSION_NAME=4.1-gb-sync.1
+ 
+ PLATFORM=${ANDROID_PLATFORM:-36}
+ BUILD_TOOLS=${ANDROID_BUILD_TOOLS:-36.0.0}
+--- a/server/src/test/java/com/genymobile/scrcpy/control/ControlMessageReaderTest.java
++++ b/server/src/test/java/com/genymobile/scrcpy/control/ControlMessageReaderTest.java
+@@ -14,8 +14,92 @@
+ import java.util.Arrays;
+ 
+ public class ControlMessageReaderTest {
++
++    @Test public void testLiteralLiveBitrate() throws IOException {
++        byte[] literal = {24, 0,0,0,0,0,0,0,1, 0,0,0,0,0,0,0,2,
++                0,0,0,0,0,0,0,3, 0,0,0,0,0,0,0,4, 0, (byte)228, (byte)225, (byte)192, 17};
++        ControlMessageReader reader = new ControlMessageReader(new ByteArrayInputStream(literal));
++        ControlMessage message = reader.read();
++        Assert.assertEquals(24, message.getType());
++        Assert.assertEquals(15_000_000, message.getVideoBitrate());
++        Assert.assertEquals(1, message.getProducerEpoch());
++        Assert.assertEquals(2, message.getProducerConfigOrdinal());
++        Assert.assertEquals(3, message.getRequestId());
++        Assert.assertEquals(4, message.getAndroidDeadlineNs());
++        Assert.assertEquals(17, reader.read().getType());
++    }
++
++    @Test
++    public void testLiteralSyncFrame() throws IOException {
++        byte[] literal = {23, 0,0,0,0,0,0,0,1, 0,0,0,0,0,0,0,2,
++                0,0,0,0,0,0,0,3, 0,0,0,0,0,0,0,4, 17};
++        ControlMessageReader reader = new ControlMessageReader(new ByteArrayInputStream(literal));
++        ControlMessage message = reader.read();
++        Assert.assertEquals(23, message.getType());
++        Assert.assertEquals(1, message.getProducerEpoch());
++        Assert.assertEquals(2, message.getProducerConfigOrdinal());
++        Assert.assertEquals(3, message.getRequestId());
++        Assert.assertEquals(4, message.getAndroidDeadlineNs());
++        Assert.assertEquals(17, reader.read().getType());
++    }
++
++    @Test
++    public void testSyncTruncationsAndNumericBounds() throws IOException {
++        byte[] literal = {23, 0,0,0,0,0,0,0,1, 0,0,0,0,0,0,0,1,
++                0,0,0,0,0,0,0,1, 0,0,0,0,0,0,0,1};
++        for (int size = 0; size < 33; ++size) {
++            final byte[] truncated = Arrays.copyOf(literal, size);
++            Assert.assertThrows(EOFException.class,
++                    () -> new ControlMessageReader(new ByteArrayInputStream(truncated)).read());
++        }
++        for (int field = 0; field < 4; ++field) {
++            for (long value : new long[] {0, -1, Long.MIN_VALUE, Long.MAX_VALUE}) {
++                byte[] vector = literal.clone();
++                java.nio.ByteBuffer.wrap(vector).putLong(1 + field * 8, value);
++                ControlMessageReader reader = new ControlMessageReader(new ByteArrayInputStream(vector));
++                if (value <= 0) {
++                    Assert.assertThrows(ControlProtocolException.class, reader::read);
++                } else {
++                    Assert.assertEquals(23, reader.read().getType());
++                }
++            }
++        }
++    }
+ 
+     @Test
++    public void testSyncInvalidConsumesFixedRecordAndUnknownFails() throws IOException {
++        byte[] vector = new byte[34];
++        vector[0] = 23;
++        vector[33] = 17;
++        ControlMessageReader reader = new ControlMessageReader(new ByteArrayInputStream(vector));
++        Assert.assertThrows(ControlProtocolException.class, reader::read);
++        Assert.assertEquals(17, reader.read().getType());
++        Assert.assertThrows(ControlProtocolException.class,
++                () -> new ControlMessageReader(new ByteArrayInputStream(new byte[] {25})).read());
++    }
++
++    @Test public void testBitrateTruncationAndInvalidFixedRecords() throws IOException {
++        byte[] valid = new byte[37]; valid[0]=24;
++        java.nio.ByteBuffer b=java.nio.ByteBuffer.wrap(valid);
++        for (int i=0;i<4;i++) { b.putLong(1+8*i,1); }
++        b.putInt(33,20_000_000);
++        for (int n=0;n<37;n++) {
++            byte[] shortRecord=Arrays.copyOf(valid,n);
++            Assert.assertThrows(EOFException.class, () -> new ControlMessageReader(new ByteArrayInputStream(shortRecord)).read());
++        }
++        for (int field=0;field<5;field++) {
++            for (long bad : new long[]{0,-1,Long.MIN_VALUE}) {
++                byte[] bytes=Arrays.copyOf(valid,38);bytes[37]=17;
++                if(field==4){java.nio.ByteBuffer.wrap(bytes).putInt(33,(int)bad);}
++                else {java.nio.ByteBuffer.wrap(bytes).putLong(1+field*8,bad);}
++                ControlMessageReader r=new ControlMessageReader(new ByteArrayInputStream(bytes));
++                Assert.assertThrows(ControlProtocolException.class,r::read);
++                Assert.assertEquals(17,r.read().getType());
++            }
++        }
++    }
++
++    @Test
+     public void testParseKeycodeEvent() throws IOException {
+         ByteArrayOutputStream bos = new ByteArrayOutputStream();
+         DataOutputStream dos = new DataOutputStream(bos);
+--- a/server/src/test/java/com/genymobile/scrcpy/video/SyncFrameControlTest.java
++++ b/server/src/test/java/com/genymobile/scrcpy/video/SyncFrameControlTest.java
+@@ -0,0 +1,684 @@
++package com.genymobile.scrcpy.video;
++
++import com.genymobile.scrcpy.Options;
++import org.junit.Test;
++import org.junit.Assert;
++import java.io.IOException;
++import java.lang.reflect.Field;
++import java.util.ArrayList;
++import java.util.List;
++import java.util.concurrent.CountDownLatch;
++import java.util.concurrent.TimeUnit;
++import java.util.concurrent.atomic.AtomicReference;
++import static com.genymobile.scrcpy.video.CaptureControl.Outcome.*;
++
++public class SyncFrameControlTest {
++    static final long W = 100_000_000L;
++    static final class Clock implements CaptureControl.Clock {
++        volatile long now = 1_000_000_000L;
++        public long now() { return now; }
++    }
++    interface Action { void run() throws IOException; }
++    static class Ops implements SurfaceEncoder.CycleOps {
++        final List<String> events = new ArrayList<>();
++        Action session = () -> {};
++        Action packet = () -> {};
++        Runnable sync = () -> {};
++        Runnable bitrate = () -> {};
++        int target;
++        public void setVideoBitrate(int value) { target=value; events.add("bitrate:"+value); bitrate.run(); }
++        Runnable configure = () -> {};
++        Runnable dequeue = () -> {};
++        Runnable released = () -> {};
++        int index;
++        int[] flags = {2, 4}; // config then EOS
++        int[] ids = {0, 1};
++        int calls;
++        int retries;
++        Thread callThread;
++        public void configure() { events.add("configure"); configure.run(); }
++        public void createSurface() { events.add("surface"); }
++        public void startCapture() { events.add("capture-start"); }
++        public void startCodec() { events.add("codec-start"); }
++        public void stopCapture() { events.add("capture-stop"); }
++        public void stopCodec() { events.add("codec-stop"); }
++        public void resetCodec() { events.add("codec-reset"); }
++        public void releaseSurface() { events.add("surface-release"); }
++        public boolean captureClosed() { return true; }
++        public void signalEndOfInputStream() { events.add("eos"); }
++        public void requestSyncFrame() { calls++; callThread = Thread.currentThread(); events.add("sync"); sync.run(); }
++        public void writeSession(int w, int h, boolean resize) throws IOException {
++            events.add("session:" + w + ":" + h + ":" + resize); session.run();
++        }
++        public int dequeue(SurfaceEncoder.Output output, long timeout) {
++            Assert.assertEquals(5000, timeout);
++            dequeue.run();
++            Assert.assertTrue("finite scripted owner", index < flags.length);
++            output.flags = flags[index];
++            output.size = (output.flags & 2) != 0 ? 8 : 0;
++            return ids[index++];
++        }
++        public void writePacket(int id) throws IOException { events.add("packet"); packet.run(); }
++        public void releaseOutput(int id) { events.add("release:" + id); released.run(); }
++    }
++    static final class Fixture {
++        final Clock clock = new Clock();
++        final CaptureControl control;
++        final SurfaceEncoder encoder;
++        Fixture() { this(line -> {}); }
++        Fixture(CaptureControl.Observer observer) {
++            control = new CaptureControl(clock, observer);
++            encoder = new SurfaceEncoder(null, null,
++                    Options.parse(new String[] {"4.1-gb-sync.1"}), control);
++        }
++        final Ops ops = new Ops();
++        long id;
++        CaptureControl.Outcome queue(long epoch, long config) {
++            return control.enqueue(epoch, config, ++id, clock.now + W);
++        }
++        void run() throws IOException { encoder.runCycle(ops, 640, 480, false); }
++        void ready() throws IOException {
++            control.bind(ops);
++            encoder.publish(true, () -> {});
++            encoder.publish(false, () -> {});
++        }
++    }
++    static void await(CountDownLatch latch) {
++        try { Assert.assertTrue(latch.await(3, TimeUnit.SECONDS)); }
++        catch (InterruptedException e) { throw new AssertionError(e); }
++    }
++    static Thread thread(AtomicReference<Throwable> failure, Runnable action) {
++        Thread t = new Thread(() -> { try { action.run(); } catch (Throwable e) { failure.set(e); } });
++        t.start();
++        return t;
++    }
++    static void join(Thread t, AtomicReference<Throwable> failure) throws InterruptedException {
++        t.join(4000);
++        Assert.assertFalse("test owner drained", t.isAlive());
++        if (failure.get() != null) { throw new AssertionError(failure.get()); }
++    }
++    static void setLong(Object object, String field, long value) throws Exception {
++        Field f = object.getClass().getDeclaredField(field); f.setAccessible(true); f.setLong(object, value);
++    }
++
++    @Test public void versionAndRequiredOptions() {
++        Assert.assertThrows(IllegalArgumentException.class, () -> Options.parse(new String[] {}));
++        for (String v : new String[] {"4.1", "4.1-gb-sync.2", ""}) {
++            Assert.assertThrows(IllegalArgumentException.class, () -> Options.parse(new String[] {v}));
++        }
++        for (String option : new String[] {"video=false", "control=false", "send_stream_meta=false", "send_frame_meta=false",
++                "raw_stream=true"}) {
++            Assert.assertThrows(option, IllegalArgumentException.class,
++                    () -> Options.parse(new String[] {"4.1-gb-sync.1", option}));
++        }
++        Assert.assertNotNull(Options.parse(new String[] {"4.1-gb-sync.1", "audio=false"}));
++    }
++
++    @Test public void bitrateUsesRealRunningOwnerWithoutSyncOrReset() throws Exception {
++        List<String> receipts=new ArrayList<>();
++        Clock clock=new Clock();
++        CaptureControl control=new CaptureControl(clock,receipts::add,true);
++        SurfaceEncoder encoder=new SurfaceEncoder(null,null,Options.parse(new String[]{"4.1-gb-sync.1","video_bit_rate=20000000"}),control);
++        Ops ops=new Ops();
++        Assert.assertFalse(control.bitrateUpdated());
++        ops.released=()->{if(ops.index==1){encoder.requestVideoBitrate(1,1,1,clock.now+W,15_000_000);}};
++        encoder.runCycle(ops,640,480,false);
++        Assert.assertEquals(15_000_000,ops.target);
++        Assert.assertEquals(0,ops.calls);
++        Assert.assertEquals(15_000_000,control.configuredBitrate());
++        Assert.assertTrue(control.bitrateUpdated());
++        Assert.assertEquals(2,receipts.size());
++        Assert.assertTrue(receipts.get(0),receipts.get(0).startsWith("GBJB1 1 1 1 1 1 1 1 15000000 20000000 "));
++        Assert.assertTrue(receipts.get(1),receipts.get(1).startsWith("GBJB1 2 4 1 1 1 1 1 15000000 15000000 "));
++        Assert.assertEquals(0,control.consumeReset());
++        control.bind(ops);encoder.publish(true,()->{});encoder.publish(false,()->{});
++        Assert.assertEquals("independent recreation preserves accepted target",15_000_000,control.configuredBitrate());
++        Assert.assertEquals(REJECTED,control.enqueueBitrate(1,1,2,clock.now+W,10_000_000));
++    }
++
++    @Test public void bitrateDeadlineIdentityCoalescingFailureAndDiagnosticCap() throws Exception {
++        for(long elapsed:new long[]{W-1,W,W+1}) {
++            Fixture f=new Fixture();f.ready();
++            Assert.assertEquals(QUEUED,f.control.enqueueBitrate(1,1,1,f.clock.now+W,2_000_000));
++            f.clock.now+=elapsed;
++            Assert.assertEquals(elapsed<W?APPLIED:EXPIRED,f.control.service());
++            Assert.assertEquals(elapsed<W?2_000_000:0,f.ops.target);
++        }
++        Fixture f=new Fixture();f.ready();
++        for(int target:new int[]{0,-1,Integer.MAX_VALUE}){Assert.assertEquals(REJECTED,f.control.enqueueBitrate(1,1,1,f.clock.now+W,target));}
++        Assert.assertEquals(REJECTED,f.control.enqueueBitrate(2,1,1,f.clock.now+W,1));
++        Assert.assertEquals(REJECTED,f.control.enqueueBitrate(1,2,2,f.clock.now+W,1));
++        Assert.assertEquals(QUEUED,f.control.enqueueBitrate(1,1,3,f.clock.now+W,2_000_000));
++        Assert.assertEquals(QUEUED,f.control.enqueueBitrate(1,1,4,f.clock.now+W,1_000_000));
++        Assert.assertEquals(REJECTED,f.control.enqueueBitrate(1,1,4,f.clock.now+W,1_000_000));
++        Assert.assertEquals(APPLIED,f.control.service());Assert.assertEquals(1_000_000,f.ops.target);
++        Assert.assertEquals(QUEUED,f.control.enqueueBitrate(1,1,5,f.clock.now+W,2_000_000));
++        f.ops.bitrate=()->{throw new IllegalStateException("vendor detail");};
++        Assert.assertEquals(DISABLED,f.control.service());Assert.assertEquals(1_000_000,f.control.configuredBitrate());
++        Assert.assertEquals(0,f.control.consumeReset());Assert.assertEquals(0,f.ops.calls);
++        Assert.assertEquals(REJECTED,f.control.enqueueBitrate(1,1,6,f.clock.now+W,2_000_000));
++        for(boolean enabled:new boolean[]{false,true}) {
++            List<String> receipts=new ArrayList<>();Clock c=new Clock();
++            CaptureControl cc=new CaptureControl(c,receipts::add,enabled);cc.setBitrateCeiling(20_000_000);
++            cc.bind(new Ops());cc.beginSession();cc.completePublication();cc.beginConfig();cc.completePublication();
++            for(int n=1;n<=20;n++){cc.enqueueBitrate(1,1,n,c.now+W,2_000_000);cc.service();}
++            Assert.assertEquals(enabled?12:0,receipts.size());
++            for(String line:receipts){Assert.assertTrue(line,line.matches("GBJB1(?: -?[0-9]+){11}"));}
++            cc.retire();Assert.assertEquals(REJECTED,cc.enqueueBitrate(1,1,21,c.now+W,2_000_000));
++        }
++    }
++    @Test public void bitratePendingPublicationResetAndVendorContrasts() throws Exception {
++        Fixture f=new Fixture();f.ready();
++        Assert.assertEquals(QUEUED,f.control.enqueueBitrate(1,1,1,f.clock.now+W,2_000_000));
++        f.control.beginConfig();
++        Assert.assertEquals(REJECTED,f.control.enqueueBitrate(1,2,2,f.clock.now+W,2_000_000));
++        f.control.completePublication();Assert.assertEquals(NONE,f.control.service());
++        Assert.assertEquals(REJECTED,f.control.enqueueBitrate(1,1,3,f.clock.now+W,2_000_000));
++        Assert.assertEquals(QUEUED,f.control.enqueueBitrate(1,2,4,f.clock.now+W,2_000_000));
++        f.control.retire();Assert.assertEquals(NONE,f.control.service());Assert.assertEquals(0,f.ops.target);
++        for(RuntimeException error:new RuntimeException[]{new IllegalArgumentException(),new IllegalStateException()}) {
++            Fixture v=new Fixture();v.ready();v.ops.bitrate=()->{throw error;};
++            Assert.assertEquals(QUEUED,v.control.enqueueBitrate(1,1,1,v.clock.now+W,2_000_000));
++            Assert.assertEquals(DISABLED,v.control.service());Assert.assertFalse(v.control.bitrateUpdated());
++            Assert.assertEquals(0,v.ops.calls);Assert.assertEquals(0,v.control.consumeReset());
++        }
++    }
++
++    @Test public void receiptObservesRealEnqueueAndVideoService() throws Exception {
++        List<String> receipts = new ArrayList<>();
++        Fixture f = new Fixture(receipts::add);
++        f.ops.packet = () -> f.encoder.requestSyncFrame(1, 1, 7, f.clock.now + W);
++        f.run(); // The actual owner publishes config, then services the queued request.
++        Assert.assertEquals(1, f.ops.calls);
++        Assert.assertEquals("one enqueue and one actual API return receipt", 2, receipts.size());
++        Assert.assertEquals("GBJS1 1 2 7 1 1000000000 1100000000 1 1 1 1", receipts.get(0));
++        Assert.assertEquals("GBJS1 2 3 7 4 1000000000 1100000000 1 1 1 1", receipts.get(1));
++    }
++
++    @Test public void receiptsDistinguishStaleExpiredAndVendorFailure() throws Exception {
++        List<String> receipts = new ArrayList<>();
++        Fixture f = new Fixture(receipts::add); f.ready();
++        Assert.assertEquals(REJECTED, f.queue(2, 1));
++        Assert.assertEquals("GBJS1 1 3 1 0 1000000000 1100000000 2 1 1 1", receipts.get(0));
++        Assert.assertEquals(QUEUED, f.queue(1, 1));
++        f.clock.now += W;
++        Assert.assertEquals(EXPIRED, f.control.service());
++        Assert.assertEquals("GBJS1 2 3 2 3 1100000000 1100000000 1 1 1 1", receipts.get(2));
++        Assert.assertEquals(0, f.ops.calls);
++        Assert.assertEquals(QUEUED, f.queue(1, 1));
++        f.ops.sync = () -> { throw new IllegalArgumentException("private vendor detail"); };
++        Assert.assertEquals(DISABLED, f.control.service());
++        Assert.assertEquals("GBJS1 2 3 3 5 1100000000 1200000000 1 1 1 1", receipts.get(4));
++        Assert.assertEquals(1, f.ops.calls);
++        f.clock.now += W;
++        Assert.assertEquals(REJECTED, f.queue(1, 1));
++        Assert.assertEquals(NONE, f.control.service());
++        Assert.assertEquals(6, receipts.size());
++        for (String line : receipts) {
++            Assert.assertTrue(line, line.matches("GBJS1(?: -?[0-9]+){10}"));
++            Assert.assertFalse(line.contains("private"));
++        }
++    }
++
++    @Test public void receiptCapIsSharedAndNeverRenewedByOwnerPublicationOrReset() throws Exception {
++        List<String> receipts = new ArrayList<>();
++        Fixture f = new Fixture(receipts::add); f.ready();
++        for (int i = 0; i < 100; ++i) { Assert.assertEquals(NONE, f.control.service()); }
++        Assert.assertTrue(receipts.isEmpty());
++        for (int i = 0; i < 7; ++i) {
++            if (i > 0) {
++                f.clock.now += W;
++                f.control.reset(CaptureControl.RESET_REASON_CLIENT_RESET);
++                f.control.consumeReset();
++                f.control.clearOwner();
++                f.ready(); // bind/session/config must not reset the diagnostic budget.
++            }
++            Assert.assertEquals(QUEUED, f.queue(i + 1, 1));
++            Assert.assertEquals(APPLIED, f.control.service());
++        }
++        Assert.assertEquals(7, f.ops.calls); // Logging cap cannot disable useful work.
++        Assert.assertEquals(12, receipts.size());
++        Assert.assertEquals("GBJS1 2 3 6 4 1500000000 1600000000 6 1 6 1", receipts.get(11));
++        f.control.retire();
++        Assert.assertEquals(REJECTED, f.queue(7, 1));
++        Assert.assertEquals(12, receipts.size());
++    }
++
++    @Test public void failedReceiptSinkCannotDisableVendorOrRenewItsBudget() throws Exception {
++        int[] offers = {0};
++        Fixture f = new Fixture(line -> { offers[0]++; throw new IllegalStateException("sink"); });
++        f.ready();
++        Assert.assertEquals(QUEUED, f.queue(1, 1));
++        Assert.assertEquals(APPLIED, f.control.service());
++        f.clock.now += W;
++        Assert.assertEquals(QUEUED, f.queue(1, 1));
++        Assert.assertEquals(APPLIED, f.control.service());
++        for (int i = 0; i < 20; ++i) { Assert.assertEquals(REJECTED, f.queue(2, 1)); }
++        Assert.assertEquals(2, f.ops.calls);
++        Assert.assertEquals(12, offers[0]);
++    }
++
++    @Test public void rejectedEarlyReceiptDoesNotMoveEligibilityClock() throws Exception {
++        List<String> receipts = new ArrayList<>();
++        Fixture f = new Fixture(receipts::add); f.ready();
++        f.clock.now += W;
++        Assert.assertEquals(REJECTED, f.control.enqueue(0, 1, 1, f.clock.now + W));
++        f.clock.now -= W;
++        Assert.assertEquals(QUEUED, f.queue(1, 1));
++        Assert.assertEquals(APPLIED, f.control.service());
++        Assert.assertEquals("GBJS1 1 3 1 0 1100000000 1200000000 0 1 1 1", receipts.get(0));
++        Assert.assertEquals(1, f.ops.calls);
++    }
++
++    @Test public void exactAdmissionAndFinalExpiry() throws Exception {
++        Fixture f = new Fixture(); f.ready();
++        Assert.assertEquals(REJECTED, f.control.enqueue(1, 1, ++f.id, f.clock.now));
++        Assert.assertEquals(REJECTED, f.control.enqueue(1, 1, ++f.id, f.clock.now + W + 1));
++        Assert.assertEquals(QUEUED, f.queue(1, 1));
++        f.clock.now += W;
++        Assert.assertEquals(EXPIRED, f.control.service());
++        Assert.assertEquals(0, f.ops.calls);
++        Assert.assertEquals(QUEUED, f.queue(1, 1));
++        f.clock.now += W - 1;
++        Assert.assertEquals(APPLIED, f.control.service());
++        Assert.assertEquals(1, f.ops.calls);
++    }
++
++    @Test public void zeroBackwardAndSignedBoundary() throws Exception {
++        Fixture f = new Fixture(); f.ready();
++        f.clock.now = 0;
++        Assert.assertEquals(REJECTED, f.control.enqueue(1, 1, ++f.id, W));
++        f.clock.now = Long.MAX_VALUE - W;
++        Assert.assertEquals(QUEUED, f.control.enqueue(1, 1, ++f.id, Long.MAX_VALUE));
++        f.clock.now--;
++        Assert.assertEquals(EXPIRED, f.control.service());
++        Assert.assertEquals(REJECTED, f.control.enqueue(1, 1, ++f.id, Long.MAX_VALUE));
++        f.clock.now = Long.MAX_VALUE - W;
++        Assert.assertEquals(QUEUED, f.control.enqueue(1, 1, ++f.id, Long.MAX_VALUE));
++        f.clock.now = 0;
++        Assert.assertEquals(EXPIRED, f.control.service());
++        Assert.assertEquals(0, f.ops.calls);
++    }
++
++    @Test public void rateBoundaryBurstOneAndNoRefillOnBackwardClock() throws Exception {
++        Fixture f = new Fixture(); f.ready();
++        Assert.assertEquals(QUEUED, f.queue(1, 1));
++        Assert.assertEquals(APPLIED, f.control.service());
++        for (int i = 0; i < 10; ++i) {
++            f.clock.now += W - 1;
++            Assert.assertEquals(REJECTED, f.queue(1, 1));
++            f.clock.now++;
++            Assert.assertEquals(QUEUED, f.queue(1, 1));
++            Assert.assertEquals(APPLIED, f.control.service());
++        }
++        f.clock.now -= W;
++        Assert.assertEquals(REJECTED, f.queue(1, 1));
++        Assert.assertEquals(11, f.ops.calls); // inclusive endpoints across exactly one second
++    }
++
++    @Test public void duplicateFloodCannotRenewOrGrowSlot() throws Exception {
++        Fixture f = new Fixture(); f.ready();
++        Assert.assertEquals(QUEUED, f.queue(1, 1));
++        long original = f.id;
++        f.clock.now += 1;
++        for (int i = 0; i < 10000; ++i) {
++            Assert.assertEquals(REJECTED, f.control.enqueue(1, 1, original, f.clock.now + W));
++            Assert.assertEquals(REJECTED, f.queue(1, 1));
++        }
++        f.clock.now += W;
++        Assert.assertEquals(EXPIRED, f.control.service());
++        Assert.assertEquals(NONE, f.control.service());
++        Assert.assertEquals(REJECTED, f.control.enqueue(1, 1, original, f.clock.now + W));
++        Assert.assertEquals(0, f.ops.calls);
++    }
++
++    @Test public void staleFutureAndZeroTupleNeverApply() throws Exception {
++        Fixture f = new Fixture(); f.ready();
++        for (long epoch : new long[] {0, 2, Long.MAX_VALUE}) {
++            Assert.assertEquals(REJECTED, f.queue(epoch, 1));
++        }
++        for (long config : new long[] {0, 2, Long.MAX_VALUE}) {
++            Assert.assertEquals(REJECTED, f.queue(1, config));
++        }
++        Assert.assertEquals(NONE, f.control.service());
++    }
++
++    @Test public void initialSessionNoConfigAndConfigPublishing() throws Exception {
++        Fixture f = new Fixture();
++        Assert.assertEquals(REJECTED, f.queue(1, 1));
++        f.ops.session = () -> {
++            Assert.assertEquals(REJECTED, f.queue(1, 1));
++            Assert.assertEquals(NONE, f.control.service());
++        };
++        f.ops.packet = () -> {
++            Assert.assertEquals(QUEUED, f.queue(1, 1));
++            Assert.assertEquals(NONE, f.control.service());
++            Assert.assertEquals(0, f.ops.calls);
++        };
++        // Check only the first release: the post-release service is the first legal apply.
++        f.ops.released = () -> { if (f.ops.index == 1) { Assert.assertEquals(0, f.ops.calls); } };
++        f.run();
++        Assert.assertEquals(1, f.ops.calls);
++        Assert.assertEquals(Thread.currentThread(), f.ops.callThread);
++        Assert.assertTrue(f.ops.events.indexOf("release:0") < f.ops.events.indexOf("sync"));
++        Assert.assertEquals(REJECTED, f.queue(1, 1));
++    }
++
++    @Test public void duplicateConfigInvalidatesOldRequestAndCountsEveryPacket() throws Exception {
++        Fixture f = new Fixture();
++        f.ops.flags = new int[] {2, 2, 4}; f.ops.ids = new int[] {0, 1, 2};
++        f.ops.packet = () -> {
++            long cfg = f.ops.index;
++            if (cfg == 2) { Assert.assertEquals(REJECTED, f.queue(1, 1)); }
++            Assert.assertEquals(QUEUED, f.queue(1, cfg));
++            // Make each request expire during the actual config write.
++            f.clock.now += W;
++        };
++        f.run();
++        Assert.assertEquals(0, f.ops.calls);
++        f.control.bind(f.ops);
++        // Another publication on the same owner is a new session even at equal dimensions.
++        f.encoder.publish(true, () -> {});
++        f.encoder.publish(false, () -> {});
++        Assert.assertEquals(REJECTED, f.queue(1, 2));
++        Assert.assertEquals(QUEUED, f.queue(2, 1));
++    }
++
++    @Test public void sameObjectEqualSizeResizeUsesNewEpoch() throws Exception {
++        Fixture f = new Fixture();
++        f.ops.packet = () -> Assert.assertEquals(QUEUED, f.queue(1, 1));
++        f.run();
++        f.clock.now += W;
++        f.ops.index = 0;
++        f.ops.packet = () -> {
++            Assert.assertEquals(REJECTED, f.queue(1, 1));
++            Assert.assertEquals(QUEUED, f.queue(2, 1));
++        };
++        f.encoder.runCycle(f.ops, 640, 480, true);
++        Assert.assertEquals(2, f.ops.calls);
++        Assert.assertTrue(f.ops.events.contains("session:640:480:true"));
++    }
++
++    @Test public void failedConfigureConsumesNoEpochAndTeardownKeepsOrder() throws Exception {
++        Fixture f = new Fixture();
++        f.ops.configure = () -> { throw new IllegalArgumentException("configure"); };
++        Assert.assertThrows(IllegalArgumentException.class, f::run);
++        Assert.assertEquals(java.util.Arrays.asList("configure", "codec-reset", "surface-release"), f.ops.events);
++        f.ops.configure = () -> {};
++        f.ops.packet = () -> Assert.assertEquals(QUEUED, f.queue(1, 1));
++        f.run();
++        Assert.assertEquals(1, f.ops.calls);
++        int size = f.ops.events.size();
++        Assert.assertEquals(java.util.Arrays.asList("capture-stop", "codec-stop", "codec-reset", "surface-release"),
++                f.ops.events.subList(size - 4, size));
++    }
++
++    @Test public void partialSessionAndConfigAreFatalBeforeRetry() throws Exception {
++        for (boolean session : new boolean[] {true, false}) {
++            Fixture f = new Fixture();
++            Action partial = () -> {
++                f.ops.events.add("partial-byte");
++                throw new IOException("partial");
++            };
++            if (session) { f.ops.session = partial; } else { f.ops.packet = partial; }
++            Assert.assertThrows(SurfaceEncoder.PublicationException.class,
++                    () -> f.encoder.runCycle(f.ops, 640, 480, false, e -> { f.ops.retries++; return true; }));
++            Assert.assertEquals(0, f.ops.retries);
++            Assert.assertEquals(0, f.ops.calls);
++            Assert.assertEquals(REJECTED, f.queue(1, 1));
++            Assert.assertTrue(f.ops.events.contains("codec-stop"));
++        }
++    }
++
++    @Test public void sessionAndConfigOverflowAreFatal() throws Exception {
++        for (boolean session : new boolean[] {true, false}) {
++            Fixture f = new Fixture();
++            f.control.bind(f.ops);
++            if (session) { setLong(f.control, "epoch", Long.MAX_VALUE); }
++            else {
++                f.encoder.publish(true, () -> {});
++                setLong(f.control, "config", Long.MAX_VALUE);
++            }
++            final int[] writes = {0};
++            Assert.assertThrows(SurfaceEncoder.PublicationException.class,
++                    () -> f.encoder.publish(session, () -> writes[0]++));
++            Assert.assertEquals(0, writes[0]);
++            Assert.assertEquals(REJECTED, f.queue(1, 1));
++        }
++    }
++
++    @Test public void requestExceptionDisablesEpochWithoutRetryOrReconfigure() throws Exception {
++        Fixture f = new Fixture();
++        f.ops.flags = new int[] {2, -1, 4}; f.ops.ids = new int[] {0, -1, 1};
++        f.ops.packet = () -> Assert.assertEquals(QUEUED, f.queue(1, 1));
++        f.ops.sync = () -> { throw new IllegalStateException("vendor rejection"); };
++        f.ops.dequeue = () -> {
++            if (f.ops.index == 1) {
++                f.clock.now += W;
++                Assert.assertEquals(REJECTED, f.queue(1, 1));
++            }
++        };
++        f.encoder.runCycle(f.ops, 640, 480, false, e -> { f.ops.retries++; return true; });
++        Assert.assertEquals(1, f.ops.calls);
++        Assert.assertEquals(0, f.ops.retries);
++        Assert.assertEquals(1, java.util.Collections.frequency(f.ops.events, "configure"));
++        Assert.assertEquals(1, java.util.Collections.frequency(f.ops.events, "codec-reset"));
++        Assert.assertFalse(f.ops.events.contains("eos"));
++    }
++
++    @Test public void ignoredCallDoesNotInventOutputOrRetry() throws Exception {
++        Fixture f = new Fixture();
++        f.ops.packet = () -> Assert.assertEquals(QUEUED, f.queue(1, 1));
++        f.run();
++        Assert.assertEquals(1, f.ops.calls);
++        Assert.assertEquals(1, java.util.Collections.frequency(f.ops.events, "packet"));
++        Assert.assertEquals(1, java.util.Collections.frequency(f.ops.events, "configure"));
++        // The fake returned; no assertion of an IDR or presentation is possible.
++    }
++
++    @Test public void negativeDequeueIgnoresStaleEosAndServicesBeforeNextWait() throws Exception {
++        Fixture f = new Fixture();
++        f.ops.flags = new int[] {2, 4, 4}; f.ops.ids = new int[] {0, -1, 1};
++        f.ops.dequeue = () -> {
++            if (f.ops.index == 1) { Assert.assertEquals(QUEUED, f.queue(1, 1)); }
++            if (f.ops.index == 2) { Assert.assertEquals(1, f.ops.calls); }
++        };
++        f.run();
++        Assert.assertEquals(3, f.ops.index);
++        Assert.assertFalse(f.ops.events.contains("release:-1"));
++    }
++
++    @Test public void controlEnqueueNeverCallsCodecAndWrongThreadCannotService() throws Exception {
++        Fixture f = new Fixture(); f.ready();
++        AtomicReference<Throwable> error = new AtomicReference<>();
++        Thread t = thread(error, () -> {
++            f.encoder.requestSyncFrame(1, 1, 1, f.clock.now + W);
++            Assert.assertEquals(0, f.ops.calls);
++            Assert.assertThrows(IllegalStateException.class, f.control::service);
++        });
++        join(t, error);
++        Assert.assertEquals(APPLIED, f.control.service());
++        Assert.assertEquals(Thread.currentThread(), f.ops.callThread);
++    }
++
++    @Test public void resetDuringBlockedPublicationCannotReviveOwner() throws Exception {
++        for (boolean session : new boolean[] {true, false}) {
++            Fixture f = new Fixture();
++            CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
++            Action block = () -> { entered.countDown(); await(release); };
++            if (session) { f.ops.session = block; } else { f.ops.packet = block; }
++            AtomicReference<Throwable> error = new AtomicReference<>();
++            Thread t = thread(error, () -> { try { f.run(); } catch (IOException e) { throw new AssertionError(e); } });
++            await(entered);
++            if (!session) { Assert.assertEquals(QUEUED, f.queue(1, 1)); }
++            f.control.reset(CaptureControl.RESET_REASON_CLIENT_RESIZED);
++            Assert.assertEquals(REJECTED, f.queue(1, 1));
++            release.countDown();
++            join(t, error);
++            Assert.assertEquals(0, f.ops.calls);
++            f.control.consumeReset(); f.ops.index = 0;
++            f.ops.session = () -> {}; f.ops.packet = () -> Assert.assertEquals(QUEUED, f.queue(2, 1));
++            f.run();
++            Assert.assertEquals(1, f.ops.calls);
++        }
++    }
++
++    @Test public void blockedOutputHasOneSlotAndFreshExpiryAfterRelease() throws Exception {
++        Fixture f = new Fixture();
++        CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
++        f.ops.packet = () -> { entered.countDown(); await(release); };
++        AtomicReference<Throwable> error = new AtomicReference<>();
++        Thread t = thread(error, () -> { try { f.run(); } catch (IOException e) { throw new AssertionError(e); } });
++        await(entered);
++        Assert.assertEquals(QUEUED, f.queue(1, 1));
++        for (int i = 0; i < 1000; ++i) { Assert.assertEquals(REJECTED, f.queue(1, 1)); }
++        f.clock.now += W;
++        release.countDown(); join(t, error);
++        Assert.assertEquals(0, f.ops.calls);
++    }
++
++    @Test public void resetCannotClearOwnerUntilBlockedApiReturns() throws Exception {
++        Fixture f = new Fixture();
++        CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1), resetting = new CountDownLatch(1);
++        f.ops.packet = () -> Assert.assertEquals(QUEUED, f.queue(1, 1));
++        f.ops.sync = () -> { entered.countDown(); await(release); };
++        AtomicReference<Throwable> error = new AtomicReference<>();
++        Thread video = thread(error, () -> { try { f.run(); } catch (IOException e) { throw new AssertionError(e); } });
++        await(entered);
++        Thread reset = thread(error, () -> { resetting.countDown(); f.control.reset(CaptureControl.RESET_REASON_CLIENT_RESET); });
++        await(resetting);
++        // Monitor contention is deterministic: reset cannot enter while the codec callback holds it.
++        long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
++        while (reset.getState() != Thread.State.BLOCKED && System.nanoTime() < end) { Thread.yield(); }
++        Assert.assertEquals(Thread.State.BLOCKED, reset.getState());
++        release.countDown();
++        join(video, error); join(reset, error);
++        Assert.assertEquals(1, f.ops.calls);
++        Assert.assertEquals(REJECTED, f.queue(1, 1));
++    }
++
++    @Test public void stopEofAndClearOwnerCancelPending() throws Exception {
++        for (int action = 0; action < 3; ++action) {
++            Fixture f = new Fixture(); f.ready();
++            Assert.assertEquals(QUEUED, f.queue(1, 1));
++            if (action == 0) { f.encoder.stop(); }
++            else if (action == 1) { f.encoder.retireSyncControl(); }
++            else { f.control.clearOwner(); }
++            Assert.assertEquals(REJECTED, f.queue(1, 1));
++            if (action < 2) { Assert.assertEquals(NONE, f.control.service()); }
++            else { Assert.assertThrows(IllegalStateException.class, f.control::service); }
++            Assert.assertEquals(0, f.ops.calls);
++        }
++    }
++
++    @Test public void stockFailureDecisionStillPrecedesTeardown() throws Exception {
++        Fixture f = new Fixture();
++        f.ops.configure = () -> { throw new IllegalArgumentException("configure"); };
++        Assert.assertTrue(f.encoder.runCycle(f.ops, 640, 480, false, e -> {
++            Assert.assertEquals(java.util.Arrays.asList("configure"), f.ops.events);
++            return true;
++        }));
++        Assert.assertEquals(java.util.Arrays.asList("configure", "codec-reset", "surface-release"), f.ops.events);
++    }
++
++    @Test public void nextConfigPublicationClearsOldSlotAndOldId() throws Exception {
++        Fixture f = new Fixture(); f.ready();
++        Assert.assertEquals(QUEUED, f.queue(1, 1));
++        long old = f.id;
++        f.encoder.publish(false, () -> {
++            Assert.assertEquals(REJECTED, f.queue(1, 1));
++            Assert.assertEquals(QUEUED, f.queue(1, 2));
++            Assert.assertEquals(NONE, f.control.service());
++        });
++        Assert.assertEquals(APPLIED, f.control.service());
++        f.clock.now += W;
++        Assert.assertEquals(REJECTED, f.control.enqueue(1, 2, old, f.clock.now + W));
++        Assert.assertEquals(1, f.ops.calls);
++    }
++
++    @Test public void exceptionResetsOnlyAtNewEpochButRateAndHighWaterPersist() throws Exception {
++        Fixture f = new Fixture(); f.ready();
++        f.ops.sync = () -> { throw new IllegalArgumentException("request"); };
++        Assert.assertEquals(QUEUED, f.queue(1, 1));
++        Assert.assertEquals(DISABLED, f.control.service());
++        f.control.clearOwner();
++        f.ops.sync = () -> {};
++        f.control.bind(f.ops);
++        f.encoder.publish(true, () -> {});
++        f.encoder.publish(false, () -> {});
++        Assert.assertEquals(REJECTED, f.queue(2, 1));
++        f.clock.now += W;
++        Assert.assertEquals(REJECTED, f.control.enqueue(2, 1, 1, f.clock.now + W));
++        Assert.assertEquals(QUEUED, f.queue(2, 1));
++        Assert.assertEquals(APPLIED, f.control.service());
++        Assert.assertEquals(2, f.ops.calls);
++    }
++
++    @Test public void finalClockIsReadAfterQueuedControlAndBeforeActualCall() throws Exception {
++        Fixture f = new Fixture(); f.ready();
++        Assert.assertEquals(QUEUED, f.queue(1, 1));
++        f.clock.now += W + 1;
++        Assert.assertEquals(EXPIRED, f.control.service());
++        Assert.assertEquals(0, f.ops.calls);
++        f.clock.now = 0;
++        Assert.assertEquals(REJECTED, f.control.enqueue(1, 1, ++f.id, Long.MAX_VALUE));
++    }
++
++    private void assertPartialConfigAndReleaseFailure(RuntimeException cleanup) throws Exception {
++        Fixture f = new Fixture();
++        IOException partial = new IOException("config after partial progress");
++        f.ops.packet = () -> {
++            f.ops.events.add("partial-byte");
++            throw partial;
++        };
++        f.ops.released = () -> { throw cleanup; };
++        SurfaceEncoder.PublicationException terminal = Assert.assertThrows(SurfaceEncoder.PublicationException.class,
++                () -> f.encoder.runCycle(f.ops, 640, 480, false, error -> {
++                    f.ops.retries++;
++                    return true; // A retryable classification must fail this oracle.
++                }));
++        Assert.assertSame(partial, terminal.getCause());
++        Assert.assertArrayEquals(new Throwable[] {cleanup}, terminal.getSuppressed());
++        Assert.assertEquals(0, f.ops.retries);
++        Assert.assertEquals(1, java.util.Collections.frequency(f.ops.events, "configure"));
++        Assert.assertEquals(1, java.util.Collections.frequency(f.ops.events, "codec-start"));
++        Assert.assertEquals(1, java.util.Collections.frequency(f.ops.events, "partial-byte"));
++        Assert.assertEquals(1, java.util.Collections.frequency(f.ops.events, "release:0"));
++        Assert.assertEquals(0, f.ops.calls);
++        Assert.assertEquals(REJECTED, f.queue(1, 1));
++        Assert.assertThrows(IllegalStateException.class, f.control::service); // Owner was cleared.
++        // Retirement, not only clearance: rebinding cannot revive this partial stream.
++        f.control.bind(f.ops);
++        f.encoder.publish(true, () -> {});
++        f.encoder.publish(false, () -> {});
++        Assert.assertEquals(REJECTED, f.queue(2, 1));
++        Assert.assertEquals(NONE, f.control.service());
++        f.control.clearOwner();
++    }
++
++    @Test public void partialConfigThenIllegalStateReleaseIsTerminal() throws Exception {
++        assertPartialConfigAndReleaseFailure(new IllegalStateException("release"));
++    }
++
++    @Test public void partialConfigThenIllegalArgumentReleaseIsTerminal() throws Exception {
++        assertPartialConfigAndReleaseFailure(new IllegalArgumentException("release"));
++    }
++
++    @Test public void releaseOnlyFailureRetainsStockRetryPolicy() throws Exception {
++        for (RuntimeException cleanup : new RuntimeException[] {
++                new IllegalStateException("release"), new IllegalArgumentException("release")}) {
++            Fixture f = new Fixture();
++            f.ops.released = () -> { throw cleanup; };
++            Assert.assertTrue(f.encoder.runCycle(f.ops, 640, 480, false, error -> {
++                Assert.assertSame(cleanup, error);
++                Assert.assertEquals(0, error.getSuppressed().length);
++                f.ops.retries++;
++                return true;
++            }));
++            Assert.assertEquals(1, f.ops.retries);
++            Assert.assertEquals(1, java.util.Collections.frequency(f.ops.events, "configure"));
++            Assert.assertEquals(0, f.ops.calls);
++            Assert.assertThrows(IllegalStateException.class, f.control::service);
++        }
++    }
++}

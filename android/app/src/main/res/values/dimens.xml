@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="one_ui_content_horizontal">24dp</dimen>
+    <dimen name="one_ui_content_top">32dp</dimen>
+    <dimen name="one_ui_content_bottom">40dp</dimen>
+    <dimen name="one_ui_section_spacing">24dp</dimen>
+    <dimen name="one_ui_card_radius">32dp</dimen>
+    <dimen name="one_ui_card_padding">24dp</dimen>
+    <dimen name="one_ui_button_height">56dp</dimen>
+    <dimen name="one_ui_button_radius">28dp</dimen>
+</resources>

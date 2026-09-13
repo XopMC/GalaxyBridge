@@ -1,0 +1,317 @@
+syntax = "proto3";
+
+package galaxybridge.v1;
+
+option java_multiple_files = true;
+option java_package = "com.xopmc.galaxybridge.protocol.v1";
+option java_outer_classname = "GalaxyBridgeProtocol";
+option swift_prefix = "GB";
+
+message Envelope {
+  uint32 protocol_major = 1;
+  uint32 protocol_minor = 2;
+  string device_id = 3;
+  string session_id = 4;
+  uint64 message_id = 5;
+
+  oneof payload {
+    Hello hello = 10;
+    PairingRequest pairing_request = 11;
+    PairingResponse pairing_response = 12;
+    CapabilityUpdate capability_update = 13;
+    OpenChannel open_channel = 14;
+    InputEvent input_event = 15;
+    ClipboardUpdate clipboard_update = 16;
+    NotificationEvent notification_event = 17;
+    NotificationAction notification_action = 18;
+    TransferManifest transfer_manifest = 19;
+    TransferChunk transfer_chunk = 20;
+    TransferAck transfer_ack = 21;
+    SmsEvent sms_event = 22;
+    CallEvent call_event = 23;
+    CameraConfiguration camera_configuration = 24;
+    ErrorEvent error = 25;
+    Ping ping = 26;
+    Pong pong = 27;
+    AdbBindingRequest adb_binding_request = 28;
+    AdbBindingResponse adb_binding_response = 29;
+    SessionAuthentication session_authentication = 30;
+    PairingCommit pairing_commit = 31;
+    PairingCommitAck pairing_commit_ack = 32;
+    CameraStatus camera_status = 33;
+    TransferCancel transfer_cancel = 34;
+  }
+}
+
+message Hello {
+  string display_name = 1;
+  bytes public_key_fingerprint = 2;
+  repeated TransportKind transports = 3;
+}
+
+message PairingRequest {
+  bytes one_time_token = 1;
+  bytes identity_public_key = 2;
+  string display_name = 3;
+  bytes client_nonce = 4;
+  bytes transcript_signature = 5;
+}
+
+message PairingResponse {
+  bool accepted = 1;
+  bytes identity_public_key = 2;
+  string rejection_reason = 3;
+  bytes server_nonce = 4;
+  bytes transcript_signature = 5;
+  bytes tls_certificate_sha256 = 6;
+  string display_name = 7;
+  string device_id = 8;
+}
+
+message PairingCommit {
+  bytes transcript_signature = 1;
+  string host_id = 2;
+  string device_id = 3;
+  string session_id = 4;
+}
+
+message PairingCommitAck {
+  bool committed = 1;
+  string host_id = 2;
+  string device_id = 3;
+  string session_id = 4;
+  bytes transcript_signature = 5;
+}
+
+message AdbBindingRequest {
+  string adb_serial = 1;
+  bytes nonce = 2;
+}
+
+message AdbBindingResponse {
+  string adb_serial = 1;
+  bytes nonce = 2;
+  bytes identity_public_key = 3;
+  bytes signature = 4;
+}
+
+message SessionAuthentication {
+  bytes identity_public_key = 1;
+  bytes nonce = 2;
+  int64 timestamp_unix_seconds = 3;
+  bytes signature = 4;
+}
+
+enum TransportKind {
+  TRANSPORT_KIND_UNSPECIFIED = 0;
+  TRANSPORT_KIND_USB_ADB = 1;
+  TRANSPORT_KIND_WIRELESS_ADB = 2;
+  TRANSPORT_KIND_COMPANION_LAN = 3;
+}
+
+enum Capability {
+  CAPABILITY_UNSPECIFIED = 0;
+  CAPABILITY_SCREEN_CAPTURE = 1;
+  CAPABILITY_INPUT_INJECTION = 2;
+  CAPABILITY_AUDIO_FORWARDING = 3;
+  CAPABILITY_CLIPBOARD_READ = 4;
+  CAPABILITY_CLIPBOARD_WRITE = 5;
+  CAPABILITY_FILES = 6;
+  CAPABILITY_NOTIFICATIONS = 7;
+  CAPABILITY_SMS = 8;
+  CAPABILITY_CALLS = 9;
+  CAPABILITY_CAMERA_STREAM = 10;
+  CAPABILITY_VIRTUAL_DISPLAY = 11;
+  CAPABILITY_RECORDING = 12;
+}
+
+message CapabilityUpdate {
+  TransportKind transport = 1;
+  repeated Capability available = 2;
+  map<string, string> unavailable_reasons = 3;
+}
+
+enum ChannelKind {
+  CHANNEL_KIND_UNSPECIFIED = 0;
+  CHANNEL_KIND_CONTROL = 1;
+  CHANNEL_KIND_EVENTS = 2;
+  CHANNEL_KIND_VIDEO = 3;
+  CHANNEL_KIND_AUDIO = 4;
+  CHANNEL_KIND_FILES = 5;
+  CHANNEL_KIND_CAMERA = 6;
+}
+
+message OpenChannel {
+  ChannelKind kind = 1;
+  string stream_id = 2;
+  string codec = 3;
+  uint32 display_id = 4;
+  uint32 epoch = 5;
+}
+
+enum InputAction {
+  INPUT_ACTION_UNSPECIFIED = 0;
+  INPUT_ACTION_DOWN = 1;
+  INPUT_ACTION_MOVE = 2;
+  INPUT_ACTION_UP = 3;
+  INPUT_ACTION_CANCEL = 4;
+  INPUT_ACTION_SCROLL = 5;
+  INPUT_ACTION_KEY = 6;
+  INPUT_ACTION_TEXT = 7;
+}
+
+message InputEvent {
+  InputAction action = 1;
+  uint32 display_id = 2;
+  uint32 display_epoch = 3;
+  uint64 pointer_id = 4;
+  float normalized_x = 5;
+  float normalized_y = 6;
+  float pressure = 7;
+  float scroll_x = 8;
+  float scroll_y = 9;
+  uint32 buttons = 10;
+  uint32 android_keycode = 11;
+  uint32 modifiers = 12;
+  string text = 13;
+}
+
+enum ClipboardKind {
+  CLIPBOARD_KIND_UNSPECIFIED = 0;
+  CLIPBOARD_KIND_TEXT = 1;
+  CLIPBOARD_KIND_URL = 2;
+  CLIPBOARD_KIND_PNG = 3;
+}
+
+message ClipboardUpdate {
+  string change_id = 1;
+  ClipboardKind kind = 2;
+  bytes content = 3;
+  bool sensitive = 4;
+}
+
+message NotificationEvent {
+  string notification_id = 1;
+  string package_name = 2;
+  string app_label = 3;
+  string title = 4;
+  string body = 5;
+  int64 posted_at_unix_ms = 6;
+  repeated NotificationActionDescriptor actions = 7;
+  bool removed = 8;
+  bytes app_icon_png = 9;
+  // True only when a newly opened events channel is replaying notifications
+  // that were already active on the phone. They restore the Mac in-app list
+  // but must not generate a fresh native macOS banner.
+  bool initial_snapshot = 10;
+}
+
+message NotificationActionDescriptor {
+  string action_id = 1;
+  string title = 2;
+  bool accepts_text = 3;
+}
+
+message NotificationAction {
+  string notification_id = 1;
+  string action_id = 2;
+  string reply_text = 3;
+  bool dismiss = 4;
+}
+
+message TransferManifest {
+  string transfer_id = 1;
+  string relative_name = 2;
+  uint64 size = 3;
+  string mime_type = 4;
+  bytes sha256 = 5;
+  uint64 confirmed_offset = 6;
+}
+
+message TransferChunk {
+  string transfer_id = 1;
+  uint64 offset = 2;
+  bytes content = 3;
+}
+
+// Explicit user cancellation; authenticated channel ownership is checked by the receiver.
+message TransferCancel {
+  string transfer_id = 1;
+}
+
+message TransferAck {
+  string transfer_id = 1;
+  uint64 confirmed_offset = 2;
+  bool complete = 3;
+  string failure_reason = 4;
+  // Actual provider-selected name, present only in a durable completion receipt.
+  string published_name = 5;
+}
+
+message SmsEvent {
+  string message_id = 1;
+  string thread_id = 2;
+  string address = 3;
+  string body = 4;
+  int64 timestamp_unix_ms = 5;
+  bool outgoing = 6;
+}
+
+enum CallState {
+  CALL_STATE_UNSPECIFIED = 0;
+  CALL_STATE_IDLE = 1;
+  CALL_STATE_RINGING = 2;
+  CALL_STATE_DIALING = 3;
+  CALL_STATE_ACTIVE = 4;
+  CALL_STATE_ENDED = 5;
+}
+
+message CallEvent {
+  string call_id = 1;
+  string address = 2;
+  string display_name = 3;
+  CallState state = 4;
+  bool incoming = 5;
+  int64 timestamp_unix_ms = 6;
+  uint32 duration_seconds = 7;
+  bool history = 8;
+}
+
+message CameraConfiguration {
+  string camera_id = 1;
+  uint32 width = 2;
+  uint32 height = 3;
+  uint32 frames_per_second = 4;
+  bool enabled = 5;
+  string request_id = 6;
+}
+
+enum CameraCaptureState {
+  CAMERA_CAPTURE_STATE_UNSPECIFIED = 0;
+  CAMERA_CAPTURE_STATE_STARTING = 1;
+  CAMERA_CAPTURE_STATE_AWAITING_USER_CONFIRMATION = 2;
+  CAMERA_CAPTURE_STATE_STREAMING = 3;
+  CAMERA_CAPTURE_STATE_STOPPED = 4;
+  CAMERA_CAPTURE_STATE_FAILED = 5;
+}
+
+message CameraStatus {
+  string request_id = 1;
+  CameraCaptureState state = 2;
+  string reason_code = 3;
+  bool retryable = 4;
+}
+
+message ErrorEvent {
+  string code = 1;
+  string safe_message = 2;
+  bool retryable = 3;
+}
+
+message Ping {
+  uint64 monotonic_time_ns = 1;
+}
+
+message Pong {
+  uint64 echoed_monotonic_time_ns = 1;
+}

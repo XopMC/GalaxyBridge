@@ -1,0 +1,8 @@
+GalaxyBridge includes the unmodified scrcpy server 4.1 artifact for its internal
+and Developer ID enhanced transport.
+
+scrcpy is Copyright (C) 2018 Genymobile and contributors and is licensed under
+the Apache License, Version 2.0.
+
+Upstream source: https://github.com/Genymobile/scrcpy/tree/v4.1
+License: https://github.com/Genymobile/scrcpy/blob/v4.1/LICENSE

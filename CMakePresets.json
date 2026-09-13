@@ -1,0 +1,13 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {"major": 3, "minor": 25, "patch": 0},
+  "configurePresets": [
+    {"name": "macos-arm64-release", "displayName": "macOS arm64 + Android Direct",
+     "generator": "Ninja", "binaryDir": "${sourceDir}/out/macos-arm64-release",
+     "cacheVariables": {"GB_BUILD_JOBS": "4"}}
+  ],
+  "buildPresets": [
+    {"name": "macos-arm64-release", "configurePreset": "macos-arm64-release", "targets": ["package"]},
+    {"name": "check", "configurePreset": "macos-arm64-release", "targets": ["check"]}
+  ]
+}

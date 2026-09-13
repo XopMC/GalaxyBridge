@@ -1,0 +1,22 @@
+[package]
+name = "galaxybridge-quic-backend"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.92"
+publish = false
+license = "MIT"
+
+[features]
+qa = []
+
+[dependencies]
+galaxybridge-quic = { path = "../galaxybridge-quic" }
+galaxybridge-quic-media = { path = "../galaxybridge-quic-media" }
+libc = "=0.2.177"
+boring = "=4.22.0"
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[profile.release]
+panic = "abort"

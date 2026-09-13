@@ -1,0 +1,29 @@
+name: Feature request / Предложение
+description: Describe a concrete workflow and why it matters.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English or Russian is welcome. Please check the roadmap first.
+        Можно писать по-русски или по-английски. Сначала ознакомьтесь с планами развития.
+        https://github.com/XopMC/GalaxyBridge/blob/main/docs/public/roadmap.md
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Workflow or problem / Сценарий или проблема
+      description: What are you trying to do, and what stops you?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior / Предлагаемое поведение
+      description: Describe the user-visible result and any relevant Android or macOS constraints.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives / Альтернативы
+      description: Optional workarounds or other ways to solve the problem.

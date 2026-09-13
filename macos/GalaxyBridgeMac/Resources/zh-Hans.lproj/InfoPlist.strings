@@ -1,0 +1,3 @@
+/* Machine translation with protected format arguments; see docs/localization/README.md. */
+"CFBundleDisplayName" = "Galaxy Bridge";
+"NSLocalNetworkUsageDescription" = "通过本地网络将 Galaxy 安全地连接到该 Mac。";

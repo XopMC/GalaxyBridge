@@ -1,0 +1,59 @@
+name: Build and check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-arm64:
+    # The standard macos-15 label is Apple Silicon; Intel uses macos-15-intel.
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      GB_BUILD_JOBS: '2'
+      RUSTUP_TOOLCHAIN: '1.92.0'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Check publication hygiene
+        run: python3 scripts/check-public-tree.py
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Select source build toolchains
+        shell: bash
+        run: |
+          test "$(uname -m)" = arm64
+          rustup toolchain install 1.92.0 --profile minimal
+          rustup component add --toolchain 1.92.0 rustfmt
+          rustup target add --toolchain 1.92.0 aarch64-apple-darwin aarch64-linux-android
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0' 'build-tools;37.0.0' 'ndk;29.0.14206865'
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+          python3 scripts/bootstrap-build-tools.py
+          echo "$PWD/out/macos-arm64-release/tools/bin" >> "$GITHUB_PATH"
+      - name: Configure CMake
+        run: cmake --preset macos-arm64-release -DGB_BUILD_JOBS=2
+      - name: Build native runtimes and applications
+        run: cmake --build --preset macos-arm64-release --target native macos-app android-apk
+      - name: Run automated checks
+        run: cmake --build --preset macos-arm64-release --target check
+      - name: Package unsigned development artifacts
+        run: cmake --build --preset macos-arm64-release --target package
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: source-build-macos-arm64-unsigned-android
+          path: out/macos-arm64-release/packages/
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,13 @@
+--- a/vendor/core/libcutils/socket_local_server_unix.cpp
++++ b/vendor/core/libcutils/socket_local_server_unix.cpp
+@@ -41,7 +41,9 @@
+ #include "cutils/sockets.h"
+ #include "socket_local.h"
+ 
+-#define LISTEN_BACKLOG 4
++// Galaxy Bridge concurrently probes multiple devices through one private
++// Unix server. Do not reject bursts at the historic four-client backlog.
++#define LISTEN_BACKLOG SOMAXCONN
+ 
+ /*
+  * Used by AndroidSocketImpl

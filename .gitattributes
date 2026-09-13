@@ -1,0 +1,3 @@
+# Keep GitHub language statistics focused on maintained application code.
+native/galaxybridge-quic/vendor/** linguist-vendored
+android/companion-protocol/src/main/java/** linguist-generated

@@ -1,0 +1,223 @@
+--- a/vendor/adb/adb_utils.cpp
++++ b/vendor/adb/adb_utils.cpp
+@@ -308,18 +308,32 @@
+ }
+ 
+ std::string adb_get_android_dir_path() {
+-    std::string user_dir = adb_get_homedir_path();
+-    std::string android_dir = user_dir + OS_PATH_SEPARATOR + ".android";
+-    struct stat buf;
+-    if (stat(android_dir.c_str(), &buf) == -1) {
+-        if (adb_mkdir(android_dir, 0750) == -1) {
+-            PLOG(FATAL) << "Cannot mkdir '" << android_dir << "'";
++    // Galaxy Bridge owned-runtime contract v1. Never consult HOME/passwd or
++    // ~/.android. The owner creates this exact canonical directory beforehand.
++    const char* directory = getenv("GALAXYBRIDGE_ADB_USER_DIR");
++    struct stat st;
++    char resolved[PATH_MAX];
++    if (!directory || directory[0] != '/' || !realpath(directory, resolved) ||
++        strcmp(directory, resolved) != 0 || lstat(directory, &st) != 0 ||
++        !S_ISDIR(st.st_mode) || st.st_uid != getuid() || (st.st_mode & 0777) != 0700) {
++        LOG(FATAL) << "Galaxy Bridge requires a canonical private owned key directory";
++    }
++    for (const char* name : {"adbkey", "adbkey.pub", "adb_known_hosts.pb"}) {
++        std::string path = std::string(directory) + "/" + name;
++        if (lstat(path.c_str(), &st) == 0) {
++            if (!S_ISREG(st.st_mode) || st.st_uid != getuid() || (st.st_mode & 0777) != 0600) {
++                LOG(FATAL) << "Galaxy Bridge key/trust file permissions or type invalid";
++            }
++        } else if (errno != ENOENT) {
++            LOG(FATAL) << "Galaxy Bridge key/trust file is inaccessible";
+         }
+     }
+-    return android_dir;
++    return directory;
+ }
+ 
+ std::string GetLogFilePath() {
++    return "/dev/null"; // Owned foreground runtime must never open the shared adb log.
++
+     // https://issuetracker.google.com/112588493
+     const char* path = getenv("ANDROID_ADB_LOG_PATH");
+     if (path) return path;
+--- a/vendor/adb/client/adb_client.cpp
++++ b/vendor/adb/client/adb_client.cpp
+@@ -260,6 +260,8 @@
+         // error is the original network connection error
+         return false;
+     } else if (fd == -2) {
++        *error = "Galaxy Bridge owned server is unavailable; implicit restart prohibited";
++        return false;
+         fprintf(stderr, "* daemon not running; starting now at %s\n", __adb_server_socket_spec);
+     start_server:
+         // On a "one_device_required" system, the server will not start without the "one_device"
+@@ -309,6 +311,8 @@
+         }
+ 
+         if (version != ADB_SERVER_VERSION) {
++            *error = "Galaxy Bridge owned server version mismatch; replacement prohibited";
++            return false;
+ #if defined(__linux__)
+             if (version > ADB_SERVER_VERSION && local) {
+                 // Try to re-exec the existing adb server's binary.
+--- a/vendor/adb/client/adb_wifi.cpp
++++ b/vendor/adb/client/adb_wifi.cpp
+@@ -113,9 +113,7 @@
+     }
+ 
+     if (!known_hosts.ParseFromIstream(&file)) {
+-        PLOG(ERROR) << "Failed to parse [" << keystore_path_
+-                    << "]. Deleting it as it may be corrupted.";
+-        adb_unlink(keystore_path_.c_str());
++        LOG(FATAL) << "Galaxy Bridge existing wireless trust is corrupt; refusing reset";
+         return known_hosts;
+     }
+ 
+@@ -151,7 +149,7 @@
+         adb_unlink(temp_file_name.c_str());
+         return false;
+     }
+-    chmod(keystore_path_.c_str(), S_IRUSR | S_IWUSR | S_IRGRP);
++    chmod(keystore_path_.c_str(), S_IRUSR | S_IWUSR);
+ 
+     return true;
+ }
+--- a/vendor/adb/client/auth.cpp
++++ b/vendor/adb/client/auth.cpp
+@@ -214,18 +214,17 @@
+     }
+ 
+     struct stat buf;
+-    if (stat(path.c_str(), &buf) == -1) {
+-        VLOG(AUTH) << "User key '" << path << "' does not exist...";
+-        if (!generate_key(path)) {
+-            LOG(ERROR) << "Failed to generate new key";
+-            return false;
+-        }
++    if (lstat(path.c_str(), &buf) != 0 || !S_ISREG(buf.st_mode) || buf.st_uid != getuid() ||
++        (buf.st_mode & 0777) != 0600) {
++        LOG(FATAL) << "Galaxy Bridge key is absent or invalid; owner must provision it explicitly";
+     }
+ 
+     return load_key(path);
+ }
+ 
+ static std::set<std::string> get_vendor_keys() {
++    return {}; // Never load developer or inherited vendor keys.
++
+     const char* adb_keys_path = getenv("ADB_VENDOR_KEYS");
+     if (adb_keys_path == nullptr) {
+         return std::set<std::string>();
+@@ -325,6 +324,10 @@
+ }
+ 
+ int adb_auth_keygen(const char* filename) {
++    if (std::string(filename) != adb_get_android_dir_path() + "/adbkey") return 1;
++    struct stat st;
++    if (lstat(filename, &st) == 0 || errno != ENOENT) return 1;
++    umask(0077);
+     return !generate_key(filename);
+ }
+ 
+@@ -418,7 +421,7 @@
+     VLOG(AUTH) << "adb_auth_init...";
+ 
+     if (!load_userkey()) {
+-        LOG(ERROR) << "Failed to load (or generate) user key";
++        LOG(FATAL) << "Galaxy Bridge existing key is corrupt; refusing replacement";
+         return;
+     }
+ 
+--- a/vendor/adb/client/commandline.cpp
++++ b/vendor/adb/client/commandline.cpp
+@@ -1525,6 +1525,14 @@
+ }
+ 
+ int adb_commandline(int argc, const char** argv) {
++    if (argc == 1 && strcmp(argv[0], "gb-runtime-contract") == 0) {
++        printf("galaxybridge-owned-adb-v1 keydir-only no-autostart parent-stdin usb-disabled\n");
++        return 0;
++    }
++    if (argc == 1 && strcmp(argv[0], "version") == 0) {
++        printf("Galaxy Bridge owned ADB 36.0.1 (protocol 1.0.41)\n");
++        return 0;
++    }
+     bool no_daemon = false;
+     bool is_daemon = false;
+     bool is_server = false;
+@@ -1540,6 +1548,7 @@
+     const char* server_host_str = nullptr;
+     const char* server_port_str = nullptr;
+     const char* server_socket_str = nullptr;
++    bool galaxybridge_explicit_socket = false;
+     const char* one_device_str = nullptr;
+ 
+     // We need to check for -d and -e before we look at $ANDROID_SERIAL.
+@@ -1619,6 +1628,7 @@
+         } else if (!strcmp(argv[0], "-L")) {
+             if (argc < 2) error_exit("-L requires an argument");
+             server_socket_str = argv[1];
++            galaxybridge_explicit_socket = true;
+             --argc;
+             ++argv;
+         } else if (strcmp(argv[0], "--exit-on-write-error") == 0) {
+@@ -1677,6 +1687,12 @@
+     }
+ 
+     adb_set_one_device(one_device_str);
++    // Explicit -L is mandatory and must select an owner-private filesystem
++    // socket. Environment endpoint selectors cannot become a default fallback.
++    if (!galaxybridge_explicit_socket || !server_socket_str || strncmp(server_socket_str, "localfilesystem:/", 17) != 0 ||
++        server_host_str || server_port_str || (is_server && (!no_daemon || is_daemon))) {
++        error_exit("Galaxy Bridge requires an explicit private foreground endpoint");
++    }
+     adb_set_socket_spec(server_socket_str);
+ 
+     // If none of -d, -e, or -s were specified, try $ANDROID_SERIAL.
+--- a/vendor/adb/client/main.cpp
++++ b/vendor/adb/client/main.cpp
+@@ -86,6 +86,36 @@
+ //     device where atransport::MatchesTarget(one_device) is true.
+ int adb_server_main(int is_daemon, const std::string& socket_spec, const char* one_device,
+                     int ack_reply_fd) {
++    // Only the owner can start this binary, foreground, USB/emulator scanning
++    // disabled. stdin is a lifetime pipe; EOF follows normal quit or parent crash.
++    struct stat parent_pipe;
++    if (is_daemon || socket_spec.rfind("localfilesystem:", 0) != 0 ||
++        !getenv("GALAXYBRIDGE_ADB_PARENT_PIPE") ||
++        strcmp(getenv("GALAXYBRIDGE_ADB_PARENT_PIPE"), "stdin-v1") != 0 ||
++        fstat(STDIN_FILENO, &parent_pipe) != 0 || !S_ISFIFO(parent_pipe.st_mode)) {
++        LOG(FATAL) << "Galaxy Bridge requires foreground ownership and a parent lifetime pipe";
++    }
++    const std::string socket_path = socket_spec.substr(strlen("localfilesystem:"));
++    struct stat endpoint;
++    const std::string parent = socket_path.substr(0, socket_path.find_last_of('/'));
++    char canonical[PATH_MAX];
++    if (!realpath(parent.c_str(), canonical) || parent != canonical ||
++        lstat(parent.c_str(), &endpoint) != 0 || !S_ISDIR(endpoint.st_mode) ||
++        endpoint.st_uid != getuid() || (endpoint.st_mode & 0777) != 0700) {
++        LOG(FATAL) << "Galaxy Bridge requires an owner-only canonical endpoint directory";
++    }
++    if (lstat(socket_path.c_str(), &endpoint) == 0 || errno != ENOENT) {
++        LOG(FATAL) << "Galaxy Bridge private endpoint is already occupied";
++    }
++    setenv("ADB_USB", "0", 1);
++    setenv("ADB_EMU", "0", 1);
++    setenv("ADB_REJECT_KILL_SERVER", "1", 1);
++    umask(0077);
++    std::thread([]() {
++        char value;
++        while (unix_read(STDIN_FILENO, &value, 1) > 0) {}
++        _exit(0);
++    }).detach();
+ #if defined(_WIN32)
+     // adb start-server starts us up with stdout and stderr hooked up to
+     // anonymous pipes. When the C Runtime sees this, it makes stderr and
+@@ -165,6 +195,7 @@
+     }
+ 
+     adb_auth_init();
++    known_wifi_hosts_file.IsKnownHost("galaxybridge-validation-only");
+ 
+     if (is_daemon) {
+ #if !defined(_WIN32)

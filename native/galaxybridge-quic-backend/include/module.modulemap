@@ -1,0 +1,4 @@
+module GalaxyBridgeQuicBackend {
+  header "galaxybridge_quic_backend.h"
+  export *
+}

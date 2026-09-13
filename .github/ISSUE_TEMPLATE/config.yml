@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Installation guide / Установка
+    url: https://github.com/XopMC/GalaxyBridge/blob/main/docs/public/install.md
+    about: Requirements, first connection, and troubleshooting.
+  - name: Roadmap / Планы
+    url: https://github.com/XopMC/GalaxyBridge/blob/main/docs/public/roadmap.md
+    about: Known limits and future work.
