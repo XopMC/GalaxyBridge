@@ -45,8 +45,10 @@ jobs:
           echo "$PWD/out/macos-arm64-release/tools/bin" >> "$GITHUB_PATH"
       - name: Configure CMake
         run: cmake --preset macos-arm64-release -DGB_BUILD_JOBS=2
-      - name: Build native runtimes and applications
-        run: cmake --build --preset macos-arm64-release --target native macos-app android-apk
+      - name: Build Android APK
+        run: cmake --build --preset macos-arm64-release --target android-apk
+      - name: Build native runtimes and macOS application
+        run: cmake --build --preset macos-arm64-release --target macos-app
       - name: Run automated checks
         run: cmake --build --preset macos-arm64-release --target check
       - name: Package unsigned development artifacts
