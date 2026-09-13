@@ -45,6 +45,8 @@ jobs:
           echo "$PWD/out/macos-arm64-release/tools/bin" >> "$GITHUB_PATH"
       - name: Configure CMake
         run: cmake --preset macos-arm64-release -DGB_BUILD_JOBS=2
+      - name: Check Swift SDK compatibility
+        run: sh scripts/test-macos-companion-diagnostics.sh
       - name: Build Android APK
         run: cmake --build --preset macos-arm64-release --target android-apk
       - name: Build native runtimes and macOS application

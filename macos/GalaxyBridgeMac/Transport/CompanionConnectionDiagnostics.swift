@@ -436,9 +436,9 @@ struct CompanionRecoveryDiagnostics: Sendable {
     ) {
         let recoveryDisposition: CompanionDiagnosticRecoveryDisposition
         switch recoveryAccepted {
-        case true: recoveryDisposition = .accepted
-        case false: recoveryDisposition = .ignored
-        case nil: recoveryDisposition = .notApplicable
+        case .some(true): recoveryDisposition = .accepted
+        case .some(false): recoveryDisposition = .ignored
+        case .none: recoveryDisposition = .notApplicable
         }
         sink(
             event(
@@ -515,9 +515,8 @@ private extension CompanionDiagnosticNetworkError {
             return CompanionDiagnosticNetworkError(domain: .dns, code: Int64(code))
         case let .tls(code):
             return CompanionDiagnosticNetworkError(domain: .tls, code: Int64(code))
-        case .wifiAware:
-            return nil
-        @unknown default:
+        default:
+            // Preserve the diagnostic allowlist on both older and newer Network SDKs.
             return nil
         }
     }

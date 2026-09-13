@@ -34,7 +34,7 @@ run(['swift', ROOT / 'scripts/test-app-icons.swift'])
 for product in ['GalaxyBridgeCoreSpec', 'GalaxyBridgeProtocolSpec']:
     run(['swift', 'run', '--package-path', ROOT, '--scratch-path', build / 'check-swift', '--cache-path', build / 'dependency-cache/swiftpm', '-j', env.get('GB_BUILD_JOBS', '4'), product])
 env['GB_OWNED_ADB_TEST_RUNTIME'] = str(build / 'artifacts/adb')
-for script in ['test-macos-owned-adb-runtime.sh', 'test-macos-incoming-file-store.sh', 'test-macos-client-setup.sh', 'test-macos-file-transfer-presentation.sh']:
+for script in ['test-macos-companion-diagnostics.sh', 'test-macos-owned-adb-runtime.sh', 'test-macos-incoming-file-store.sh', 'test-macos-client-setup.sh', 'test-macos-file-transfer-presentation.sh']:
     run(['sh', ROOT / 'scripts' / script])
 # Rust tests compile the source crates; do not depend on frozen release binaries.
 run(['bash', ROOT / 'scripts/test-quic-backend.sh'])
