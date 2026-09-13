@@ -329,7 +329,16 @@ fn pair_tracks_delayed_features(
 #[test]
 fn fragmented_idr_actual_backend_thirty_ms_rtt_mixed_recovery() {
     let mut failures = vec![];
-    for size in [5504usize, 64193, 199745] {
+    let frames = original_stock("h264");
+    // VideoToolbox's encoded size varies by macOS/SDK. Keep the complete IDR
+    // and reserve six bytes if the small case needs a valid filler NAL.
+    let original_size = frames[3].len() - 12;
+    let small_size = if original_size < 5504 {
+        5504.max(original_size + 6)
+    } else {
+        original_size
+    };
+    for size in [small_size, 64193, 199745] {
         let prior = std::env::var_os("GB_QUIC_RECOVERY_DIAGNOSTICS");
         std::env::set_var("GB_QUIC_RECOVERY_DIAGNOSTICS", "1");
         let ((mut host, mut peer, video, mut audio, mut control), mut relays) =
@@ -347,7 +356,6 @@ fn fragmented_idr_actual_backend_thirty_ms_rtt_mixed_recovery() {
         // Only dependent2 is impaired, never the initial or recovery IDR. The
         // cold209 case can expire it at Source before this filter sees it.
         host.qa_drop_fragment(1, 2, 0, true).unwrap();
-        let frames = original_stock("h264");
         let aac = original_stock("aac");
         let mut video = video.unwrap();
         video.write_all(&[0; 65]).unwrap();
