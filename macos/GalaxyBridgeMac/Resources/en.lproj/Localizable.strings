@@ -10,7 +10,7 @@
 "NO_MUTED_APPS" = "No muted apps";
 "MUTE_APP" = "Mute this app";
 "NO_DEVICE" = "No Samsung device found";
-"NO_DEVICE_HINT" = "Connect your Galaxy by cable or pair it with this Mac.";
+"NO_DEVICE_HINT" = "Pair your Galaxy with this Mac using the QR code.";
 "REFRESH" = "Refresh";
 "DETACH" = "Detach screen";
 "PANELS" = "Panels";
@@ -116,8 +116,8 @@
 "COPY_PAIRING_LINK" = "Copy link";
 "DONE" = "Done";
 "CANCEL" = "Cancel";
-"FORGET_DEVICE" = "Forget Device";
-"FORGET_DEVICE_TITLE" = "Revoke this pairing?";
+"FORGET_DEVICE" = "Remove Device";
+"FORGET_DEVICE_TITLE" = "Remove this device?";
 "FORGET_DEVICE_MESSAGE" = "This Mac and phone will forget each other. Saved notification and clipboard history will be removed.";
 "PAIRING_REVOKED" = "Pairing revoked";
 "DISMISS_NOTIFICATION" = "Dismiss";

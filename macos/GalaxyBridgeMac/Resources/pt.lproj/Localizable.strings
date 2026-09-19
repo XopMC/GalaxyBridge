@@ -11,7 +11,7 @@
 "NO_MUTED_APPS" = "Nenhum aplicativo silenciado";
 "MUTE_APP" = "Silenciar este aplicativo";
 "NO_DEVICE" = "Nenhum dispositivo Samsung encontrado";
-"NO_DEVICE_HINT" = "Conecte seu Galaxy por cabo ou emparelhe-o com este Mac.";
+"NO_DEVICE_HINT" = "Emparelhe seu Galaxy com este Mac usando o código QR.";
 "REFRESH" = "Atualizar";
 "DETACH" = "Separar tela";
 "PANELS" = "Painéis";

@@ -11,7 +11,7 @@
 "NO_MUTED_APPS" = "沒有靜音的應用程式";
 "MUTE_APP" = "將此套用靜音";
 "NO_DEVICE" = "找不到三星設備";
-"NO_DEVICE_HINT" = "透過電纜連接 Galaxy 或將其與 Mac 配對。";
+"NO_DEVICE_HINT" = "使用 QR 碼將 Galaxy 與這部 Mac 配對。";
 "REFRESH" = "刷新";
 "DETACH" = "分離螢幕";
 "PANELS" = "面板";

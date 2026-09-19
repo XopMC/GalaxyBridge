@@ -10,7 +10,7 @@
 "NO_MUTED_APPS" = "Keine stummgeschalteten Apps";
 "MUTE_APP" = "Diese App stummschalten";
 "NO_DEVICE" = "Kein Samsung-Gerät gefunden";
-"NO_DEVICE_HINT" = "Verbinden Sie Ihr Galaxy per Kabel oder koppeln Sie es mit diesem Mac.";
+"NO_DEVICE_HINT" = "Koppeln Sie Ihr Galaxy per QR-Code mit diesem Mac.";
 "REFRESH" = "Aktualisieren";
 "DETACH" = "Bildschirm in eigenem Fenster öffnen";
 "PANELS" = "Bereiche";

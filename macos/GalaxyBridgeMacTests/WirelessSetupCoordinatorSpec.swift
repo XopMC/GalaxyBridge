@@ -34,6 +34,8 @@ enum WirelessSetupCoordinatorSpec {
         let coordinator = WirelessSetupCoordinator(client: peer, pollDelay: .milliseconds(5), connectionAttempts: 4)
         coordinator.search()
         try await wait { coordinator.phase == .enterCode }
+        let connectsBeforeCode = await peer.connectCalls
+        precondition(connectsBeforeCode == 0, "An already advertised connection must not bypass code pairing")
         coordinator.submit(code: "123")
         let invalidCalls = await peer.pairCalls
         precondition(invalidCalls == 0)
@@ -81,13 +83,17 @@ enum WirelessSetupCoordinatorSpec {
         try await wait { ambiguous.phase == .multiplePhones }
         precondition(ambiguous.service == nil, "Do not choose a random phone")
         ambiguous.cancel()
-        let trustedPeer = SetupPeer([services[1]])
-        await trustedPeer.allowConnection()
-        let trusted = WirelessSetupCoordinator(client: trustedPeer, pollDelay: .milliseconds(1))
-        trusted.search()
-        try await wait { trusted.phase == .connected("192.168.42.126:40009") }
-        coordinator.cancel(); bounded.cancel(); rejected.cancel(); trusted.cancel()
-        print("Wireless setup coordinator: invalid input, verified connection, bounded retries, rejected code, cancellation and multiple-phone checks passed")
+        let previouslyConnectedPeer = SetupPeer([services[1]])
+        await previouslyConnectedPeer.allowConnection()
+        let requiresFreshCode = WirelessSetupCoordinator(client: previouslyConnectedPeer, pollDelay: .milliseconds(1))
+        requiresFreshCode.search()
+        try await Task.sleep(for: .milliseconds(20))
+        precondition(requiresFreshCode.phase == .searching)
+        let connectsWithoutCode = await previouslyConnectedPeer.connectCalls
+        precondition(connectsWithoutCode == 0,
+                     "A connection service from another phone must not report setup success")
+        coordinator.cancel(); bounded.cancel(); rejected.cancel(); requiresFreshCode.cancel()
+        print("Wireless setup coordinator: code-gated setup, verified connection, bounded retries, rejected code, cancellation and multiple-phone checks passed")
     }
 
     private static func wait(_ condition: @MainActor () -> Bool) async throws {

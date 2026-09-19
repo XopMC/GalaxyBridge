@@ -11,7 +11,7 @@
 "NO_MUTED_APPS" = "음소거된 앱 없음";
 "MUTE_APP" = "이 앱 음소거";
 "NO_DEVICE" = "삼성 기기를 찾을 수 없습니다.";
-"NO_DEVICE_HINT" = "Galaxy를 케이블로 연결하거나 이 Mac와 페어링하세요.";
+"NO_DEVICE_HINT" = "QR 코드를 사용하여 Galaxy를 이 Mac과 페어링하세요.";
 "REFRESH" = "새로 고침";
 "DETACH" = "화면 분리";
 "PANELS" = "패널";

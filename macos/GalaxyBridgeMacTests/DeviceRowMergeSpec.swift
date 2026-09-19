@@ -115,20 +115,29 @@ private enum DeviceRowMergeSpec {
             "One unambiguous binding candidate must remain hidden until signed proof completes"
         )
         check(
-            ADBPendingIdentityPresentationPolicy.shouldPublishStandalone(
+            !ADBPendingIdentityPresentationPolicy.shouldPublishStandalone(
                 hasCanonicalCompanionRow: false,
                 hasPersistentlyVerifiedBinding: true,
                 matchingCompanionCount: 1
             ),
-            "ADB-only discovery must stay visible when no canonical Companion row exists"
+            "ADB-only discovery must not manufacture a sidebar device before explicit pairing"
         )
         check(
-            ADBPendingIdentityPresentationPolicy.shouldPublishStandalone(
+            !ADBPendingIdentityPresentationPolicy.shouldPublishStandalone(
                 hasCanonicalCompanionRow: true,
                 hasPersistentlyVerifiedBinding: false,
                 matchingCompanionCount: 2
             ),
-            "ambiguous same-model phones must never be merged or hidden by name alone"
+            "ambiguous same-model ADB routes must remain hidden until signed identity proof completes"
+        )
+
+        check(
+            !CompanionDiscoveryPresentationPolicy.shouldPublish(hasCommittedPeer: false),
+            "an unpaired Helper advertisement must not create a device on clean launch"
+        )
+        check(
+            CompanionDiscoveryPresentationPolicy.shouldPublish(hasCommittedPeer: true),
+            "a committed peer may be presented when its Helper is discovered"
         )
 
         check(

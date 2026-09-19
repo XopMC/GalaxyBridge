@@ -10,7 +10,7 @@
 "NO_MUTED_APPS" = "Aucune application en mode silencieux";
 "MUTE_APP" = "Mettre cette application en mode silencieux";
 "NO_DEVICE" = "Aucun appareil Samsung détecté";
-"NO_DEVICE_HINT" = "Connectez votre Galaxy par câble ou associez-le à ce Mac.";
+"NO_DEVICE_HINT" = "Associez votre Galaxy à ce Mac avec le code QR.";
 "REFRESH" = "Actualiser";
 "DETACH" = "Ouvrir l’écran dans une fenêtre séparée";
 "PANELS" = "Volets";

@@ -10,7 +10,7 @@
 "NO_MUTED_APPS" = "Нет отключённых приложений";
 "MUTE_APP" = "Отключить это приложение";
 "NO_DEVICE" = "Samsung не найден";
-"NO_DEVICE_HINT" = "Подключите Galaxy кабелем или свяжите его с этим Mac.";
+"NO_DEVICE_HINT" = "Свяжите Galaxy с этим Mac с помощью QR-кода.";
 "REFRESH" = "Обновить";
 "DETACH" = "Отдельное окно";
 "PANELS" = "Панели";
@@ -116,8 +116,8 @@
 "COPY_PAIRING_LINK" = "Скопировать ссылку";
 "DONE" = "Готово";
 "CANCEL" = "Отмена";
-"FORGET_DEVICE" = "Забыть устройство";
-"FORGET_DEVICE_TITLE" = "Отозвать привязку?";
+"FORGET_DEVICE" = "Удалить устройство";
+"FORGET_DEVICE_TITLE" = "Удалить это устройство?";
 "FORGET_DEVICE_MESSAGE" = "Mac и телефон забудут друг друга. История уведомлений и буфера обмена будет удалена.";
 "PAIRING_REVOKED" = "Привязка отозвана";
 "DISMISS_NOTIFICATION" = "Закрыть";

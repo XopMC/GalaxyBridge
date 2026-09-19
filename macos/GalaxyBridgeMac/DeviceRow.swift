@@ -29,6 +29,15 @@ struct DeviceRow: Identifiable, Hashable {
     }
 }
 
+/// A Helper's Bonjour advertisement proves only that something is reachable on
+/// the LAN. The device list is user-owned state, so discovery becomes visible
+/// only after the signed pairing commit created a trusted peer.
+enum CompanionDiscoveryPresentationPolicy {
+    static func shouldPublish(hasCommittedPeer: Bool) -> Bool {
+        hasCommittedPeer
+    }
+}
+
 /// Keeps an ADB route whose identity proof is still in flight out of the
 /// sidebar when the same phone already has a canonical Companion row. The
 /// route is not merged or made usable until its signed proof succeeds; this
@@ -39,9 +48,13 @@ enum ADBPendingIdentityPresentationPolicy {
         hasPersistentlyVerifiedBinding: Bool,
         matchingCompanionCount: Int
     ) -> Bool {
-        guard hasCanonicalCompanionRow else { return true }
-        if hasPersistentlyVerifiedBinding { return false }
-        return matchingCompanionCount != 1
+        // ADB discovery is transport discovery, not an explicit user action.
+        // Never turn remembered USB/Wi-Fi authorizations into new sidebar
+        // devices. A route becomes visible through its paired Companion identity
+        // or through the separately verified persisted binding handled before
+        // this policy is consulted.
+        _ = (hasCanonicalCompanionRow, hasPersistentlyVerifiedBinding, matchingCompanionCount)
+        return false
     }
 }
 

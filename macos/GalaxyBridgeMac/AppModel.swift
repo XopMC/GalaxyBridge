@@ -2573,9 +2573,14 @@ final class AppModel: ObservableObject {
 #endif
 
     private func companionCandidates(peers: [PairedPeer]) -> [DiscoveredCompanion] {
-        var candidates = discovery.companions.filter { companion in
-            matchingPeer(for: companion, peers: peers) == nil
+        // Bonjour discovery is only reachability metadata. Publishing an
+        // unmatched advertisement here made every Helper on the LAN appear as
+        // an already-added phone, including on a clean first launch. Build the
+        // visible/connection candidate set exclusively from committed peers.
+        guard CompanionDiscoveryPresentationPolicy.shouldPublish(hasCommittedPeer: !peers.isEmpty) else {
+            return []
         }
+        var candidates: [DiscoveredCompanion] = []
         for peer in peers {
             let bonjour = discovery.companions.first { companion in
                 matchingPeer(for: companion, peers: [peer]) != nil

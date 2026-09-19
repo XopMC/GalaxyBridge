@@ -11,7 +11,7 @@
 "NO_MUTED_APPS" = "ミュートされたアプリはありません";
 "MUTE_APP" = "このアプリをミュートします";
 "NO_DEVICE" = "Samsung デバイスが見つかりません";
-"NO_DEVICE_HINT" = "Galaxy をケーブルで接続するか、この Mac とペアリングします。";
+"NO_DEVICE_HINT" = "QR コードを使って Galaxy をこの Mac とペアリングしてください。";
 "REFRESH" = "リフレッシュ";
 "DETACH" = "画面の切り離し";
 "PANELS" = "パネル";

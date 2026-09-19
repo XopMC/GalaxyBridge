@@ -50,6 +50,13 @@ struct ContentView: View {
                                 Label("REFRESH", systemImage: "arrow.clockwise")
                             }
                             .disabled(model.isRefreshing)
+                            if model.canRevokePairing(deviceID: device.id) {
+                                Button(role: .destructive) {
+                                    pendingRevocation = device
+                                } label: {
+                                    Label("FORGET_DEVICE", systemImage: "trash")
+                                }
+                            }
                             if model.cameraExtension.supportsActivation {
                                 Button(action: model.cameraExtension.activate) {
                                     Label("CAMERA_EXTENSION_INSTALL", systemImage: "video.badge.plus")

@@ -154,24 +154,17 @@ final class WirelessSetupCoordinator: ObservableObject {
         phase = .searching
         let ticket = generation
         task = Task { [weak self, client, pollDelay] in
-            var attemptedConnectionServices = Set<String>()
             // Discovery is finite and user-restartable; never churn indefinitely
             // when debugging is disabled or the local-network permission is denied.
             for _ in 0..<120 {
                 do {
                     let discovered = try await client.discover()
                     guard !Task.isCancelled, let self, self.generation == ticket else { return }
-                    for candidate in discovered where candidate.kind == .connection && attemptedConnectionServices.insert(candidate.id).inserted {
-                        do {
-                            if try await client.connect(candidate) {
-                                guard !Task.isCancelled, self.generation == ticket else { return }
-                                self.service = candidate
-                                self.phase = .connected(candidate.endpoint)
-                                return
-                            }
-                        } catch is CancellationError { return }
-                        catch { continue }
-                    }
+                    // A connect advertisement can belong to any Galaxy already
+                    // authorized by this ADB identity. It is not proof that the
+                    // phone whose setup sheet is open has been configured. Only
+                    // a successful code pairing in this generation may advance
+                    // the sheet to connection verification.
                     let candidates = discovered.filter { $0.kind == .pairing }
                     self.service = candidates.count == 1 ? candidates[0] : nil
                     self.phase = candidates.isEmpty ? .searching : candidates.count == 1 ? .enterCode : .multiplePhones
