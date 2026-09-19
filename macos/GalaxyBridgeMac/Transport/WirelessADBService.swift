@@ -25,6 +25,20 @@ struct WirelessADBService: Equatable, Hashable, Identifiable, Sendable {
             return seen.insert(service.id).inserted ? service : nil
         }
     }
+
+    /// Converts the one resolved Bonjour service reported by `dns-sd -L` into
+    /// the same strictly validated endpoint format used by ADB commands.
+    static func parseBonjourResolution(name: String, kind: Kind, output: String) -> Self? {
+        let pattern = #"can be reached at\s+([^\s:]+):(\d+)"#
+        guard let match = try? NSRegularExpression(pattern: pattern).firstMatch(
+            in: output, range: NSRange(output.startIndex..., in: output)
+        ), let hostRange = Range(match.range(at: 1), in: output),
+              let portRange = Range(match.range(at: 2), in: output),
+              let port = UInt16(output[portRange]), port > 0 else { return nil }
+        let endpoint = "\(output[hostRange]):\(port)"
+        guard WirelessADBReconnectPolicy.isLocalEndpoint(endpoint) else { return nil }
+        return Self(name: name, kind: kind, endpoint: endpoint)
+    }
 }
 
 struct WirelessADBPairingCode: Sendable {

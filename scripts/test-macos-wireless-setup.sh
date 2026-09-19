@@ -9,7 +9,9 @@ xcrun swiftc -emit-library -emit-module -module-name GalaxyBridgeCore \
 xcrun swiftc -emit-library -emit-module -module-name GalaxyBridgeEnhancedCore \
     "$GB_ROOT/macos/GalaxyBridgeMacTests/ADBClientEnhancedCoreStub.swift" \
     "$GB_ROOT/Sources/GalaxyBridgeEnhancedCore/ScrcpyApplicationCatalog.swift" -o "$GB_TMP/libGalaxyBridgeEnhancedCore.dylib"
-xcrun swiftc -swift-version 6 -I "$GB_TMP" -L "$GB_TMP" -lGalaxyBridgeCore -lGalaxyBridgeEnhancedCore \
+xcrun swiftc -emit-library -emit-module -module-name GalaxyBridgeBuildPins \
+    "$GB_ROOT/Sources/GalaxyBridgeBuildPins/BuildPins.swift" -o "$GB_TMP/libGalaxyBridgeBuildPins.dylib"
+xcrun swiftc -swift-version 6 -I "$GB_TMP" -L "$GB_TMP" -lGalaxyBridgeCore -lGalaxyBridgeEnhancedCore -lGalaxyBridgeBuildPins \
     "$GB_ROOT/macos/GalaxyBridgeMac/Transport/ADBCommandRunner.swift" \
     "$GB_ROOT/macos/GalaxyBridgeMac/Transport/ADBOwnedRuntime.swift" \
     "$GB_ROOT/macos/GalaxyBridgeMac/Transport/ScrcpyApplicationDisplayIdentity.swift" \
@@ -18,7 +20,7 @@ xcrun swiftc -swift-version 6 -I "$GB_TMP" -L "$GB_TMP" -lGalaxyBridgeCore -lGal
     "$GB_ROOT/macos/GalaxyBridgeMac/Transport/WirelessADBReconnectPolicy.swift" \
     "$GB_ROOT/macos/GalaxyBridgeMacTests/WirelessADBSetupSpec.swift" -o "$GB_TMP/WirelessADBSetupSpec"
 DYLD_LIBRARY_PATH="$GB_TMP" "$GB_TMP/WirelessADBSetupSpec"
-xcrun swiftc -swift-version 6 -I "$GB_TMP" -L "$GB_TMP" -lGalaxyBridgeCore -lGalaxyBridgeEnhancedCore \
+xcrun swiftc -swift-version 6 -I "$GB_TMP" -L "$GB_TMP" -lGalaxyBridgeCore -lGalaxyBridgeEnhancedCore -lGalaxyBridgeBuildPins -framework Network \
     "$GB_ROOT/macos/GalaxyBridgeMac/Transport/ADBCommandRunner.swift" \
     "$GB_ROOT/macos/GalaxyBridgeMac/Transport/ADBOwnedRuntime.swift" \
     "$GB_ROOT/macos/GalaxyBridgeMac/Transport/ScrcpyApplicationDisplayIdentity.swift" \

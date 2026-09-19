@@ -1,6 +1,7 @@
 #if !GALAXYBRIDGE_APP_STORE
 import Combine
 import Foundation
+import Network
 
 protocol WirelessSetupClient: Sendable {
     func discover() async throws -> [WirelessADBService]
@@ -24,7 +25,39 @@ private actor WirelessADBOperationQueue {
     }
 }
 
-struct LocalWirelessSetupClient: WirelessSetupClient {
+private struct WirelessADBAdvertisement: Sendable {
+    let name: String
+    let type: String
+    let domain: String
+    var kind: WirelessADBService.Kind { type == "_adb-tls-pairing._tcp" ? .pairing : .connection }
+}
+
+final class LocalWirelessSetupClient: @unchecked Sendable, WirelessSetupClient {
+    private let lock = NSLock()
+    private var advertisements: [String: WirelessADBAdvertisement] = [:]
+    private var browsers: [NWBrowser] = []
+
+    init() {
+        for type in ["_adb-tls-pairing._tcp", "_adb-tls-connect._tcp"] {
+            let browser = NWBrowser(for: .bonjourWithTXTRecord(type: type, domain: nil), using: .tcp)
+            browser.browseResultsChangedHandler = { [weak self] results, _ in
+                let found = results.compactMap { result -> WirelessADBAdvertisement? in
+                    guard case let .service(name, serviceType, domain, _) = result.endpoint else { return nil }
+                    return WirelessADBAdvertisement(name: name, type: serviceType, domain: domain)
+                }
+                guard let self else { return }
+                self.lock.lock()
+                defer { self.lock.unlock() }
+                self.advertisements = self.advertisements.filter { $0.value.type != type }
+                for advertisement in found {
+                    self.advertisements["\(advertisement.name)|\(advertisement.type)|\(advertisement.domain)"] = advertisement
+                }
+            }
+            browser.start(queue: DispatchQueue(label: "com.xopmc.GalaxyBridge.wireless-adb.\(type)"))
+            browsers.append(browser)
+        }
+    }
+
     private func perform<T: Sendable>(_ operation: @escaping @Sendable (ADBClient) throws -> T) async throws -> T {
         let cancellation = ADBProcessCancellation()
         return try await withTaskCancellationHandler {
@@ -33,8 +66,33 @@ struct LocalWirelessSetupClient: WirelessSetupClient {
             }
         } onCancel: { cancellation.cancel() }
     }
+    private func discoveredAdvertisements() -> [WirelessADBAdvertisement] {
+        lock.lock()
+        defer { lock.unlock() }
+        return Array(advertisements.values)
+    }
     func discover() async throws -> [WirelessADBService] {
-        try await perform { try $0.wirelessServices() }
+        let pending = discoveredAdvertisements()
+        return try await withThrowingTaskGroup(of: WirelessADBService?.self) { group in
+            for advertisement in pending { group.addTask { Self.resolve(advertisement) } }
+            var services: [WirelessADBService] = []
+            for try await service in group { if let service { services.append(service) } }
+            return services
+        }
+    }
+
+    private static func resolve(_ advertisement: WirelessADBAdvertisement) -> WirelessADBService? {
+        let process = Process(), output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/dns-sd")
+        process.arguments = ["-L", advertisement.name, advertisement.type, advertisement.domain]
+        process.standardOutput = output; process.standardError = output
+        guard (try? process.run()) != nil else { return nil }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1) { if process.isRunning { process.terminate() } }
+        let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        return WirelessADBService.parseBonjourResolution(
+            name: advertisement.name, kind: advertisement.kind, output: text
+        )
     }
     func pair(_ service: WirelessADBService, code: WirelessADBPairingCode) async throws {
         try await perform { try $0.pair(service: service, code: code) }

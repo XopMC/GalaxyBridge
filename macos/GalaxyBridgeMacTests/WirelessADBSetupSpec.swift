@@ -17,6 +17,15 @@ enum WirelessADBSetupSpec {
         precondition(services.count == 3)
         precondition(services.filter { $0.kind == .pairing }.count == 1)
         precondition(services.first { $0.kind == .connection }?.endpoint == "192.168.42.126:40009")
+        let bonjour = WirelessADBService.parseBonjourResolution(
+            name: "adb-fold", kind: .pairing,
+            output: "Lookup adb-fold._adb-tls-pairing._tcp.local\n  can be reached at 192.168.42.40:37001\n"
+        )
+        precondition(bonjour?.endpoint == "192.168.42.40:37001")
+        precondition(WirelessADBService.parseBonjourResolution(
+            name: "hostile", kind: .pairing,
+            output: "can be reached at 8.8.8.8:37001"
+        ) == nil)
         precondition(WirelessADBPairingCode("123456")?.value == "123456")
         for invalid in ["", "12345", "1234567", "１２３４５６", "12345\n", "12 345", "12345;", "123456\n"] {
             precondition(WirelessADBPairingCode(invalid) == nil, "Invalid code was accepted")
