@@ -25,7 +25,8 @@ if (build / 'BuildArtifacts.json').is_file():
     env['GB_EXPECTED_SCRCPY_SHA'] = module.sha(build / 'artifacts/scrcpy/scrcpy-server-v4.1')
 def run(args, extra=None):
     subprocess.run([str(x) for x in args], cwd=ROOT, env=dict(env, **(extra or {})), check=True)
-for script in ['public-build.py', 'package-macos-direct.py', 'package-android-direct.py', 'bootstrap-build-tools.py']:
+for script in ['public-build.py', 'package-macos-direct.py', 'package-android-direct.py',
+               'test-android-direct-components.py', 'bootstrap-build-tools.py']:
     ast.parse((ROOT / 'scripts' / script).read_text(), filename=script)
 run([sys.executable, ROOT / 'scripts/test-public-build.py'])
 run([sys.executable, ROOT / 'scripts/test-macos-main-bundle-localization.py'])

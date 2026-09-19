@@ -16,7 +16,7 @@ import java.util.concurrent.Executors
 
 /**
  * Shell-only export used by the direct ADB transport. The receiver is compiled
- * only into the internal flavor and is protected by Android's DUMP permission,
+ * only into shell-enabled flavors and is protected by Android's DUMP permission,
  * which the adb shell owns but ordinary third-party apps do not.
  */
 class ApplicationCatalogExportReceiver : BroadcastReceiver() {

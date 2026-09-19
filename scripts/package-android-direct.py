@@ -42,6 +42,7 @@ if "package: name='com.xopmc.galaxybridge'" not in badging or 'application-debug
 xml = subprocess.check_output([str(build_tools / 'aapt2'), 'dump', 'xmltree', str(apk), '--file', 'AndroidManifest.xml'], text=True)
 if any(name in xml for name in ('MotionQaActivity', 'TextInputQaActivity', 'InputLatencyQaActivity', 'ClipboardQaReceiver', 'DownloadsProviderQaReceiver')):
     raise SystemExit('Internal QA components are forbidden in the public APK.')
+subprocess.run([os.fspath(ROOT / 'scripts/test-android-direct-components.py'), apk], check=True)
 signature = 'UNSIGNED: not installable until signed with your own stable Android release identity.\n'
 if signed:
     signature = subprocess.check_output([str(build_tools / 'apksigner'), 'verify', '--verbose', '--print-certs', str(apk)], env=env, text=True)

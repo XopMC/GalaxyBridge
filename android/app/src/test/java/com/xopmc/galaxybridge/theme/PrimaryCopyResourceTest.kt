@@ -67,7 +67,6 @@ class PrimaryCopyResourceTest {
             "qr_camera_required",
             "qr_invalid",
             "revoke_pairing_body",
-            "clipboard_share_loading",
             "setup_features_title",
             "setup_features_body",
             "setup_save_choices",

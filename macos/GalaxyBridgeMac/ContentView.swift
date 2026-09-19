@@ -1,3 +1,4 @@
+import AppKit
 import GalaxyBridgeCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -667,17 +668,27 @@ private struct NotificationsPanel: View {
                     PlaceholderPanel(symbol: "bell", title: "NOTIFICATIONS_PANEL")
                 }
             } else {
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .trailing, spacing: 8) {
                     NotificationFiltersMenu(deviceID: deviceID)
                         .padding(.horizontal, 12)
-                    ScrollView(.horizontal) {
-                        LazyHStack(spacing: 12) {
+                    ScrollView {
+                        LazyVGrid(
+                            columns: [
+                                GridItem(
+                                    .adaptive(minimum: 280, maximum: 380),
+                                    spacing: 12,
+                                    alignment: .top
+                                )
+                            ],
+                            alignment: .leading,
+                            spacing: 12
+                        ) {
                             ForEach(notifications) { notification in
                                 NotificationCard(deviceID: deviceID, notification: notification)
-                                    .frame(width: 300)
                             }
                         }
                         .padding(.horizontal, 12)
+                        .padding(.bottom, 12)
                     }
                 }
             }
@@ -1009,9 +1020,18 @@ private struct NotificationCard: View {
     @State private var reply = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text(notification.appLabel).font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 9) {
+                notificationIcon
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(notification.appLabel)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text(notification.postedAt, style: .relative)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
                 Spacer()
                 Button {
                     model.toggleNotificationPackage(deviceID: deviceID, packageName: notification.packageName)
@@ -1028,9 +1048,13 @@ private struct NotificationCard: View {
                 } label: { Image(systemName: "xmark") }
                 .buttonStyle(.plain)
             }
-            Text(notification.title).font(.headline).lineLimit(1)
-            Text(notification.body).font(.caption).lineLimit(2)
-            Spacer(minLength: 2)
+            Text(notification.title)
+                .font(.headline)
+                .lineLimit(2)
+            Text(notification.body)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
             ForEach(notification.actions.prefix(2)) { action in
                 if action.acceptsText {
                     HStack {
@@ -1057,8 +1081,31 @@ private struct NotificationCard: View {
                 }
             }
         }
-        .padding(10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 138, alignment: .topLeading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(.quaternary, lineWidth: 1)
+        }
+    }
+
+    @ViewBuilder
+    private var notificationIcon: some View {
+        if let data = notification.appIconPNG, let image = NSImage(data: data) {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: 30, height: 30)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        } else {
+            Image(systemName: "app.fill")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 30, height: 30)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
     }
 }
 

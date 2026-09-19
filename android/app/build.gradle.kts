@@ -65,9 +65,12 @@ android {
         }
     }
 
+    sourceSets.named("internal") {
+        kotlin.directories.add("src/shell/java")
+    }
     sourceSets.named("direct") {
         manifest.srcFile("src/direct/AndroidManifest.xml")
-        java.directories.add("src/internal/java")
+        kotlin.directories.add("src/shell/java")
     }
 
     buildFeatures {
