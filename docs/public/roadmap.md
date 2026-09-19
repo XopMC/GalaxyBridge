@@ -6,7 +6,7 @@
 
 ## English
 
-0.1.0 is an early Direct-channel release for macOS and Android. This list distinguishes remaining validation from future product work; it is not a promise of delivery dates.
+0.1.1 is an early Direct-channel release for macOS and Android. This list distinguishes remaining validation from future product work; it is not a promise of delivery dates.
 
 ### Release follow-up
 
@@ -14,7 +14,7 @@
 - [ ] Validate installation and first launch on a clean Apple Silicon Mac without development tools.
 - [ ] Expand the Samsung/Android/macOS hardware matrix, including audio, recording, input, notification actions, and transfer recovery.
 - [ ] Review all shipped translations with native speakers and check layout on additional devices.
-- [ ] Rebuild and validate installable artifacts from the public CMake workflow independently of the original 0.1.0 binaries.
+- [x] Rebuild and validate installable artifacts from the public CMake workflow.
 
 ### Future capabilities
 
@@ -29,7 +29,7 @@ USB and Companion routes have different requirements. A source test, successful 
 
 ## Русский
 
-0.1.0 — ранний выпуск канала Direct для macOS и Android. Ниже отдельно перечислены незавершённые проверки и будущие возможности; сроки не обещаются.
+0.1.1 — ранний выпуск канала Direct для macOS и Android. Ниже отдельно перечислены незавершённые проверки и будущие возможности; сроки не обещаются.
 
 ### После выпуска
 
@@ -37,7 +37,7 @@ USB and Companion routes have different requirements. A source test, successful 
 - [ ] Проверить установку и первый запуск на чистом Mac с Apple Silicon без инструментов разработчика.
 - [ ] Расширить матрицу Samsung/Android/macOS: звук, запись, ввод, действия уведомлений и восстановление передачи файлов.
 - [ ] Проверить все переводы с носителями языка и раскладку интерфейса на дополнительных устройствах.
-- [ ] Независимо пересобрать и проверить установочные файлы публичным процессом CMake, отдельно от исходных бинарников 0.1.0.
+- [x] Пересобрать и проверить установочные файлы публичным процессом CMake.
 
 ### Будущие возможности
 

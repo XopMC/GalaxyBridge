@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Create a GitHub/ad-hoc app and drag-to-Applications DMG.
 
-Defaults to candidate metadata. Explicit --release labels the agreed 0.1.0
+Defaults to candidate metadata. Explicit --release labels the agreed 0.1.1
 Direct scope; it does not notarize, install, publish, or certify hardware tests.
 All source bundle changes happen in an owned staging copy.
 """
@@ -16,6 +16,8 @@ import shutil
 import subprocess
 import tempfile
 
+VERSION = "0.1.1"
+
 def distribution_metadata(release: bool) -> dict:
     return {
         "CFBundleIdentifier": "com.xopmc.GalaxyBridge",
@@ -27,7 +29,7 @@ def distribution_metadata(release: bool) -> dict:
 
 
 def installation_text(release: bool) -> str:
-    title = "Direct release 0.1.0" if release else "GitHub direct candidate"
+    title = f"Direct release {VERSION}" if release else "GitHub direct candidate"
     return (
         f"Galaxy Bridge - {title}, macOS 14+, Apple Silicon\n\n"
         "Open the DMG and drag Galaxy Bridge.app to Applications. ADB and its\n"
@@ -36,7 +38,7 @@ def installation_text(release: bool) -> str:
         "may block a downloaded build; review it and use System Settings >\n"
         "Privacy & Security > Open Anyway if you choose to run it.\n\n"
         + (
-            "RELEASE 0.1.0 SCOPE: Message replies use supported notification\n"
+            f"RELEASE {VERSION} SCOPE: Message replies use supported notification\n"
             "actions only. Full SMS history and direct SMS sending are not included.\n"
             "Virtual webcam support is not included in this release. The Camera\n"
             "Extension remains embedded, but activation requires suitable Apple\n"
@@ -60,7 +62,7 @@ parser.add_argument("source_app", type=Path)
 parser.add_argument("output_directory", type=Path)
 parser.add_argument("--adb-runtime", type=Path, default=ROOT / ".build/owned-adb/runtime-v2.2")
 parser.add_argument("--release", action="store_true",
-                    help="Label Direct release 0.1.0 (notification replies only, no virtual webcam).")
+                    help="Label Direct release 0.1.1 (notification replies only, no virtual webcam).")
 args = parser.parse_args()
 source, output, runtime = (p.resolve() for p in (args.source_app, args.output_directory, args.adb_runtime))
 if output.exists() or source == output or source in output.parents:
@@ -145,7 +147,7 @@ with tempfile.TemporaryDirectory(prefix=".galaxybridge-direct-", dir=output.pare
     version_keys.mkdir(mode=0o700)
     subprocess.run(["/usr/bin/env", "-i", "PATH=/usr/bin:/bin",
                     "GALAXYBRIDGE_ADB_USER_DIR=" + str(version_keys), str(adb_directory / "adb"), "version"], check=True)
-    dmg = stage / "GalaxyBridge-0.1.0-macOS-arm64.dmg"
+    dmg = stage / f"GalaxyBridge-{VERSION}-macOS-arm64.dmg"
     subprocess.run(["sh", str(ROOT / "scripts/create-macos-dmg-layout.sh"), str(app), str(dmg)], check=True)
     (stage / "INSTALL.txt").write_text(installation_text(args.release))
     (stage / "SHA256SUMS").write_text(hashlib.sha256(dmg.read_bytes()).hexdigest() + "  " + dmg.name + "\n")
@@ -153,7 +155,7 @@ with tempfile.TemporaryDirectory(prefix=".galaxybridge-direct-", dir=output.pare
     output.mkdir()
     for path in stage.iterdir():
         shutil.move(str(path), str(output / path.name))
-label = "Direct release 0.1.0" if args.release else "GitHub/ad-hoc candidate"
+label = f"Direct release {VERSION}" if args.release else "GitHub/ad-hoc candidate"
 print(f"Created self-contained {label}: {output}")
 if args.release:
     print("Release scope: notification replies only; no full SMS history/sending or virtual webcam.")

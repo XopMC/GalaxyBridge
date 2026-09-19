@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(GalaxyBridge VERSION 0.1.0 LANGUAGES NONE)
+project(GalaxyBridge VERSION 0.1.1 LANGUAGES NONE)
 if(NOT APPLE OR NOT CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "arm64")
   message(FATAL_ERROR "This preset builds macOS arm64 plus the Android companion; use an Apple Silicon Mac.")
 endif()

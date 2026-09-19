@@ -12,6 +12,7 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+VERSION = '0.1.1'
 
 def build_environment(build, inherited):
     environment = dict(inherited, MACOSX_DEPLOYMENT_TARGET='14.0',
@@ -98,13 +99,13 @@ def macos_app(build, env):
     info.update(CFBundleIdentifier='com.xopmc.GalaxyBridge', CFBundleName='Galaxy Bridge',
                 CFBundleExecutable='GalaxyBridgeMac', GalaxyBridgeDistribution='github-direct',
                 GalaxyBridgeReleaseStatus='candidate', GalaxyBridgeCameraExtensionProvisioned=False,
-                CFBundleShortVersionString='0.1.0', CFBundleVersion='1')
+                CFBundleShortVersionString=VERSION, CFBundleVersion='2')
     (contents / 'Info.plist').write_bytes(plistlib.dumps(info))
-    bundle = binary_directory / 'GalaxyBridge_GalaxyBridgeMac.bundle'
-    shutil.copytree(bundle, resources / bundle.name)
-    for locale in bundle.glob('*.lproj'): shutil.copytree(locale, resources / locale.name)
+    for locale in (ROOT / 'macos/GalaxyBridgeMac/Resources').glob('*.lproj'):
+        shutil.copytree(locale, resources / locale.name)
     for filename in ['GalaxyBridge.icns', 'PrivacyInfo.xcprivacy']:
         shutil.copy2(ROOT / 'macos/GalaxyBridgeMac/Resources' / filename, resources / filename)
+    run([sys.executable, ROOT / 'scripts/test-macos-main-bundle-localization.py', app], env)
     shutil.copy2(build / 'BuildArtifacts.json', resources / 'BuildArtifacts.json')
     shutil.copy2(build / 'artifacts/scrcpy/scrcpy-server-v4.1', resources / 'scrcpy-server-v4.1')
     quic = resources / 'quic'; quic.mkdir()
@@ -118,7 +119,7 @@ def macos_app(build, env):
          '-o', extension / 'Contents/MacOS/GalaxyBridgeCameraExtension'], env)
     ei = plistlib.loads((ROOT / 'macos/GalaxyBridgeCameraExtension/Info.plist').read_bytes())
     ei.update(CFBundleExecutable='GalaxyBridgeCameraExtension', CFBundleIdentifier='com.xopmc.GalaxyBridge.CameraExtension',
-              CFBundleShortVersionString='0.1.0', CFBundleVersion='1', CMIOExtensionMachServiceName='group.com.xopmc.GalaxyBridge.CameraExtension')
+              CFBundleShortVersionString=VERSION, CFBundleVersion='2', CMIOExtensionMachServiceName='group.com.xopmc.GalaxyBridge.CameraExtension')
     (extension / 'Contents/Info.plist').write_bytes(plistlib.dumps(ei))
     run(['codesign', '--force', '--timestamp=none', '--sign', '-', extension], env)
     run(['codesign', '--force', '--timestamp=none', '--sign', '-', app], env)
@@ -130,7 +131,7 @@ def macos_app(build, env):
 
 def android_apk(build, env):
     signed = bool(env.get('GB_ANDROID_DIRECT_KEYSTORE'))
-    output = build / 'artifacts' / ('GalaxyBridge-0.1.0-direct.apk' if signed else 'GalaxyBridge-0.1.0-direct-unsigned.apk')
+    output = build / 'artifacts' / (f'GalaxyBridge-{VERSION}-direct.apk' if signed else f'GalaxyBridge-{VERSION}-direct-unsigned.apk')
     # Gradle builds incrementally; remove only this executor's declared outputs.
     for path in (output, output.with_suffix('.signature.txt'), output.with_suffix('.sha256')):
         if path.exists(): path.unlink()
@@ -141,7 +142,7 @@ def package(build, env):
     if output.exists(): raise SystemExit('Package directory exists; choose a fresh build tree or move its packages directory. Never overwritten.')
     run([sys.executable, ROOT / 'scripts/package-macos-direct.py', build / 'artifacts/GalaxyBridge.app', output,
          '--adb-runtime', build / 'artifacts/adb', '--release'], env)
-    for apk in (build / 'artifacts').glob('GalaxyBridge-0.1.0-direct*.apk'):
+    for apk in (build / 'artifacts').glob(f'GalaxyBridge-{VERSION}-direct*.apk'):
         for path in (apk, apk.with_suffix('.signature.txt'), apk.with_suffix('.sha256')):
             shutil.copy2(path, output / path.name)
     lines = [sha(p) + '  ' + p.name for p in sorted(output.iterdir()) if p.suffix in ('.dmg', '.apk')]

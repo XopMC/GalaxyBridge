@@ -40,7 +40,7 @@ for arguments, status in ((candidate, "candidate"), (release, "release")):
     assert "drag Galaxy Bridge.app to Applications" in text
 assert "direct candidate" in policy.installation_text(False)
 release_text = policy.installation_text(True)
-assert "Direct release 0.1.0" in release_text
+assert "Direct release 0.1.1" in release_text
 assert "Full SMS history and direct SMS sending are not included" in release_text
 assert "Virtual webcam support is not included" in release_text
 assert "Extension remains embedded" in release_text
@@ -84,7 +84,7 @@ with tempfile.TemporaryDirectory(prefix="gb-direct-package-") as temporary:
     assert hashlib.sha256((result / "Contents/Resources/platform-tools/adb").read_bytes()).hexdigest() == hashlib.sha256((runtime / "adb").read_bytes()).hexdigest(), "ad-hoc re-sign must preserve the reviewed pinned ADB bytes"
     info = plistlib.loads((result / "Contents/Info.plist").read_bytes())
     assert info["GalaxyBridgeReleaseStatus"] == "release"
-    assert "Direct release 0.1.0" in (output / "INSTALL.txt").read_text()
+    assert "Direct release 0.1.1" in (output / "INSTALL.txt").read_text()
     assert info["GalaxyBridgeDistribution"] == "github-direct"
     assert info["CFBundleIdentifier"] == "com.xopmc.GalaxyBridge"
     assert info["GalaxyBridgeCameraExtensionProvisioned"] is False
@@ -94,7 +94,7 @@ with tempfile.TemporaryDirectory(prefix="gb-direct-package-") as temporary:
     subprocess.run(["env", "-i", "PATH=/usr/bin:/bin", "GALAXYBRIDGE_ADB_USER_DIR=" + str(probe.resolve()),
                     str(result / "Contents/Resources/platform-tools/adb"), "version"],
                    check=True, stdout=subprocess.DEVNULL)
-    dmg = output / "GalaxyBridge-0.1.0-macOS-arm64.dmg"
+    dmg = output / "GalaxyBridge-0.1.1-macOS-arm64.dmg"
     mounted = work / "mounted"
     mounted.mkdir()
     subprocess.run(["hdiutil", "attach", "-readonly", "-nobrowse", "-mountpoint", str(mounted), str(dmg)],

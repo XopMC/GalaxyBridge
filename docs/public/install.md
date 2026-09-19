@@ -1,4 +1,4 @@
-# Install Galaxy Bridge 0.1.0
+# Install Galaxy Bridge 0.1.1
 
 [English](#english) · [Русский](#russian) · [README](../../README.md)
 
@@ -8,7 +8,7 @@
 
 ### Requirements and downloads
 
-Use macOS 14 or later on an Apple Silicon Mac and Android 12 or later on a Samsung phone. Intel Macs are not included in this release. Download both the DMG and APK from [release 0.1.0](https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.0); check any published checksums before installation.
+Use macOS 14 or later on an Apple Silicon Mac and Android 12 or later on a Samsung phone. Intel Macs are not included in this release. Download both the DMG and APK from [release 0.1.1](https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.1); check any published checksums before installation.
 
 ### Mac
 
@@ -47,7 +47,7 @@ Received files appear in **Downloads** on Mac and **Download/GalaxyBridge** on A
 
 ### Требования и загрузка
 
-Нужны macOS 14 или новее на Mac с Apple Silicon и Android 12 или новее на телефоне Samsung. Intel Mac в этом выпуске не поддерживается. Скачайте DMG и APK со страницы [выпуска 0.1.0](https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.0); перед установкой проверьте опубликованные контрольные суммы, если они приложены.
+Нужны macOS 14 или новее на Mac с Apple Silicon и Android 12 или новее на телефоне Samsung. Intel Mac в этом выпуске не поддерживается. Скачайте DMG и APK со страницы [выпуска 0.1.1](https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.1); перед установкой проверьте опубликованные контрольные суммы, если они приложены.
 
 ### Mac
 

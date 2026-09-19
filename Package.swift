@@ -79,8 +79,7 @@ let package = Package(
             name: "GalaxyBridgeMac",
             dependencies: galaxyBridgeMacDependencies,
             path: "macos/GalaxyBridgeMac",
-            exclude: ["Info.plist", "Assets.xcassets"],
-            resources: [.process("Resources")],
+            exclude: ["Info.plist", "Assets.xcassets", "Resources"],
             swiftSettings: isMacAppStoreBuild ? [.define("GALAXYBRIDGE_APP_STORE")]
                 : quicBackendLibrary.hasSuffix("-qa.a") ? [.define("GB_QUIC_BACKEND_QA")] : [],
             linkerSettings: quicBackendLink + [

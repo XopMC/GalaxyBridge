@@ -28,7 +28,9 @@ def run(args, extra=None):
 for script in ['public-build.py', 'package-macos-direct.py', 'package-android-direct.py', 'bootstrap-build-tools.py']:
     ast.parse((ROOT / 'scripts' / script).read_text(), filename=script)
 run([sys.executable, ROOT / 'scripts/test-public-build.py'])
+run([sys.executable, ROOT / 'scripts/test-macos-main-bundle-localization.py'])
 run([sys.executable, ROOT / 'scripts/test-macos-direct-package.py', '--metadata-only'])
+run(['bash', ROOT / 'scripts/test-macos-distribution-resources.sh'])
 run(['swift', ROOT / 'scripts/verify-localizations.swift'])
 run(['swift', ROOT / 'scripts/test-app-icons.swift'])
 for product in ['GalaxyBridgeCoreSpec', 'GalaxyBridgeProtocolSpec']:

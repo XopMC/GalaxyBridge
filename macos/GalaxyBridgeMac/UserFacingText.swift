@@ -1,7 +1,10 @@
 import Foundation
 
 enum UserFacingText {
-    private static let resolver = UserFacingTextResolver(bundle: .module)
+    // The Direct app stages its catalogs in Contents/Resources.  Referencing
+    // Bundle.module makes SwiftPM search beside the app bundle on newer macOS
+    // releases, which traps while opening the pairing sheet.
+    private static let resolver = UserFacingTextResolver(bundle: .main)
 
     static func callStateName(rawValue: Int) -> String {
         resolver.callStateName(rawValue: rawValue)

@@ -49,6 +49,10 @@
     <key>NSBonjourServices</key>
     <array>
         <string>_galaxybridge._tcp</string>
+        <!-- Android Wireless debugging advertises these ADB services.  Declaring
+             them is required for the macOS Local Network permission prompt. -->
+        <string>_adb-tls-pairing._tcp</string>
+        <string>_adb-tls-connect._tcp</string>
     </array>
 </dict>
 </plist>

@@ -3,14 +3,14 @@
   <h1>Galaxy Bridge</h1>
   <p>Your Samsung phone, at home on your Mac.<br>Ваш Samsung — рядом с вами на Mac.</p>
   <p>
-    <a href="https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.0"><img alt="0.1.0 prerelease" src="https://img.shields.io/badge/version-0.1.0%20prerelease-orange"></a>
+    <a href="https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.1"><img alt="0.1.1 prerelease" src="https://img.shields.io/badge/version-0.1.1%20prerelease-orange"></a>
     <img alt="macOS 14 or later" src="https://img.shields.io/badge/macOS-14%2B-blue">
     <img alt="Apple Silicon" src="https://img.shields.io/badge/Mac-Apple%20Silicon-black">
     <img alt="Android 12 or later" src="https://img.shields.io/badge/Android-12%2B-3DDC84">
     <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-green"></a>
   </p>
   <p><a href="#english">English</a> · <a href="#russian">Русский</a></p>
-  <p><a href="https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.0">Download / Скачать 0.1.0</a></p>
+  <p><a href="https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.1">Download / Скачать 0.1.1</a></p>
 </div>
 
 <a id="english"></a>
@@ -21,7 +21,7 @@
 
 Galaxy Bridge connects a Samsung Android phone to a Mac for screen control, audio, notifications, clipboard, and file transfers. It works locally, without an account or cloud relay. A shared One UI-inspired icon and system-language interfaces keep both apps familiar.
 
-**0.1.0 is a prerelease** for Apple Silicon Macs and Samsung Android phones. See the [release notes](docs/public/release-notes-0.1.0.md).
+**0.1.1 is a prerelease** for Apple Silicon Macs and Samsung Android phones. It fixes the macOS 26 crash when opening QR pairing. See the [release notes](docs/public/release-notes-0.1.1.md).
 
 ### Screenshots
 
@@ -42,7 +42,7 @@ Galaxy Bridge connects a Samsung Android phone to a Mac for screen control, audi
 
 ### Download and install
 
-1. Download the **DMG and APK** from [release 0.1.0](https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.0).
+1. Download the **DMG and APK** from [release 0.1.1](https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.1).
 2. Open the DMG and drag **Galaxy Bridge** into **Applications**. Install the APK on your Android phone.
 3. Open both apps, choose the features you want, and follow pairing and permission prompts. For the initial USB mirror, enable USB debugging and approve this Mac on your phone.
 
@@ -57,12 +57,12 @@ cmake --preset macos-arm64-release
 cmake --build --preset macos-arm64-release --target native macos-app android-apk
 ```
 
-Use `package` for distribution artifacts. The `check` target builds native prerequisites and runs source tests without installing apps or operating a phone. See the [build guide](docs/public/build.md) for signing inputs, output paths, and validation limits. The 0.1.0 downloads were prepared before the public CMake build integration; a source rebuild is a separate artifact.
+Use `package` for distribution artifacts. The `check` target builds native prerequisites and runs source tests without installing apps or operating a phone. See the [build guide](docs/public/build.md) for signing inputs, output paths, and validation limits.
 
 ### Limitations
 
 - **Validation is still incomplete:** Wi-Fi reliability, clean-Mac installation, long runs, and the wider device matrix remain to be verified.
-- **Full SMS history/direct sending and virtual webcam activation are not included in 0.1.0.** Notification replies depend on Android exposing a reply action.
+- **Full SMS history/direct sending and virtual webcam activation are not included in 0.1.1.** Notification replies depend on Android exposing a reply action.
 - **Audio and app-window compatibility vary** by phone and application; some recordings contain video only.
 - **No Apple notarization:** the Mac download uses an ad-hoc signature. Intel Macs are not supported by this release.
 
@@ -95,7 +95,7 @@ Created by **Mikhail Khoroshavin ([XopMC](https://github.com/XopMC))**. Galaxy B
 
 Galaxy Bridge связывает Samsung на Android с Mac: управление экраном телефона, звук, уведомления, буфер обмена и передача файлов. Всё работает локально, без аккаунта и облачного ретранслятора. Общая иконка в духе One UI и интерфейс на системном языке объединяют оба приложения.
 
-**0.1.0 — предварительный выпуск** для Mac с Apple Silicon и телефонов Samsung на Android. Подробнее — в [заметках к выпуску](docs/public/release-notes-0.1.0.md#russian).
+**0.1.1 — предварительный выпуск** для Mac с Apple Silicon и телефонов Samsung на Android. В нём исправлено падение macOS 26 при открытии QR-сопряжения. Подробнее — в [заметках к выпуску](docs/public/release-notes-0.1.1.md#russian).
 
 ### Скриншоты
 
@@ -116,7 +116,7 @@ Galaxy Bridge связывает Samsung на Android с Mac: управлени
 
 ### Скачать и установить
 
-1. Скачайте **DMG и APK** со страницы [выпуска 0.1.0](https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.0).
+1. Скачайте **DMG и APK** со страницы [выпуска 0.1.1](https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.1).
 2. Откройте DMG и перенесите **Galaxy Bridge** в **«Программы»**. Установите APK на телефон.
 3. Откройте оба приложения, выберите нужные функции и следуйте подсказкам сопряжения и разрешений. Для первого подключения экрана по USB включите отладку по USB и подтвердите доступ для этого Mac на телефоне.
 
@@ -131,12 +131,12 @@ cmake --preset macos-arm64-release
 cmake --build --preset macos-arm64-release --target native macos-app android-apk
 ```
 
-Цель `package` подготавливает установочные файлы. Цель `check` собирает необходимые нативные компоненты и запускает проверки исходников без установки приложений и действий на телефоне. [Инструкция по сборке](docs/public/build.md#russian) описывает параметры подписи, каталоги результатов и границы проверки. Файлы выпуска 0.1.0 подготовлены до интеграции публичной сборки CMake; повторная сборка исходников создаёт отдельные артефакты.
+Цель `package` подготавливает установочные файлы. Цель `check` собирает необходимые нативные компоненты и запускает проверки исходников без установки приложений и действий на телефоне. [Инструкция по сборке](docs/public/build.md#russian) описывает параметры подписи, каталоги результатов и границы проверки.
 
 ### Ограничения
 
 - **Проверка ещё не завершена:** предстоит подтвердить надёжность Wi-Fi, установку на чистый Mac, длительную работу и расширенную матрицу устройств.
-- **Полная история SMS, прямая отправка SMS и активация виртуальной веб-камеры не входят в 0.1.0.** Ответ на уведомление зависит от наличия действия ответа в Android.
+- **Полная история SMS, прямая отправка SMS и активация виртуальной веб-камеры не входят в 0.1.1.** Ответ на уведомление зависит от наличия действия ответа в Android.
 - **Звук и совместимость отдельных окон зависят** от телефона и приложения; некоторые записи содержат только видео.
 - **Нотарификации Apple нет:** у приложения для Mac локальная ad-hoc подпись. Intel Mac в этом выпуске не поддерживается.
 

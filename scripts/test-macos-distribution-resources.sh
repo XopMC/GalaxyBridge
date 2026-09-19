@@ -10,6 +10,11 @@ GB_TMP="$(mktemp -d "${TMPDIR:-/tmp}/galaxybridge-resources.XXXXXX")"
 trap '/bin/rm -rf -- "$GB_TMP"' EXIT
 
 /usr/bin/plutil -lint "$GB_PRIVACY" "$GB_ROOT/macos/GalaxyBridgeMac/Info.plist"
+GB_SERVICE_INDEX=0
+for GB_SERVICE in _galaxybridge._tcp _adb-tls-pairing._tcp _adb-tls-connect._tcp; do
+  /usr/bin/plutil -extract "NSBonjourServices.$GB_SERVICE_INDEX" raw "$GB_ROOT/macos/GalaxyBridgeMac/Info.plist" | /usr/bin/grep -Fqx "$GB_SERVICE"
+  GB_SERVICE_INDEX=$((GB_SERVICE_INDEX + 1))
+done
 [[ "$(/usr/bin/plutil -extract NSPrivacyTracking raw "$GB_PRIVACY")" == "false" ]]
 [[ "$(/usr/bin/plutil -extract NSPrivacyAccessedAPITypes.0.NSPrivacyAccessedAPIType raw "$GB_PRIVACY")" == \
   "NSPrivacyAccessedAPICategoryUserDefaults" ]]
@@ -37,14 +42,8 @@ test -s "$GB_ICON"
 test -s "$GB_TMP/GalaxyBridge.iconset/icon_512x512@2x.png"
 
 /usr/bin/swift build --package-path "$GB_ROOT" --product GalaxyBridgeMac
-GB_BUNDLE="$GB_ROOT/.build/debug/GalaxyBridge_GalaxyBridgeMac.bundle"
-test -s "$GB_BUNDLE/PrivacyInfo.xcprivacy"
-test -s "$GB_BUNDLE/GalaxyBridge.icns"
-for GB_LOCALE_DIR in "$GB_RESOURCES"/*.lproj; do
-  GB_LOCALE_NAME=$(basename "$GB_LOCALE_DIR")
-  /usr/bin/cmp "$GB_LOCALE_DIR/InfoPlist.strings" "$GB_BUNDLE/$GB_LOCALE_NAME/InfoPlist.strings"
-  /usr/bin/cmp "$GB_LOCALE_DIR/Localizable.strings" "$GB_BUNDLE/$GB_LOCALE_NAME/Localizable.strings"
-done
+test ! -e "$GB_ROOT/.build/debug/GalaxyBridge_GalaxyBridgeMac.bundle"
+python3 "$GB_ROOT/scripts/test-macos-main-bundle-localization.py"
 
 for GB_TARGET in GalaxyBridgeInternal GalaxyBridgeAppStore; do
   GB_TARGET_BLOCK="$GB_TMP/$GB_TARGET.yml"
