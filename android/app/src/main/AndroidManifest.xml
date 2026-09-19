@@ -49,20 +49,6 @@
         </activity>
 
         <activity
-            android:name=".ClipboardShareActivity"
-            android:excludeFromRecents="true"
-            android:exported="true"
-            android:label="@string/clipboard_share_target">
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
-                <data android:mimeType="text/uri-list" />
-                <data android:mimeType="image/*" />
-            </intent-filter>
-        </activity>
-
-        <activity
             android:name=".CameraStartConfirmationActivity"
             android:excludeFromRecents="true"
             android:exported="false"
@@ -104,19 +90,6 @@
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
-        </service>
-
-        <service
-            android:name=".service.GalaxyBridgeImeService"
-            android:exported="true"
-            android:label="@string/ime_service_name"
-            android:permission="android.permission.BIND_INPUT_METHOD">
-            <intent-filter>
-                <action android:name="android.view.InputMethod" />
-            </intent-filter>
-            <meta-data
-                android:name="android.view.im"
-                android:resource="@xml/input_method_config" />
         </service>
 
         <provider

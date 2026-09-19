@@ -35,6 +35,7 @@ tar -tvzf "$archive" | awk 'substr($0,1,1)!="-" && substr($0,1,1)!="d" {exit 1}'
 work=$(mktemp -d "$cache/source-build.XXXXXX")
 tar -xzf "$archive" -C "$work"
 src="$work/$prefix"
+cp "$bundle/ClipboardAgent.java" "$src/server/src/main/java/com/genymobile/scrcpy/ClipboardAgent.java"
 build_server() {
     local version="$1" dest="$work/$1"
     mkdir -p "$dest/gen/com/genymobile/scrcpy" "$dest/classes"

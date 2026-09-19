@@ -20,7 +20,6 @@
     <string name="accessibility_service_name">来自 Mac 的控制</string>
     <string name="accessibility_service_description">允许您在此手机上使用 Mac 鼠标和键盘。 Galaxy Bridge 不会读取密码或受保护的内容。</string>
     <string name="notification_service_name">Galaxy Bridge通知</string>
-    <string name="ime_service_name">Galaxy Bridge 键盘</string>
     <string name="home_title">Galaxy Bridge</string>
     <string name="home_subtitle">将 Galaxy 与 Apple Mac 一起使用</string>
     <string name="status_enabled">已启用</string>
@@ -71,18 +70,6 @@
     <string name="qr_preview_content_description">GalaxyBridge QR 配对扫描仪的相机预览</string>
     <string name="revoke_pairing_title">撤销此配对？</string>
     <string name="revoke_pairing_body">此手机和 Mac 会互相忘记。保存的通知和剪贴板历史记录将被删除，主动共享将停止。</string>
-    <string name="clipboard_share_target">Galaxy Bridge</string>
-    <string name="clipboard_share_title">发送至您的Mac</string>
-    <string name="clipboard_share_loading">正在准备预览...</string>
-    <string name="clipboard_share_invalid">该项目无法发送。选择文本、网络链接或支持的图像。</string>
-    <string name="clipboard_share_text_preview">正文</string>
-    <string name="clipboard_share_url_preview">网页链接</string>
-    <string name="clipboard_share_image_preview">图片</string>
-    <string name="clipboard_share_send">发送</string>
-    <string name="clipboard_share_retry">再试一次</string>
-    <string name="clipboard_share_sent">发送至您的Mac。</string>
-    <string name="clipboard_share_no_mac">在 Mac 上打开 Galaxy Bridge，然后重试。</string>
-    <string name="clipboard_share_busy">您的 Mac 仍在接收上一个项目。稍等片刻，然后重试。</string>
     <string name="about_entry">关于</string>
     <string name="about_title">关于Galaxy Bridge</string>
     <string name="about_author_label">创建者</string>
@@ -121,4 +108,6 @@
     <string name="file_send_failed">传输已暂停。请确认 Mac 上已打开 Galaxy Bridge，然后重试。</string>
     <string name="file_send_cancel_pending">正在取消。正在等待 Mac 确认…</string>
     <string name="file_send_cancelled">已取消</string>
+    <string name="clipboard_share_send">发送</string>
+    <string name="clipboard_share_retry">再试一次</string>
 </resources>

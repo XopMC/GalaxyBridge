@@ -20,7 +20,6 @@
     <string name="accessibility_service_name">來自 Mac 的控制</string>
     <string name="accessibility_service_description">讓您在此手機上使用 Mac 滑鼠和鍵盤。 Galaxy Bridge 不會讀取密碼或受保護的內容。</string>
     <string name="notification_service_name">Galaxy Bridge通知</string>
-    <string name="ime_service_name">Galaxy Bridge 鍵盤</string>
     <string name="home_title">Galaxy Bridge</string>
     <string name="home_subtitle">將 Galaxy 與 Apple Mac 搭配</string>
     <string name="status_enabled">已啟用</string>
@@ -71,18 +70,6 @@
     <string name="qr_preview_content_description">GalaxyBridge QR 配對掃描器的相機預覽</string>
     <string name="revoke_pairing_title">撤銷此配對？</string>
     <string name="revoke_pairing_body">這款手機和 Mac 會互相忘記。保存的通知和剪貼簿歷史記錄將被刪除，主動共享將停止。</string>
-    <string name="clipboard_share_target">Galaxy Bridge</string>
-    <string name="clipboard_share_title">發送至您的Mac</string>
-    <string name="clipboard_share_loading">正在準備預覽...</string>
-    <string name="clipboard_share_invalid">該項目無法發送。選擇文字、網頁連結或支援的圖像。</string>
-    <string name="clipboard_share_text_preview">正文</string>
-    <string name="clipboard_share_url_preview">網頁鏈接</string>
-    <string name="clipboard_share_image_preview">圖片</string>
-    <string name="clipboard_share_send">發送</string>
-    <string name="clipboard_share_retry">再試一次</string>
-    <string name="clipboard_share_sent">傳送至您的Mac。</string>
-    <string name="clipboard_share_no_mac">在 Mac 上開啟 Galaxy Bridge，然後再試一次。</string>
-    <string name="clipboard_share_busy">您的 Mac 仍在接收上一個項目。稍等片刻，然後再試一次。</string>
     <string name="about_entry">關於</string>
     <string name="about_title">關於Galaxy Bridge</string>
     <string name="about_author_label">創建者</string>
@@ -121,4 +108,6 @@
     <string name="file_send_failed">傳輸已暫停。請確認 Mac 上已開啟 Galaxy Bridge，然後再試一次。</string>
     <string name="file_send_cancel_pending">正在取消。正在等待 Mac 確認…</string>
     <string name="file_send_cancelled">已取消</string>
+    <string name="clipboard_share_send">發送</string>
+    <string name="clipboard_share_retry">再試一次</string>
 </resources>

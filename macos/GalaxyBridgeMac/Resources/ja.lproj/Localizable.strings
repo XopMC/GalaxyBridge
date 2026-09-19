@@ -202,7 +202,7 @@
 "WIFI_SETUP_STEP_DEVELOPER" = "1. Galaxy で、[設定] → [開発者向けオプション] を開きます。見つからない場合: [電話について] → [ソフトウェア情報] → [ビルド番号] を 7 回タップします。";
 "WIFI_SETUP_STEP_WIRELESS" = "2. 開発者向けオプションで、ワイヤレス デバッグをオンにします。信頼できる Wi-Fi ネットワークへのアクセスを確認します。";
 "WIFI_SETUP_STEP_CODE" = "3. [ペアリング コードでデバイスをペアリング] をタップし、その画面を開いたままにします。ここに 6 桁のコードを入力します。";
-"WIFI_SETUP_SEARCHING" = "Galaxy でペアリング コード画面を待っています…";
+"WIFI_SETUP_SEARCHING" = "ローカルネットワークで Galaxy を検索しています…";
 "WIFI_SETUP_SAME_NETWORK" = "両方のデバイスが同じローカル ネットワーク上に存在する必要があります。ゲスト Wi-Fi または VPN が検出を妨げる可能性があります。";
 "WIFI_SETUP_ONE_PHONE" = "コードは複数の電話機で開かれています。他の電話機でこれを閉じて、この Galaxy を選択します。";
 "WIFI_SETUP_CODE" = "6桁のコード";

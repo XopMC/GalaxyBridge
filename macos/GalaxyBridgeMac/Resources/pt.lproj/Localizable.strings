@@ -202,7 +202,7 @@
 "WIFI_SETUP_STEP_DEVELOPER" = "1. No Galaxy, abra Configurações → Opções do desenvolvedor. Se estiver faltando: Sobre o telefone → Informações do software → toque em Número da versão sete vezes.";
 "WIFI_SETUP_STEP_WIRELESS" = "2. Nas opções do desenvolvedor, ative a depuração sem fio. Confirme o acesso à sua rede Wi-Fi confiável.";
 "WIFI_SETUP_STEP_CODE" = "3. Toque em Emparelhar dispositivo com código de emparelhamento e mantenha a tela aberta. Digite seu código de seis dígitos aqui.";
-"WIFI_SETUP_SEARCHING" = "Aguardando a tela do código de emparelhamento no Galaxy…";
+"WIFI_SETUP_SEARCHING" = "Procurando o Galaxy na rede local…";
 "WIFI_SETUP_SAME_NETWORK" = "Ambos os dispositivos devem estar na mesma rede local. O convidado Wi-Fi ou uma VPN pode impedir a descoberta.";
 "WIFI_SETUP_ONE_PHONE" = "Um código está aberto em mais de um telefone. Feche-o nos outros telefones para escolher este Galaxy.";
 "WIFI_SETUP_CODE" = "Código de seis dígitos";

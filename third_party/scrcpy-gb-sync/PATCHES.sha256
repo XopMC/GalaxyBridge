@@ -1,2 +1,3 @@
 b8a9a0b1f50ebac76b694659b5ae79d028b4b38fdd0493e8ea6ca88a2528ed6f  patches/0001-request-sync-frame.patch
 0c2832ae4a91187bd077c7f48aff328948a03b0b31dfbd0c4ef16c9fd80c2c14  patches/0002-defer-sync-to-rate-slot.patch
+23ede26f47b91f55618e2c3aa88d059fce90832631f7a7fdeb3921a9005fc2d5  ClipboardAgent.java

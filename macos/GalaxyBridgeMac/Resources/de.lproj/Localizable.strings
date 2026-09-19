@@ -201,7 +201,7 @@
 "WIFI_SETUP_STEP_DEVELOPER" = "1. Öffnen Sie auf dem Galaxy Einstellungen → Entwickleroptionen. Falls diese fehlen: Telefoninfo → Softwareinformationen → siebenmal auf Buildnummer tippen.";
 "WIFI_SETUP_STEP_WIRELESS" = "2. Aktivieren Sie in den Entwickleroptionen „Drahtloses Debugging“. Bestätigen Sie den Zugriff auf Ihr vertrauenswürdiges WLAN.";
 "WIFI_SETUP_STEP_CODE" = "3. Tippen Sie auf „Gerät mit Kopplungscode koppeln“ und lassen Sie diesen Bildschirm geöffnet. Geben Sie den sechsstelligen Code hier ein.";
-"WIFI_SETUP_SEARCHING" = "Warten auf den Bildschirm mit dem Kopplungscode auf dem Galaxy…";
+"WIFI_SETUP_SEARCHING" = "Galaxy wird im lokalen Netzwerk gesucht…";
 "WIFI_SETUP_SAME_NETWORK" = "Beide Geräte müssen sich im selben lokalen Netzwerk befinden. Ein Gäste-WLAN oder VPN kann die Erkennung verhindern.";
 "WIFI_SETUP_ONE_PHONE" = "Ein Code ist auf mehreren Smartphones geöffnet. Schließen Sie ihn auf den anderen Smartphones, um dieses Galaxy auszuwählen.";
 "WIFI_SETUP_CODE" = "Sechsstelliger Code";

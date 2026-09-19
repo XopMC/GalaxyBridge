@@ -1850,6 +1850,21 @@ do {
     )
     print("PASS ScrcpyClipboardIdentity provides stable per-device loop suppression IDs")
 
+    var clipboardAgent = ScrcpyClipboardAgentDecoder()
+    var clipboardAgentFrame = Data("GBC1".utf8)
+    clipboardAgentFrame.append(ScrcpyClipboardContentKind.png.rawValue)
+    clipboardAgentFrame.append(contentsOf: [0, 0, 0, 4, 0x89, 0x50, 0x4E, 0x47])
+    let partialClipboardAgentMessages = try clipboardAgent.append(clipboardAgentFrame.prefix(6))
+    precondition(partialClipboardAgentMessages == [])
+    let completeClipboardAgentMessages = try clipboardAgent.append(clipboardAgentFrame.dropFirst(6))
+    precondition(
+        completeClipboardAgentMessages == [
+            .init(kind: .png, content: Data([0x89, 0x50, 0x4E, 0x47]))
+        ],
+        "clipboard agent decoder must retain fragmented image frames"
+    )
+    print("PASS shell clipboard agent decoder accepts bounded fragmented image frames")
+
     let touchMessage = ScrcpyControlMessage.touch(
         action: .down,
         pointerID: UInt64.max,

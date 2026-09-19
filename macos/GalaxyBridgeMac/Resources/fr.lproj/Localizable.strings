@@ -201,7 +201,7 @@
 "WIFI_SETUP_STEP_DEVELOPER" = "1. Sur le Galaxy, ouvrez Paramètres → Options de développement. Si elles n’apparaissent pas : À propos du téléphone → Informations sur le logiciel → touchez sept fois Numéro de version.";
 "WIFI_SETUP_STEP_WIRELESS" = "2. Dans les options de développement, activez le débogage sans fil. Confirmez l’accès à votre réseau Wi-Fi de confiance.";
 "WIFI_SETUP_STEP_CODE" = "3. Touchez « Associer un appareil avec un code d’association » et laissez cet écran ouvert. Saisissez ici son code à six chiffres.";
-"WIFI_SETUP_SEARCHING" = "En attente de l’écran du code d’association sur le Galaxy…";
+"WIFI_SETUP_SEARCHING" = "Recherche du Galaxy sur le réseau local…";
 "WIFI_SETUP_SAME_NETWORK" = "Les deux appareils doivent être sur le même réseau local. Un réseau Wi-Fi invité ou un VPN peut empêcher la détection.";
 "WIFI_SETUP_ONE_PHONE" = "Un code est ouvert sur plusieurs téléphones. Fermez-le sur les autres téléphones pour choisir ce Galaxy.";
 "WIFI_SETUP_CODE" = "Code à six chiffres";

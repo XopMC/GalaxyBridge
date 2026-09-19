@@ -20,7 +20,6 @@
     <string name="accessibility_service_name">Mac에서 제어</string>
     <string name="accessibility_service_description">이 휴대폰에서 Mac 마우스와 키보드를 사용할 수 있습니다. Galaxy Bridge는 비밀번호나 보호된 콘텐츠를 읽지 않습니다.</string>
     <string name="notification_service_name">Galaxy Bridge 알림</string>
-    <string name="ime_service_name">Galaxy Bridge 키보드</string>
     <string name="home_title">Galaxy Bridge</string>
     <string name="home_subtitle">Apple Mac와 함께 Galaxy를 사용하세요.</string>
     <string name="status_enabled">활성화됨</string>
@@ -71,18 +70,6 @@
     <string name="qr_preview_content_description">GalaxyBridge QR 페어링 스캐너의 카메라 미리보기</string>
     <string name="revoke_pairing_title">이 페어링을 취소하시겠습니까?</string>
     <string name="revoke_pairing_body">이 전화기와 Mac는 서로를 잊을 것입니다. 저장된 알림 및 클립보드 기록이 삭제되고 활성 공유가 중지됩니다.</string>
-    <string name="clipboard_share_target">Galaxy Bridge</string>
-    <string name="clipboard_share_title">Mac로 보내기</string>
-    <string name="clipboard_share_loading">미리보기 준비 중…</string>
-    <string name="clipboard_share_invalid">이 상품은 발송이 불가능합니다. 텍스트, 웹 링크 또는 지원되는 이미지를 선택하세요.</string>
-    <string name="clipboard_share_text_preview">텍스트</string>
-    <string name="clipboard_share_url_preview">웹링크</string>
-    <string name="clipboard_share_image_preview">이미지</string>
-    <string name="clipboard_share_send">보내기</string>
-    <string name="clipboard_share_retry">다시 시도해 보세요</string>
-    <string name="clipboard_share_sent">Mac로 전송되었습니다.</string>
-    <string name="clipboard_share_no_mac">Mac에서 Galaxy Bridge를 열고 다시 시도하세요.</string>
-    <string name="clipboard_share_busy">Mac가 여전히 이전 항목을 받고 있습니다. 잠시 기다렸다가 다시 시도해 보세요.</string>
     <string name="about_entry">소개</string>
     <string name="about_title">Galaxy Bridge 소개</string>
     <string name="about_author_label">작성자:</string>
@@ -121,4 +108,6 @@
     <string name="file_send_failed">전송이 일시 중지되었습니다. Mac에서 Galaxy Bridge가 열려 있는지 확인한 후 다시 시도하세요.</string>
     <string name="file_send_cancel_pending">취소 중. Mac의 확인을 기다리는 중…</string>
     <string name="file_send_cancelled">취소됨</string>
+    <string name="clipboard_share_send">보내기</string>
+    <string name="clipboard_share_retry">다시 시도해 보세요</string>
 </resources>

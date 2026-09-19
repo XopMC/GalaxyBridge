@@ -142,13 +142,7 @@ class GalaxyAccessibilityService : AccessibilityService() {
 
     private fun injectTextNow(text: String): Boolean {
         if (text.isEmpty()) return true
-        val delivered = RemoteTextInjectionPolicy.deliver(
-            accessibility = {
-                val focused = editableNode() ?: return@deliver false
-                replaceSelection(focused, text)
-            },
-            imeFallback = { GalaxyBridgeImeService.commitText(text) },
-        )
+        val delivered = editableNode()?.let { replaceSelection(it, text) } == true
         Log.i(INPUT_LOG_TAG, "text delivery bytes=${text.toByteArray().size} delivered=$delivered")
         return delivered
     }

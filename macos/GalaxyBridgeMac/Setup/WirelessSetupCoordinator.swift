@@ -91,8 +91,27 @@ final class LocalWirelessSetupClient: @unchecked Sendable, WirelessSetupClient {
         let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         process.waitUntilExit()
         return WirelessADBService.parseBonjourResolution(
-            name: advertisement.name, kind: advertisement.kind, output: text
+            name: advertisement.name,
+            kind: advertisement.kind,
+            output: text,
+            resolveIPv4: Self.resolveIPv4
         )
+    }
+
+    private static func resolveIPv4(hostname: String) -> [String] {
+        let process = Process(), output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/dscacheutil")
+        process.arguments = ["-q", "host", "-a", "name", hostname]
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return [] }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 2) { if process.isRunning { process.terminate() } }
+        let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        return text.split(whereSeparator: \.isNewline).compactMap { line in
+            let fields = line.split(whereSeparator: \.isWhitespace).map(String.init)
+            return fields.count == 2 && fields[0] == "ip_address:" ? fields[1] : nil
+        }
     }
     func pair(_ service: WirelessADBService, code: WirelessADBPairingCode) async throws {
         try await perform { try $0.pair(service: service, code: code) }
@@ -135,12 +154,25 @@ final class WirelessSetupCoordinator: ObservableObject {
         phase = .searching
         let ticket = generation
         task = Task { [weak self, client, pollDelay] in
+            var attemptedConnectionServices = Set<String>()
             // Discovery is finite and user-restartable; never churn indefinitely
             // when debugging is disabled or the local-network permission is denied.
             for _ in 0..<120 {
                 do {
-                    let candidates = try await client.discover().filter { $0.kind == .pairing }
+                    let discovered = try await client.discover()
                     guard !Task.isCancelled, let self, self.generation == ticket else { return }
+                    for candidate in discovered where candidate.kind == .connection && attemptedConnectionServices.insert(candidate.id).inserted {
+                        do {
+                            if try await client.connect(candidate) {
+                                guard !Task.isCancelled, self.generation == ticket else { return }
+                                self.service = candidate
+                                self.phase = .connected(candidate.endpoint)
+                                return
+                            }
+                        } catch is CancellationError { return }
+                        catch { continue }
+                    }
+                    let candidates = discovered.filter { $0.kind == .pairing }
                     self.service = candidates.count == 1 ? candidates[0] : nil
                     self.phase = candidates.isEmpty ? .searching : candidates.count == 1 ? .enterCode : .multiplePhones
                     try await Task.sleep(for: pollDelay)

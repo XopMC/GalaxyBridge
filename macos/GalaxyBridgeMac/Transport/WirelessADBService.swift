@@ -28,16 +28,29 @@ struct WirelessADBService: Equatable, Hashable, Identifiable, Sendable {
 
     /// Converts the one resolved Bonjour service reported by `dns-sd -L` into
     /// the same strictly validated endpoint format used by ADB commands.
-    static func parseBonjourResolution(name: String, kind: Kind, output: String) -> Self? {
+    static func parseBonjourResolution(
+        name: String,
+        kind: Kind,
+        output: String,
+        resolveIPv4: (String) -> [String] = { _ in [] }
+    ) -> Self? {
         let pattern = #"can be reached at\s+([^\s:]+):(\d+)"#
         guard let match = try? NSRegularExpression(pattern: pattern).firstMatch(
             in: output, range: NSRange(output.startIndex..., in: output)
         ), let hostRange = Range(match.range(at: 1), in: output),
               let portRange = Range(match.range(at: 2), in: output),
               let port = UInt16(output[portRange]), port > 0 else { return nil }
-        let endpoint = "\(output[hostRange]):\(port)"
-        guard WirelessADBReconnectPolicy.isLocalEndpoint(endpoint) else { return nil }
-        return Self(name: name, kind: kind, endpoint: endpoint)
+        let host = String(output[hostRange])
+        let directEndpoint = "\(host):\(port)"
+        if WirelessADBReconnectPolicy.isLocalEndpoint(directEndpoint) {
+            return Self(name: name, kind: kind, endpoint: directEndpoint)
+        }
+        let normalizedHost = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        guard normalizedHost.hasSuffix(".local") else { return nil }
+        return resolveIPv4(host).lazy
+            .map { "\($0):\(port)" }
+            .first(where: WirelessADBReconnectPolicy.isLocalEndpoint)
+            .map { Self(name: name, kind: kind, endpoint: $0) }
     }
 }
 

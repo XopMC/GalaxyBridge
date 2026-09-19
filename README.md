@@ -21,7 +21,7 @@
 
 Galaxy Bridge connects a Samsung Android phone to a Mac for screen control, audio, notifications, clipboard, and file transfers. It works locally, without an account or cloud relay. A shared One UI-inspired icon and system-language interfaces keep both apps familiar.
 
-**0.1.1 is a prerelease** for Apple Silicon Macs and Samsung Android phones. It fixes the macOS 26 crash when opening QR pairing. See the [release notes](docs/public/release-notes-0.1.1.md).
+**0.1.1 is a prerelease** for Apple Silicon Macs and Samsung Android phones. It fixes the macOS 26 QR crash, Wireless ADB discovery of `.local` phone endpoints, and Android-to-Mac image clipboard sync. See the [release notes](docs/public/release-notes-0.1.1.md).
 
 ### Screenshots
 
@@ -34,7 +34,7 @@ Galaxy Bridge connects a Samsung Android phone to a Mac for screen control, audi
 - **Phone screen on your Mac:** USB or Wireless ADB mirroring with mouse and keyboard control, phone audio, and Mac-side recording. Audio availability depends on the phone and app.
 - **Separate app windows:** choose a phone app in the catalog to open it in its own Mac window through ADB; compatibility depends on the Android app.
 - **Notifications:** read phone notifications and use actions or replies when Android makes them available.
-- **Clipboard:** share supported clipboard content between paired devices.
+- **Clipboard:** synchronize text and copied images in both directions. Android-to-Mac polling runs through the already-authorized ADB shell; Galaxy Bridge does not install a keyboard and does not require the Share menu.
 - **Files in both directions:** resumable transfers with integrity checks; receive into Mac Downloads or the phone’s `Download/GalaxyBridge` folder.
 - **Choose your features:** saved setup choices and permissions requested for the features you select.
 - **Ready for everyday installation:** ADB is included in the Mac app; users do not need Homebrew or the Android SDK.
@@ -44,7 +44,7 @@ Galaxy Bridge connects a Samsung Android phone to a Mac for screen control, audi
 
 1. Download the **DMG and APK** from [release 0.1.1](https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.1).
 2. Open the DMG and drag **Galaxy Bridge** into **Applications**. Install the APK on your Android phone.
-3. Open both apps, choose the features you want, and follow pairing and permission prompts. For the initial USB mirror, enable USB debugging and approve this Mac on your phone.
+3. Open both apps, choose the features you want, and follow pairing and permission prompts. Android requires one initial approval for USB debugging or Wireless debugging; previously paired Wi-Fi devices connect automatically when discoverable.
 
 Requires **macOS 14+ on Apple Silicon** and **Android 12+**. The Mac download is ad-hoc signed and **not notarized by Apple**; see [installation and troubleshooting](docs/public/install.md) for the per-app Gatekeeper procedure. Android permissions and debugging authorization remain under your control.
 
@@ -95,7 +95,7 @@ Created by **Mikhail Khoroshavin ([XopMC](https://github.com/XopMC))**. Galaxy B
 
 Galaxy Bridge связывает Samsung на Android с Mac: управление экраном телефона, звук, уведомления, буфер обмена и передача файлов. Всё работает локально, без аккаунта и облачного ретранслятора. Общая иконка в духе One UI и интерфейс на системном языке объединяют оба приложения.
 
-**0.1.1 — предварительный выпуск** для Mac с Apple Silicon и телефонов Samsung на Android. В нём исправлено падение macOS 26 при открытии QR-сопряжения. Подробнее — в [заметках к выпуску](docs/public/release-notes-0.1.1.md#russian).
+**0.1.1 — предварительный выпуск** для Mac с Apple Silicon и телефонов Samsung на Android. Исправлены падение macOS 26 при открытии QR-сопряжения, поиск `.local`-адресов телефона через Wireless ADB и передача изображений из буфера Android на Mac. Подробнее — в [заметках к выпуску](docs/public/release-notes-0.1.1.md#russian).
 
 ### Скриншоты
 
@@ -108,7 +108,7 @@ Galaxy Bridge связывает Samsung на Android с Mac: управлени
 - **Экран телефона на Mac:** трансляция через USB или Wireless ADB, управление мышью и клавиатурой, звук телефона и запись на Mac. Доступность звука зависит от телефона и приложения.
 - **Отдельные окна приложений:** выберите приложение телефона в каталоге, чтобы открыть его в собственном окне Mac через ADB; совместимость зависит от приложения Android.
 - **Уведомления:** просмотр уведомлений телефона, действия и ответы, когда их предоставляет Android.
-- **Буфер обмена:** передача поддерживаемого содержимого между сопряжёнными устройствами.
+- **Буфер обмена:** синхронизация текста и скопированных изображений в обе стороны. Опрос Android выполняется через уже разрешённый ADB shell; Galaxy Bridge не устанавливает клавиатуру и не требует меню «Поделиться».
 - **Файлы в обе стороны:** передача с возобновлением и проверкой целостности; полученные файлы сохраняются в «Загрузки» на Mac или `Download/GalaxyBridge` на телефоне.
 - **Выбор возможностей:** сохранение настроек и запрос разрешений для выбранных функций.
 - **Обычная установка:** ADB встроен в приложение для Mac; пользователю не нужны Homebrew и Android SDK.
@@ -118,7 +118,7 @@ Galaxy Bridge связывает Samsung на Android с Mac: управлени
 
 1. Скачайте **DMG и APK** со страницы [выпуска 0.1.1](https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.1).
 2. Откройте DMG и перенесите **Galaxy Bridge** в **«Программы»**. Установите APK на телефон.
-3. Откройте оба приложения, выберите нужные функции и следуйте подсказкам сопряжения и разрешений. Для первого подключения экрана по USB включите отладку по USB и подтвердите доступ для этого Mac на телефоне.
+3. Откройте оба приложения, выберите нужные функции и следуйте подсказкам сопряжения и разрешений. Android требует один раз подтвердить отладку по USB или Wireless debugging; ранее сопряжённый Wi-Fi-телефон подключается автоматически, когда доступен в сети.
 
 Требуются **macOS 14+ на Apple Silicon** и **Android 12+**. Приложение для Mac имеет локальную ad-hoc подпись и **не нотарифицировано Apple**; порядок разрешения запуска конкретного приложения описан в [инструкции](docs/public/install.md#russian). Системные разрешения Android и доступ для отладки остаются под вашим контролем.
 

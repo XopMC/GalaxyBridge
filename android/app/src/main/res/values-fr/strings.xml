@@ -19,7 +19,6 @@
     <string name="accessibility_service_name">Contrôle depuis le Mac</string>
     <string name="accessibility_service_description">Permet d’utiliser la souris et le clavier de votre Mac sur ce téléphone. Galaxy Bridge ne lit ni les mots de passe ni les contenus protégés.</string>
     <string name="notification_service_name">Notifications Galaxy Bridge</string>
-    <string name="ime_service_name">Clavier Galaxy Bridge</string>
     <string name="home_title">Galaxy Bridge</string>
     <string name="home_subtitle">Utilisez votre Galaxy avec votre Apple Mac</string>
     <string name="status_enabled">Activé</string>
@@ -70,18 +69,6 @@
     <string name="qr_preview_content_description">Aperçu de la caméra du scanner QR d’association GalaxyBridge</string>
     <string name="revoke_pairing_title">Supprimer cette association ?</string>
     <string name="revoke_pairing_body">Ce téléphone et le Mac s’oublieront mutuellement. L’historique enregistré des notifications et du presse-papiers sera supprimé, et les partages en cours s’arrêteront.</string>
-    <string name="clipboard_share_target">Galaxy Bridge</string>
-    <string name="clipboard_share_title">Envoyer à votre Mac</string>
-    <string name="clipboard_share_loading">Préparation de l’aperçu…</string>
-    <string name="clipboard_share_invalid">Cet élément ne peut pas être envoyé. Choisissez du texte, un lien web ou une image prise en charge.</string>
-    <string name="clipboard_share_text_preview">Texte</string>
-    <string name="clipboard_share_url_preview">Lien web</string>
-    <string name="clipboard_share_image_preview">Image</string>
-    <string name="clipboard_share_send">Envoyer</string>
-    <string name="clipboard_share_retry">Réessayer</string>
-    <string name="clipboard_share_sent">Envoyé à votre Mac.</string>
-    <string name="clipboard_share_no_mac">Ouvrez Galaxy Bridge sur votre Mac, puis réessayez.</string>
-    <string name="clipboard_share_busy">Votre Mac reçoit encore l’élément précédent. Patientez un instant et réessayez.</string>
     <string name="about_entry">À propos</string>
     <string name="about_title">À propos de Galaxy Bridge</string>
     <string name="about_author_label">Créé par</string>
@@ -120,4 +107,6 @@
     <string name="file_send_failed">Transfert suspendu. Vérifiez que Galaxy Bridge est ouvert sur votre Mac, puis réessayez.</string>
     <string name="file_send_cancel_pending">Annulation. En attente de la confirmation de votre Mac…</string>
     <string name="file_send_cancelled">Annulé</string>
+    <string name="clipboard_share_send">Envoyer</string>
+    <string name="clipboard_share_retry">Réessayer</string>
 </resources>

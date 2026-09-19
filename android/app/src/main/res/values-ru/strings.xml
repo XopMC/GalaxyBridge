@@ -19,7 +19,6 @@
     <string name="accessibility_service_name">Управление с Mac</string>
     <string name="accessibility_service_description">Позволяет управлять телефоном мышью и клавиатурой с Mac. Galaxy Bridge не читает пароли и защищённое содержимое.</string>
     <string name="notification_service_name">Уведомления Galaxy Bridge</string>
-    <string name="ime_service_name">Клавиатура Galaxy Bridge</string>
     <string name="home_title">Galaxy Bridge</string>
     <string name="home_subtitle">Используйте ваш Galaxy совместно с Apple Mac</string>
     <string name="status_enabled">Включено</string>
@@ -70,18 +69,6 @@
     <string name="qr_preview_content_description">Предпросмотр камеры для сканера QR-привязки GalaxyBridge</string>
     <string name="revoke_pairing_title">Отозвать эту привязку?</string>
     <string name="revoke_pairing_body">Телефон и Mac забудут друг друга. История уведомлений и буфера обмена будет удалена, а активная трансляция остановится.</string>
-    <string name="clipboard_share_target">Galaxy Bridge</string>
-    <string name="clipboard_share_title">Отправить на Mac</string>
-    <string name="clipboard_share_loading">Подготавливаем предпросмотр…</string>
-    <string name="clipboard_share_invalid">Этот объект нельзя отправить. Выберите текст, веб-ссылку или поддерживаемое изображение.</string>
-    <string name="clipboard_share_text_preview">Текст</string>
-    <string name="clipboard_share_url_preview">Веб-ссылка</string>
-    <string name="clipboard_share_image_preview">Изображение</string>
-    <string name="clipboard_share_send">Отправить</string>
-    <string name="clipboard_share_retry">Повторить</string>
-    <string name="clipboard_share_sent">Отправлено на Mac.</string>
-    <string name="clipboard_share_no_mac">Откройте Galaxy Bridge на Mac и попробуйте ещё раз.</string>
-    <string name="clipboard_share_busy">Mac ещё получает предыдущий объект. Подождите немного и повторите.</string>
     <string name="about_entry">О приложении</string>
     <string name="about_title">О приложении</string>
     <string name="about_author_label">Автор</string>
@@ -120,4 +107,6 @@
     <string name="file_send_failed">Передача приостановлена. Убедитесь, что Galaxy Bridge открыт на Mac, и повторите попытку.</string>
     <string name="file_send_cancel_pending">Отмена. Ожидание подтверждения от Mac…</string>
     <string name="file_send_cancelled">Отменено</string>
+    <string name="clipboard_share_send">Отправить</string>
+    <string name="clipboard_share_retry">Повторить</string>
 </resources>

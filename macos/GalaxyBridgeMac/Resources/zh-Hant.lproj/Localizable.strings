@@ -202,7 +202,7 @@
 "WIFI_SETUP_STEP_DEVELOPER" = "1. 在 Galaxy 上，開啟設定 → 開發者選項。若遺失：關於手機 → 軟體資訊 → 點選版本號七次。";
 "WIFI_SETUP_STEP_WIRELESS" = "2. 在開發者選項中，開啟無線偵錯。確認存取您信任的 Wi-Fi 網路。";
 "WIFI_SETUP_STEP_CODE" = "3. 點選使用配對代碼配對裝置並保持該畫面開啟。在此輸入六位數代碼。";
-"WIFI_SETUP_SEARCHING" = "等待 Galaxy 上的配對碼畫面...";
+"WIFI_SETUP_SEARCHING" = "正在區域網路中尋找 Galaxy...";
 "WIFI_SETUP_SAME_NETWORK" = "兩個裝置必須位於同一本地網路。訪客 Wi-Fi 或 VPN 可能會阻止發現。";
 "WIFI_SETUP_ONE_PHONE" = "一個代碼可在多部手機上開啟。在其他手機上關閉它即可選擇此Galaxy。";
 "WIFI_SETUP_CODE" = "六位數代碼";

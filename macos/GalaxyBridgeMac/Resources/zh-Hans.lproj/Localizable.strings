@@ -202,7 +202,7 @@
 "WIFI_SETUP_STEP_DEVELOPER" = "1. 在 Galaxy 上，打开设置 → 开发者选项。如果丢失：关于手机 → 软件信息 → 点击版本号七次。";
 "WIFI_SETUP_STEP_WIRELESS" = "2. 在开发者选项中，打开无线调试。确认访问您信任的 Wi-Fi 网络。";
 "WIFI_SETUP_STEP_CODE" = "3. 点击使用配对代码配对设备并保持该屏幕打开。在此输入六位数代码。";
-"WIFI_SETUP_SEARCHING" = "等待 Galaxy 上的配对码屏幕...";
+"WIFI_SETUP_SEARCHING" = "正在本地网络中查找 Galaxy...";
 "WIFI_SETUP_SAME_NETWORK" = "两个设备必须位于同一本地网络。访客 Wi-Fi 或 VPN 可能会阻止发现。";
 "WIFI_SETUP_ONE_PHONE" = "一个代码可在多部手机上打开。在其他手机上关闭它即可选择此Galaxy。";
 "WIFI_SETUP_CODE" = "六位数代码";

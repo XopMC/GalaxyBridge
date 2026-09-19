@@ -34,7 +34,6 @@ import com.xopmc.galaxybridge.service.CompanionPointerGestureAccumulator
 import com.xopmc.galaxybridge.service.ClipboardBridge
 import com.xopmc.galaxybridge.service.ClipboardImageCodec
 import com.xopmc.galaxybridge.service.ClipboardPayloadPolicy
-import com.xopmc.galaxybridge.service.ClipboardSharePolicy
 import com.xopmc.galaxybridge.service.CameraCaptureService
 import com.xopmc.galaxybridge.service.AndroidCameraStartGateway
 import com.xopmc.galaxybridge.service.CameraCaptureRequest
@@ -56,6 +55,7 @@ import java.io.BufferedOutputStream
 import java.net.Socket
 import java.net.BindException
 import java.net.SocketTimeoutException
+import java.net.URI
 import java.security.MessageDigest
 import java.security.Principal
 import java.security.PrivateKey
@@ -625,7 +625,8 @@ class CompanionLanServer(private val context: Context) {
             ClipboardKind.CLIPBOARD_KIND_URL -> {
                 if (content.size > ClipboardPayloadPolicy.MAX_TEXT_BYTES) return
                 val text = decodeUtf8(content) ?: return
-                if (ClipboardSharePolicy.text(ClipboardSharePolicy.ACTION_SEND, "text/uri-list", text) == null) return
+                val uri = runCatching { URI(text.trim()) }.getOrNull() ?: return
+                if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.rawAuthority.isNullOrBlank()) return
                 ClipData.newPlainText("URL", text)
             }
             ClipboardKind.CLIPBOARD_KIND_PNG -> imageClip(content) ?: return

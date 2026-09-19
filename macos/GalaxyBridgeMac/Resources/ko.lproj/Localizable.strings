@@ -202,7 +202,7 @@
 "WIFI_SETUP_STEP_DEVELOPER" = "1. Galaxy에서 설정 → 개발자 옵션을 엽니다. 누락된 경우: 휴대전화 정보 → 소프트웨어 정보 → 빌드 번호를 7번 탭하세요.";
 "WIFI_SETUP_STEP_WIRELESS" = "2. 개발자 옵션에서 무선 디버깅을 켭니다. 신뢰할 수 있는 Wi-Fi 네트워크에 대한 액세스를 확인하세요.";
 "WIFI_SETUP_STEP_CODE" = "3. 페어링 코드로 장치 페어링을 탭하고 해당 화면을 열어두세요. 여기에 6자리 코드를 입력하세요.";
-"WIFI_SETUP_SEARCHING" = "Galaxy에서 페어링 코드 화면을 기다리는 중…";
+"WIFI_SETUP_SEARCHING" = "로컬 네트워크에서 Galaxy를 찾는 중…";
 "WIFI_SETUP_SAME_NETWORK" = "두 장치 모두 동일한 로컬 네트워크에 있어야 합니다. 게스트 Wi-Fi 또는 VPN이 검색을 방해할 수 있습니다.";
 "WIFI_SETUP_ONE_PHONE" = "둘 이상의 전화기에서 코드가 열려 있습니다. 이 Galaxy를 선택하려면 다른 전화기에서 닫으세요.";
 "WIFI_SETUP_CODE" = "6자리 코드";

@@ -962,7 +962,7 @@ final class AppModel: ObservableObject {
                     self.acceptRemoteClipboard(
                         deviceID: targetID,
                         changeID: update.changeID,
-                        kind: .text,
+                        kind: update.kind == .png ? .png : .text,
                         content: update.content,
                         sensitive: false
                     )
@@ -2456,7 +2456,7 @@ final class AppModel: ObservableObject {
                 self?.acceptRemoteClipboard(
                     deviceID: deviceID,
                     changeID: update.changeID,
-                    kind: .text,
+                    kind: update.kind == .png ? .png : .text,
                     content: update.content,
                     sensitive: false
                 )

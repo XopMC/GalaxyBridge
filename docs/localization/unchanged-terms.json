@@ -66,64 +66,52 @@
     "values-ar": {
       "app_name": "Galaxy Bridge",
       "camera_notification_title": "Galaxy Bridge Camera",
-      "home_title": "Galaxy Bridge",
-      "clipboard_share_target": "Galaxy Bridge"
+      "home_title": "Galaxy Bridge"
     },
     "values-b+zh+Hans": {
       "app_name": "Galaxy Bridge",
       "camera_notification_title": "Galaxy Bridge Camera",
-      "home_title": "Galaxy Bridge",
-      "clipboard_share_target": "Galaxy Bridge"
+      "home_title": "Galaxy Bridge"
     },
     "values-b+zh+Hant": {
       "app_name": "Galaxy Bridge",
       "camera_notification_title": "Galaxy Bridge Camera",
-      "home_title": "Galaxy Bridge",
-      "clipboard_share_target": "Galaxy Bridge"
+      "home_title": "Galaxy Bridge"
     },
     "values-de": {
       "app_name": "Galaxy Bridge",
       "camera_notification_title": "Galaxy Bridge Camera",
-      "home_title": "Galaxy Bridge",
-      "clipboard_share_target": "Galaxy Bridge",
-      "clipboard_share_text_preview": "Text"
+      "home_title": "Galaxy Bridge"
     },
     "values-es": {
       "app_name": "Galaxy Bridge",
       "camera_notification_title": "Galaxy Bridge Camera",
-      "home_title": "Galaxy Bridge",
-      "clipboard_share_target": "Galaxy Bridge"
+      "home_title": "Galaxy Bridge"
     },
     "values-fr": {
       "app_name": "Galaxy Bridge",
       "camera_notification_title": "Galaxy Bridge Camera",
       "home_title": "Galaxy Bridge",
-      "notifications_title": "Notifications",
-      "clipboard_share_target": "Galaxy Bridge",
-      "clipboard_share_image_preview": "Image"
+      "notifications_title": "Notifications"
     },
     "values-ja": {
       "app_name": "Galaxy Bridge",
       "camera_notification_title": "Galaxy Bridge Camera",
-      "home_title": "Galaxy Bridge",
-      "clipboard_share_target": "Galaxy Bridge"
+      "home_title": "Galaxy Bridge"
     },
     "values-ko": {
       "app_name": "Galaxy Bridge",
       "camera_notification_title": "Galaxy Bridge Camera",
-      "home_title": "Galaxy Bridge",
-      "clipboard_share_target": "Galaxy Bridge"
+      "home_title": "Galaxy Bridge"
     },
     "values-pt": {
       "app_name": "Galaxy Bridge",
       "camera_notification_title": "Galaxy Bridge Camera",
-      "home_title": "Galaxy Bridge",
-      "clipboard_share_target": "Galaxy Bridge"
+      "home_title": "Galaxy Bridge"
     },
     "values-ru": {
       "app_name": "Galaxy Bridge",
-      "home_title": "Galaxy Bridge",
-      "clipboard_share_target": "Galaxy Bridge"
+      "home_title": "Galaxy Bridge"
     }
   }
 }

@@ -19,12 +19,23 @@ enum WirelessADBSetupSpec {
         precondition(services.first { $0.kind == .connection }?.endpoint == "192.168.42.126:40009")
         let bonjour = WirelessADBService.parseBonjourResolution(
             name: "adb-fold", kind: .pairing,
-            output: "Lookup adb-fold._adb-tls-pairing._tcp.local\n  can be reached at 192.168.42.40:37001\n"
+            output: "Lookup adb-fold._adb-tls-pairing._tcp.local\n  can be reached at 192.168.42.40:37001\n",
+            resolveIPv4: { _ in [] }
         )
         precondition(bonjour?.endpoint == "192.168.42.40:37001")
+        let hostnameBonjour = WirelessADBService.parseBonjourResolution(
+            name: "adb-fold", kind: .connection,
+            output: "adb-fold._adb-tls-connect._tcp.local. can be reached at Android_MH4T96C7.local.:45115",
+            resolveIPv4: { host in
+                precondition(host == "Android_MH4T96C7.local.")
+                return ["192.168.42.41"]
+            }
+        )
+        precondition(hostnameBonjour?.endpoint == "192.168.42.41:45115")
         precondition(WirelessADBService.parseBonjourResolution(
             name: "hostile", kind: .pairing,
-            output: "can be reached at 8.8.8.8:37001"
+            output: "can be reached at attacker.example:37001",
+            resolveIPv4: { _ in ["192.168.42.99"] }
         ) == nil)
         precondition(WirelessADBPairingCode("123456")?.value == "123456")
         for invalid in ["", "12345", "1234567", "１２３４５６", "12345\n", "12 345", "12345;", "123456\n"] {

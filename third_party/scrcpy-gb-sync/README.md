@@ -27,6 +27,15 @@ original reference build and are not required to reproduce source behavior
 with an installed JDK. Artifact hashes can differ across toolchains and must
 be bound to the resulting app bundle by the release orchestrator.
 
+The derivative also contains `ClipboardAgent`, a capture-free helper launched
+by the Mac app through the already-authorized ADB shell. It polls Android's
+current primary clip without installing an input method or requiring the
+Android Helper to remain in the foreground. It sends bounded UTF-8 text or PNG
+frames over a private ADB-forwarded abstract socket. The stream starts with
+`GBC1`; each frame is an unsigned byte kind (`1` text, `3` PNG), a big-endian
+32-bit length, and at most 4 MiB of content. Sensitive clips are ignored.
+Android still controls the initial Wireless debugging enablement and pairing.
+
 Private control type23 is exactly33 bytes: u8 opcode, then four big-endian
 positive signed64 integers: producerEpoch, producerConfigOrdinal, requestId,
 androidDeadlineNs. The full derivative version must match. Required video,

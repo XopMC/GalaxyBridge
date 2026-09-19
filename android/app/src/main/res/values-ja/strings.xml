@@ -20,7 +20,6 @@
     <string name="accessibility_service_name">Macからの制御</string>
     <string name="accessibility_service_description">この電話で Mac マウスとキーボードを使用できるようにします。 Galaxy Bridge はパスワードや保護されたコンテンツを読み取りません。</string>
     <string name="notification_service_name">Galaxy Bridge 通知</string>
-    <string name="ime_service_name">Galaxy Bridgeキーボード</string>
     <string name="home_title">Galaxy Bridge</string>
     <string name="home_subtitle">Galaxy を Apple Mac と一緒に使用する</string>
     <string name="status_enabled">有効</string>
@@ -71,18 +70,6 @@
     <string name="qr_preview_content_description">GalaxyBridge QR ペアリング スキャナーのカメラ プレビュー</string>
     <string name="revoke_pairing_title">このペアリングを取り消しますか?</string>
     <string name="revoke_pairing_body">この電話とMacはお互いを忘れてしまいます。保存された通知とクリップボード履歴は削除され、アクティブな共有は停止します。</string>
-    <string name="clipboard_share_target">Galaxy Bridge</string>
-    <string name="clipboard_share_title">Mac に送信します</string>
-    <string name="clipboard_share_loading">プレビューを準備中…\n【38】この商品は発送できません。テキスト、Web リンク、またはサポートされている画像を選択します。</string>
-    <string name="clipboard_share_invalid">この商品は発送できません。テキスト、Web リンク、またはサポートされている画像を選択します。</string>
-    <string name="clipboard_share_text_preview">テキスト</string>
-    <string name="clipboard_share_url_preview">ウェブリンク\n【41】画像</string>
-    <string name="clipboard_share_image_preview">画像</string>
-    <string name="clipboard_share_send">送信</string>
-    <string name="clipboard_share_retry">もう一度お試しください</string>
-    <string name="clipboard_share_sent">Mac に送信されます。</string>
-    <string name="clipboard_share_no_mac">Mac で Galaxy Bridge を開いて、もう一度試してください。</string>
-    <string name="clipboard_share_busy">Mac はまだ前のアイテムを受信して​​います。しばらく待ってからもう一度試してください。</string>
     <string name="about_entry">概要</string>
     <string name="about_title">Galaxy Bridgeについて</string>
     <string name="about_author_label">作成者:</string>
@@ -121,4 +108,6 @@
     <string name="file_send_failed">転送を一時停止しました。MacでGalaxy Bridgeが開いていることを確認して、再試行してください。</string>
     <string name="file_send_cancel_pending">キャンセル中。Macからの確認を待っています…</string>
     <string name="file_send_cancelled">キャンセル済み</string>
+    <string name="clipboard_share_send">送信</string>
+    <string name="clipboard_share_retry">もう一度お試しください</string>
 </resources>

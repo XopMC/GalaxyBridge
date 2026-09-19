@@ -201,7 +201,7 @@
 "WIFI_SETUP_STEP_DEVELOPER" = "1. On Galaxy, open Settings → Developer options. If missing: About phone → Software information → tap Build number seven times.";
 "WIFI_SETUP_STEP_WIRELESS" = "2. In Developer options, turn on Wireless debugging. Confirm access to your trusted Wi-Fi network.";
 "WIFI_SETUP_STEP_CODE" = "3. Tap Pair device with pairing code and keep that screen open. Enter its six-digit code here.";
-"WIFI_SETUP_SEARCHING" = "Waiting for the pairing-code screen on Galaxy…";
+"WIFI_SETUP_SEARCHING" = "Searching for Galaxy on the local network…";
 "WIFI_SETUP_SAME_NETWORK" = "Both devices must be on the same local network. Guest Wi-Fi or a VPN may prevent discovery.";
 "WIFI_SETUP_ONE_PHONE" = "A code is open on more than one phone. Close it on the other phones to choose this Galaxy.";
 "WIFI_SETUP_CODE" = "Six-digit code";

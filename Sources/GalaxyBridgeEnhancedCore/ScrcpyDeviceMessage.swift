@@ -14,11 +14,77 @@ public enum ScrcpyDeviceMessage: Equatable, Sendable {
 
 public struct ScrcpyClipboardUpdate: Equatable, Sendable {
     public let changeID: String
+    public let kind: ScrcpyClipboardContentKind
     public let content: Data
 
-    public init(changeID: String, content: Data) {
+    public init(changeID: String, kind: ScrcpyClipboardContentKind = .text, content: Data) {
         self.changeID = changeID
+        self.kind = kind
         self.content = content
+    }
+}
+
+public enum ScrcpyClipboardContentKind: UInt8, Equatable, Sendable {
+    case text = 1
+    case png = 3
+}
+
+public enum ScrcpyClipboardAgentError: Error, Equatable {
+    case invalidPreamble
+    case unknownKind(UInt8)
+    case invalidLength(Int)
+}
+
+public struct ScrcpyClipboardAgentMessage: Equatable, Sendable {
+    public let kind: ScrcpyClipboardContentKind
+    public let content: Data
+
+    public init(kind: ScrcpyClipboardContentKind, content: Data) {
+        self.kind = kind
+        self.content = content
+    }
+}
+
+public struct ScrcpyClipboardAgentDecoder: Sendable {
+    public static let maximumPayloadLength = 4 * 1024 * 1024
+    private static let preamble = Data("GBC1".utf8)
+    private var buffer = Data()
+    private var acceptedPreamble = false
+
+    public init() {}
+
+    public mutating func append<S: DataProtocol>(_ bytes: S) throws -> [ScrcpyClipboardAgentMessage] {
+        buffer.append(contentsOf: bytes)
+        if !acceptedPreamble {
+            guard buffer.count >= Self.preamble.count else { return [] }
+            guard buffer.prefix(Self.preamble.count) == Self.preamble else {
+                throw ScrcpyClipboardAgentError.invalidPreamble
+            }
+            buffer.removeFirst(Self.preamble.count)
+            acceptedPreamble = true
+        }
+        var messages: [ScrcpyClipboardAgentMessage] = []
+        while buffer.count >= 5 {
+            guard let kind = ScrcpyClipboardContentKind(rawValue: buffer[buffer.startIndex]) else {
+                throw ScrcpyClipboardAgentError.unknownKind(buffer[buffer.startIndex])
+            }
+            let length = Int(readUInt32(at: 1))
+            guard length > 0, length <= Self.maximumPayloadLength else {
+                throw ScrcpyClipboardAgentError.invalidLength(length)
+            }
+            guard buffer.count >= 5 + length else { break }
+            let start = buffer.index(buffer.startIndex, offsetBy: 5)
+            let end = buffer.index(start, offsetBy: length)
+            messages.append(.init(kind: kind, content: Data(buffer[start ..< end])))
+            buffer.removeFirst(5 + length)
+        }
+        return messages
+    }
+
+    private func readUInt32(at offset: Int) -> UInt32 {
+        var value: UInt32 = 0
+        for byte in buffer.dropFirst(offset).prefix(4) { value = (value << 8) | UInt32(byte) }
+        return value
     }
 }
 

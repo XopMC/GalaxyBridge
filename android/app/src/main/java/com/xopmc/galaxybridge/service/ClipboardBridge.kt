@@ -265,40 +265,6 @@ object AccessibilitySelectionClipboard {
     }
 }
 
-enum class SharedContentKind {
-    TEXT,
-    URL,
-    IMAGE,
-}
-
-data class SharedContentDescriptor(val kind: SharedContentKind)
-
-object ClipboardSharePolicy {
-    const val ACTION_SEND = "android.intent.action.SEND"
-
-    fun text(action: String?, mimeType: String?, value: CharSequence?): SharedContentDescriptor? {
-        if (action != ACTION_SEND || mimeType !in setOf("text/plain", "text/uri-list") || value == null) return null
-        if (value.isEmpty() || value.length > ClipboardPayloadPolicy.MAX_TEXT_CHARACTERS) return null
-        val kind = if (mimeType == "text/uri-list" || isWebUrl(value.toString())) {
-            SharedContentKind.URL
-        } else {
-            SharedContentKind.TEXT
-        }
-        if (kind == SharedContentKind.URL && !isWebUrl(value.toString())) return null
-        return SharedContentDescriptor(kind)
-    }
-
-    fun image(action: String?, mimeType: String?, uriScheme: String?): SharedContentDescriptor? {
-        if (action != ACTION_SEND || mimeType?.startsWith("image/") != true || uriScheme != "content") return null
-        return SharedContentDescriptor(SharedContentKind.IMAGE)
-    }
-
-    private fun isWebUrl(value: String): Boolean = runCatching {
-        val uri = URI(value.trim())
-        uri.scheme?.lowercase() in setOf("http", "https") && !uri.rawAuthority.isNullOrBlank()
-    }.getOrDefault(false)
-}
-
 object ImageDecodeBudget {
     const val MAX_DECODED_PIXELS = 4_000_000L
     private const val MAX_SOURCE_PIXELS = 100_000_000L
