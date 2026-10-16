@@ -180,14 +180,15 @@ final class InternetSharingCoordinator: ObservableObject {
             }
             let fixedPeer = self.knownPeers[self.selection]
             let fixed = self.selection != "automatic" && self.selection != "balanced"
-            let desired = fixed && (fixedPeer == nil || !snapshot.contains(where: { $0.device.control.peer.deviceID == fixedPeer })) ? [] : snapshot
+            let fixedUnavailable = fixed && (fixedPeer == nil || !snapshot.contains(where: { $0.device.control.peer.deviceID == fixedPeer }))
+            let desired = snapshot
             do {
                 try Task.checkCancellation()
-                if desired.isEmpty { await self.driver.stop() }
+                if desired.isEmpty || (fixedUnavailable && !self.driver.hasActiveTopology) { await self.driver.stop() }
                 else { try await self.driver.start(gatewayRelays: desired.map(\.relay), userApproved: true) }
                 guard self.rebuildRevision == revision, !Task.isCancelled else { return }
                 self.updatePolicy(); self.updateHealth()
-                guard !desired.isEmpty else {
+                guard !desired.isEmpty, !fixedUnavailable else {
                     for gateway in snapshot where self.sessions[gateway.id] === gateway.device {
                         self.devices[gateway.id]?.key = "INTERNET_WAITING"
                     }
@@ -206,13 +207,17 @@ final class InternetSharingCoordinator: ObservableObject {
                 }
                 for gateway in desired where self.sessions[gateway.id] === gateway.device &&
                     gateway.device.preparationGeneration == gateway.preparation && gateway.device.healthy {
-                    self.devices[gateway.id]?.key = "INTERNET_READY"
+                    self.devices[gateway.id]?.key = fixed && gateway.device.control.peer.deviceID != fixedPeer
+                        ? "INTERNET_WAITING" : "INTERNET_READY"
                 }
             } catch {
                 guard self.rebuildRevision == revision, !Task.isCancelled else { return }
+                let retained = (error as? InternetTunnelAdmissionRejection)?.retainedRelays ?? []
                 for gateway in desired where self.sessions[gateway.id] === gateway.device && gateway.device.preparationGeneration == gateway.preparation {
+                    if retained.contains(ObjectIdentifier(gateway.relay)) { continue }
                     self.fail(deviceID: gateway.id, device: gateway.device,
-                        key: FileManager.default.fileExists(atPath: "/var/run/GalaxyBridgeNetworkHelper.sock") ? "INTERNET_FAILED" : "INTERNET_HELPER_REQUIRED")
+                        key: error is InternetTunnelAdmissionRejection || FileManager.default.fileExists(atPath: "/var/run/GalaxyBridgeNetworkHelper.sock")
+                            ? "INTERNET_FAILED" : "INTERNET_HELPER_REQUIRED")
                 }
             }
         }
@@ -221,6 +226,11 @@ final class InternetSharingCoordinator: ObservableObject {
         let fixed = selection != "automatic" && selection != "balanced"
         let healthy = sessions.values.filter { $0.healthy && (!fixed || $0.control.peer.deviceID == knownPeers[selection]) }
         driver.setHealthyPeers(Set(healthy.map { $0.control.peer.deviceID }))
+        if fixed {
+            for (id, device) in sessions where !device.healthy || device.control.peer.deviceID != knownPeers[selection] {
+                if devices[id]?.key == "INTERNET_READY" { devices[id]?.key = "INTERNET_WAITING" }
+            }
+        }
     }
     private func updatePolicy() {
         if selection == "balanced" { driver.updatePolicy(.balanced) }

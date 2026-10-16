@@ -24,15 +24,31 @@ enum InternetTunnelDriverState {case idle,starting,running,failed(String)}
     var gatewayDeviceIDs:[String?]=[nil,nil];var totalFlowStarted:[UInt64]=[0,0]
     var starts:[[String]]=[];var active:Set<String>=[];var policy:InternetGatewaySelectionPolicy = .automatic
     var healthyPeers:Set<String>=[]
+    enum StartFailure {case rejectedBeforeMutation,destroyed,unproven}
+    var nextStartFailure:StartFailure?
+    var relays:[String:PairedInternetRelay]=[:]
     var startGate:TestGate?;var activeStarts=0;var maximumConcurrentStarts=0;var stops=0
     init(){Self.last=self}
+    var hasActiveTopology:Bool { if case .running=state{return true};return false }
     func start(gatewayRelays:[PairedInternetRelay],userApproved:Bool)async throws{
         activeStarts+=1;maximumConcurrentStarts=max(maximumConcurrentStarts,activeStarts)
         defer{activeStarts-=1}
         let ids=gatewayRelays.map{$0.peer.deviceID};starts.append(ids)
         if let startGate { await startGate.wait() }
         try Task.checkCancellation()
+        if let failure=nextStartFailure, ids.contains("B") {
+            nextStartFailure=nil
+            switch failure {
+            case .rejectedBeforeMutation:
+                throw InternetTunnelAdmissionRejection(retainedRelays:Set(relays.values.map(ObjectIdentifier.init)))
+            case .destroyed:
+                active=[];relays.values.forEach{$0.stop()};relays=[:];state = .failed("destroyed")
+            case .unproven:break
+            }
+            throw URLError(.networkConnectionLost)
+        }
         active=Set(ids)
+        relays=Dictionary(uniqueKeysWithValues:gatewayRelays.map{($0.peer.deviceID,$0)})
         for id in ids where !gatewayDeviceIDs.contains(id) {
             if let index=gatewayDeviceIDs.firstIndex(of:nil){gatewayDeviceIDs[index]=id}
         }
@@ -79,6 +95,67 @@ enum InternetTunnelDriverState {case idle,starting,running,failed(String)}
     @MainActor static func main()async throws{
         InternetGatewayProbe.reset()
         do {
+            let c=InternetSharingCoordinator(),a=CompanionTLSClient("A"),b=CompanionTLSClient("B")
+            c.selection="balanced"
+            c.setEnabled(true,deviceID:"A",control:a);c.setEnabled(true,deviceID:"B",control:b)
+            ready(c,a,id:"A");ready(c,b,id:"B");await settle(100)
+            let driver=InternetTunnelDriver.last!,establishedB=driver.relays["B"]!
+            c.selection="A";await settle(100)
+            let stops=driver.stops,probes=InternetGatewayProbe.defaultCalls
+            var unavailable=GBInternetSharingStatus();unavailable.enabled=true
+            unavailable.leaseID=a.sent[0].leaseID;unavailable.upstream="unavailable";unavailable.errorCode="no_validated_upstream"
+            c.receive(unavailable,deviceID:"A",control:a);await settle(100)
+            precondition(driver.active == ["B"] && driver.stops == stops && !establishedB.stopped,
+                "Unavailable fixed A must retain B's established flows instead of stopping the global tunnel")
+            precondition(driver.healthyPeers.isEmpty && driver.policy == .fixed(0),
+                "Keeping B's existing flows must not admit new flows or DNS through B under fixed A")
+            precondition(c.devices["A"]?.key == "INTERNET_WAITING" && c.devices["B"]?.key == "INTERNET_WAITING",
+                "No phone may advertise ready while the chosen fixed gateway is unavailable")
+            precondition(InternetGatewayProbe.defaultCalls == probes,
+                "An intentionally closed new-flow policy must not run an impossible readiness probe")
+            c.selection="balanced";await settle(100)
+            precondition(c.devices["B"]?.key == "INTERNET_READY" && driver.healthyPeers == ["B"],
+                "Returning to balancing must reverify and reopen the healthy retained phone")
+            await c.stop()
+        }
+        InternetGatewayProbe.reset()
+        do {
+            let c=InternetSharingCoordinator(),b=CompanionTLSClient("B")
+            c.selection="never-enabled-A"
+            c.setEnabled(true,deviceID:"B",control:b);ready(c,b,id:"B");await settle(100)
+            precondition(InternetTunnelDriver.last.starts.isEmpty && c.devices["B"]?.key == "INTERNET_WAITING",
+                "Retaining established flows must not install a new tunnel while the fixed peer is unavailable")
+            await c.stop()
+        }
+        InternetGatewayProbe.reset()
+        do {
+            let c=InternetSharingCoordinator(),a=CompanionTLSClient("A"),b=CompanionTLSClient("B")
+            c.setEnabled(true,deviceID:"A",control:a);ready(c,a,id:"A");await settle(100)
+            let driver=InternetTunnelDriver.last!,established=driver.relays["A"]!
+            precondition(c.devices["A"]?.key == "INTERNET_READY")
+            driver.nextStartFailure = .rejectedBeforeMutation
+            c.setEnabled(true,deviceID:"B",control:b);ready(c,b,id:"B");await settle(100)
+            precondition(c.devices["A"]?.enabled == true && c.devices["A"]?.key == "INTERNET_READY",
+                "Rejecting B before mutation must preserve the already verified A gateway")
+            precondition(!established.stopped && a.sent.allSatisfy{$0.enabled},
+                "Failed admission of B must not stop A's relay or phone lease")
+            precondition(c.devices["B"]?.enabled == false && c.devices["B"]?.key == "INTERNET_FAILED" && b.sent.last?.enabled == false,
+                "The rejected new phone must roll back its lease and report failure")
+            await c.stop()
+        }
+        for failure in [InternetTunnelDriver.StartFailure.destroyed,.unproven] {
+            InternetGatewayProbe.reset()
+            let c=InternetSharingCoordinator(),a=CompanionTLSClient("A"),b=CompanionTLSClient("B")
+            c.setEnabled(true,deviceID:"A",control:a);ready(c,a,id:"A");await settle(100)
+            InternetTunnelDriver.last.nextStartFailure=failure
+            c.setEnabled(true,deviceID:"B",control:b);ready(c,b,id:"B");await settle(100)
+            precondition(c.devices["A"]?.enabled == false && c.devices["B"]?.enabled == false,
+                "A destroyed or unproven topology must fail closed for every affected phone")
+            precondition(c.devices.values.allSatisfy{$0.key != "INTERNET_READY"})
+            await c.stop()
+        }
+        InternetGatewayProbe.reset()
+        do {
             let c=InternetSharingCoordinator(),a=CompanionTLSClient("A")
             c.setEnabled(true,deviceID:"A",control:a)
             var denied=GBInternetSharingStatus();denied.leaseID=a.sent[0].leaseID;denied.errorCode="internet_sharing_not_allowed"
@@ -97,8 +174,8 @@ enum InternetTunnelDriverState {case idle,starting,running,failed(String)}
             precondition(InternetTunnelDriver.last.policy != .automatic && InternetTunnelDriver.last.healthyPeers.isEmpty,
                 "An unresolved fixed phone must close new flows immediately, before asynchronous tunnel retirement")
             await settle(100)
-            precondition(InternetTunnelDriver.last.active.isEmpty,
-                "An unresolved fixed phone must fail closed instead of routing through another phone")
+            precondition(InternetTunnelDriver.last.active == ["A"] && c.devices["A"]?.key == "INTERNET_WAITING",
+                "An unresolved fixed phone must retain established flows while closing new admission")
             await c.stop()
         }
         InternetGatewayProbe.reset()
@@ -213,6 +290,6 @@ enum InternetTunnelDriverState {case idle,starting,running,failed(String)}
             precondition(c.devices["A"]?.key != "INTERNET_READY","HTTPS success without a native TUN flow increase must not claim tunnel acceptance")
             await c.stop()
         }
-        print("PASS actual internet coordinator: phone-consent guidance/lease cleanup, fail-closed fixed selection, selected-peer forget, coalesced heartbeat presentation, intent/handoff/offline stop, serialized two-peer probes, verified-only topology, stable fixed slots, stale failure fence, default-route native-flow proof")
+        print("PASS actual internet coordinator: isolated admission rejection, destructive/unproven failure closure, fixed-peer established-flow retention with closed new admission/DNS and honest waiting state, phone consent/lease cleanup, intent/handoff, serialized probes, stable slots, stale failure fence and native-flow readiness proof")
     }
 }

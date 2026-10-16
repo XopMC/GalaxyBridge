@@ -44,9 +44,10 @@ if [[ ! -f "$GB_BUILD/build.ninja" ]]; then
 fi
 gb_patch "$GB_ROOT/third_party/adb-owned/patches/0002-nonseizing-usb.patch"
 gb_patch "$GB_ROOT/third_party/adb-owned/patches/0003-private-socket-backlog.patch"
+python3 "$GB_ROOT/scripts/test-owned-adb-usb-policy.py" "$GB_SOURCE/subprojects/libusb-1.0.29/libusb/os/galaxybridge_usb_policy.h"
+python3 "$GB_ROOT/scripts/test-owned-adb-darwin-open.py" "$GB_SOURCE/subprojects/libusb-1.0.29/libusb/os/darwin_usb.c"
 meson compile -C "$GB_BUILD" ./vendor/adb:executable -j "${GB_BUILD_JOBS:-4}"
 python3 "$GB_ROOT/scripts/verify-adb-deployment-target.py" "$GB_BUILD"
-python3 "$GB_ROOT/scripts/test-owned-adb-usb-policy.py" "$GB_SOURCE/subprojects/libusb-1.0.29/libusb/os/galaxybridge_usb_policy.h"
 python3 "$GB_ROOT/scripts/stage-redistributable-adb.py" "$GB_SOURCE" "$GB_BUILD" "$GB_OUTPUT"
 python3 "$GB_ROOT/scripts/test-owned-adb-artifact.py" "$GB_OUTPUT/adb" --write-contract
 python3 - "$GB_OUTPUT" <<'PY'

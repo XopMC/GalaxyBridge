@@ -16,6 +16,13 @@ enum InternetTunnelDriverState: Equatable {
     case failed(String)
 }
 
+/// Issued only before the active runtime topology changes, after the helper has
+/// freshly accepted the exact previous topology. Relay identities prevent an
+/// old phone session from preserving a replacement session for the same peer.
+struct InternetTunnelAdmissionRejection: Error {
+    let retainedRelays: Set<ObjectIdentifier>
+}
+
 /// Owns one global utun. All payload processing remains in this unprivileged
 /// process. Construction is inert; only an explicit approved start contacts the
 /// optional root helper. Each relay must already have passed the caller's
@@ -32,6 +39,7 @@ final class InternetTunnelDriver: ObservableObject {
     private var heartbeat: Task<Void, Never>?
     private var generation = UUID()
     private var relayRevision = UUID()
+    private var relayTopologyRevision = UUID()
     private var pendingRelays: [ObjectIdentifier: PairedInternetRelay] = [:]
     private var pendingCreate = false
     private var pendingCreateWaiters: [CheckedContinuation<Void, Never>] = []
@@ -39,6 +47,7 @@ final class InternetTunnelDriver: ObservableObject {
     private var healthMask: UInt32 = 3
     private var healthyPeers: Set<String>?
     private var dnsRelay: PairedDNSRelay?
+    var hasActiveTopology: Bool { state == .running && worker != nil && tunnelFD >= 0 && !token.isEmpty }
     var totalFlowStarted: [UInt64] {
         var values = [UInt64](repeating: 0, count: 2)
         values.withUnsafeMutableBufferPointer { gb_gateway_pool_total_started($0.baseAddress) }
@@ -51,13 +60,35 @@ final class InternetTunnelDriver: ObservableObject {
         if gatewayRelays.isEmpty { await stop(); return }
         let revision = UUID(); relayRevision = revision
         if state == .running {
-            var update = request(operation: UInt32(GB_NETWORK_UPDATE_GATEWAYS))
-            update.mtu = 1400
-            try Self.setAddresses(gatewayRelays, on: &update)
-            let result = await Self.helper(HelperInput(request: update))
-            guard relayRevision == revision, !Task.isCancelled else { throw CancellationError() }
-            guard result.status == 0 else { throw DriverError.helper(result.status) }
-            try await reconcileRelays(gatewayRelays, revision: revision)
+            let attempt = generation, topology = relayTopologyRevision
+            let previous = relays.compactMap { $0 }
+            do {
+                var update = request(operation: UInt32(GB_NETWORK_UPDATE_GATEWAYS))
+                update.mtu = 1400
+                try Self.setAddresses(gatewayRelays, on: &update)
+                let result = await Self.helper(HelperInput(request: update))
+                guard relayRevision == revision, !Task.isCancelled else { throw CancellationError() }
+                guard result.status == 0 else { throw DriverError.helper(result.status) }
+                try await reconcileRelays(gatewayRelays, revision: revision)
+            } catch let admissionError {
+                func unchanged() -> Bool {
+                    !Task.isCancelled && relayRevision == revision && generation == attempt &&
+                        relayTopologyRevision == topology && state == .running && worker != nil &&
+                        tunnelFD >= 0 && !token.isEmpty && !previous.isEmpty &&
+                        previous.allSatisfy { old in old.localPort != nil && relays.contains { $0 === old } }
+                }
+                guard !(admissionError is CancellationError), unchanged() else { throw admissionError }
+                // A rejected helper update may mean its lease died. Revalidate
+                // ownership and restore old gateway metadata before preserving
+                // any ready phone; driver state alone is not a receipt.
+                var rollback = request(operation: UInt32(GB_NETWORK_UPDATE_GATEWAYS))
+                rollback.mtu = 1400
+                do { try Self.setAddresses(previous, on: &rollback) }
+                catch { throw admissionError }
+                let restored = await Self.helper(HelperInput(request: rollback))
+                guard restored.status == 0, unchanged() else { throw admissionError }
+                throw InternetTunnelAdmissionRejection(retainedRelays: Set(previous.map(ObjectIdentifier.init)))
+            }
             return
         }
         guard worker == nil, token.isEmpty, !pendingCreate, state != .stopping, state != .starting else { throw DriverError.retirementIncomplete }
@@ -164,6 +195,7 @@ final class InternetTunnelDriver: ObservableObject {
 
     func stop() async {
         generation = UUID(); relayRevision = UUID()
+        relayTopologyRevision = UUID()
         heartbeat?.cancel(); heartbeat = nil
         let preparing = Array(pendingRelays.values); pendingRelays.removeAll()
         for relay in preparing { relay.stop() }
@@ -267,6 +299,7 @@ final class InternetTunnelDriver: ObservableObject {
         guard result == 0 else { throw DriverError.retirementIncomplete }
         let previous = relays
         relays = next; ports = nextPorts; gatewayDeviceIDs = nextIDs; healthMask = selectedHealth
+        relayTopologyRevision = UUID()
         committed = true
         for index in 0..<2 {
             if let old = previous[index], next[index] !== old { old.stop() }
@@ -313,7 +346,7 @@ final class InternetTunnelDriver: ObservableObject {
     }
     private func request(operation: UInt32) -> GBNetworkRequest {
         var value = GBNetworkRequest(); value.version = UInt32(GB_NETWORK_VERSION); value.operation = operation
-        withUnsafeMutableBytes(of: &value.token) { destination in token.copyBytes(to: destination) }
+        _ = withUnsafeMutableBytes(of: &value.token) { destination in token.copyBytes(to: destination) }
         return value
     }
     private struct HelperInput: @unchecked Sendable { let request: GBNetworkRequest }

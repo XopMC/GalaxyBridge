@@ -8,6 +8,9 @@ from pathlib import Path
 import sys
 root=Path(sys.argv[1]);tmp=Path(sys.argv[2]);s=(root/'macos/GalaxyBridgeMac/InternetSharingCoordinator.swift').read_text();s=s[:s.index('/// OS curl')]
 s=s.replace('import GalaxyBridgeCore\n','').replace('import GalaxyBridgeProtocol\n','').replace('#if !GALAXYBRIDGE_APP_STORE\n','')
+driver=(root/'macos/GalaxyBridgeMac/Transport/InternetTunnelDriver.swift').read_text()
+receipt=driver[driver.index('struct InternetTunnelAdmissionRejection:'):driver.index('\n/// Owns one global utun.')]
+s += '\n' + receipt
 (tmp/'ActualCoordinator.swift').write_text(s)
 PY
 swiftc -swift-version 6 "$tmp/ActualCoordinator.swift" "$root/macos/GalaxyBridgeMacTests/InternetSharingLifecycleSpec.swift" -o "$tmp/spec"
@@ -52,3 +55,23 @@ private extension InternetProbeProcessOwner {
 PYPROBE
 swiftc -swift-version 6 "$tmp/ActualProbe.swift" "$tmp/ProbeBoundary.swift" -o "$tmp/probe-cancellation"
 "$tmp/probe-cancellation"
+
+# Execute the full actual driver and native gateway pool with inert helper and
+# tunnel-worker boundaries. No system helper, socket, network or utun is opened.
+python3 - "$root" "$tmp" <<'PYDRIVER'
+from pathlib import Path
+import sys
+root=Path(sys.argv[1]);tmp=Path(sys.argv[2])
+source=(root/'macos/GalaxyBridgeMac/Transport/InternetTunnelDriver.swift').read_text()
+source=source.replace('import CNetworkLease\n','').replace('import CInternetRuntime\n','')
+(tmp/'ActualDriver.swift').write_text(source)
+(tmp/'AdmissionBoundary.h').write_text('#include "GBNetworkLease.h"\n#include "galaxybridge_internet.h"\nvoid gb_fixture_reject_admission(int);\nint gb_fixture_update_count(void);\nint gb_fixture_last_gateway(void);\n')
+PYDRIVER
+clang -std=c11 -Wall -Wextra -Werror -I "$root/macos/GalaxyBridgeNetworkHelper" \
+    -c "$root/macos/GalaxyBridgeMacTests/InternetTunnelAdmissionBoundary.c" -o "$tmp/admission-boundary.o"
+clang -std=c11 -Wall -Wextra -Werror -I "$root/native/galaxybridge-internet/include" \
+    -c "$root/native/galaxybridge-internet/gateway_pool.c" -o "$tmp/gateway-pool.o"
+swiftc -swift-version 6 -I "$root/macos/GalaxyBridgeNetworkHelper" -I "$root/native/galaxybridge-internet/include" \
+    -import-objc-header "$tmp/AdmissionBoundary.h" "$tmp/ActualDriver.swift" \
+    "$root/macos/GalaxyBridgeMacTests/InternetTunnelAdmissionSpec.swift" "$tmp/admission-boundary.o" "$tmp/gateway-pool.o" -o "$tmp/admission"
+"$tmp/admission"

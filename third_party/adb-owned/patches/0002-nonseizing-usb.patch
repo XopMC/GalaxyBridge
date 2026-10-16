@@ -12,8 +12,8 @@
    return (*device)->DeviceRequestTO (device, &req);
  }
  
-+/* Galaxy Bridge: try the ordinary non-seizing open exactly once. An occupied
-+ * device is unavailable; no fallback may detach its existing owner. */
++/* Galaxy Bridge: try ordinary device open exactly once. Independent interface
++ * acquisition must never evict an existing device or interface owner. */
 +static int galaxybridge_darwin_try_open(void *opaque) {
 +  usb_device_t device = (usb_device_t)opaque;
 +  return (*device)->USBDeviceOpen(device);
@@ -37,7 +37,7 @@
  
    do {
      /**** retrieve device descriptor ****/
-@@ -1524,16 +1532,11 @@
+@@ -1524,6 +1532,6 @@
  
    if (0 == dpriv->open_count) {
      /* try to open the device */
@@ -45,18 +45,15 @@
 +    kresult = galaxybridge_usb_open_once(dpriv->device, galaxybridge_darwin_try_open);
      if (kresult != kIOReturnSuccess) {
        usbi_warn (HANDLE_CTX (dev_handle), "USBDeviceOpen: %s", darwin_error_str(kresult));
- 
--      if (kIOReturnExclusiveAccess != kresult) {
--        return darwin_to_libusb (kresult);
--      }
--
+@@ -1535,5 +1543,6 @@
 -      /* it is possible to perform some actions on a device that is not open so do not return an error */
--      priv->is_open = false;
-+      return darwin_to_libusb (kresult); /* including exclusive access: decline contention */
++      /* A device-level owner may coexist with a free ADB interface. Preserve the
++       * upstream interface-only path; USBInterfaceOpen still rejects contention. */
+       priv->is_open = false;
      } else {
        priv->is_open = true;
      }
-@@ -1620,6 +1623,7 @@
+@@ -1620,6 +1629,7 @@
  }
  
  static enum libusb_error darwin_set_configuration(struct libusb_device_handle *dev_handle, int config) {
@@ -64,7 +61,7 @@
    struct darwin_cached_device *dpriv = DARWIN_CACHED_DEVICE(dev_handle->dev);
    IOReturn kresult;
    uint8_t i;
-@@ -2068,6 +2072,7 @@
+@@ -2068,6 +2078,7 @@
  }
  
  static int darwin_reenumerate_device (struct libusb_device_handle *dev_handle, bool capture) {
@@ -72,7 +69,7 @@
    struct darwin_cached_device *dpriv = DARWIN_CACHED_DEVICE(dev_handle->dev);
    unsigned long claimed_interfaces = dev_handle->claimed_interfaces;
    uint8_t active_config = dpriv->active_config;
-@@ -2167,6 +2172,7 @@
+@@ -2167,6 +2178,7 @@
  }
  
  static int darwin_reset_device (struct libusb_device_handle *dev_handle) {
@@ -80,7 +77,7 @@
    struct darwin_cached_device *dpriv = DARWIN_CACHED_DEVICE(dev_handle->dev);
    IOReturn kresult;
    enum libusb_error ret;
-@@ -2821,6 +2827,7 @@
+@@ -2821,6 +2833,7 @@
  /* On macOS, we capture an entire device at once, not individual interfaces. */
  
  static int darwin_detach_kernel_driver (struct libusb_device_handle *dev_handle, uint8_t interface) {
@@ -88,7 +85,7 @@
    UNUSED(interface);
    struct darwin_cached_device *dpriv = DARWIN_CACHED_DEVICE(dev_handle->dev);
    IOReturn kresult;
-@@ -2867,6 +2874,7 @@
+@@ -2867,6 +2880,7 @@
  
  
  static int darwin_attach_kernel_driver (struct libusb_device_handle *dev_handle, uint8_t interface) {
@@ -144,8 +141,8 @@
 +++ b/subprojects/libusb-1.0.29/libusb/os/galaxybridge_usb_policy.h
 @@ -0,0 +1,12 @@
 +/* Galaxy Bridge changes, 2026. LGPL-2.1-or-later, same as libusb.
-+ * Ordinary open is attempted exactly once. Busy/errors are propagated; there
-+ * is no detach, seize, reset, configuration change, or fallback callback. */
++ * Ordinary open is attempted exactly once; its result reaches acquisition policy.
++ * No detach, seize, reset, configuration change, or fallback callback is allowed. */
 +#ifndef GALAXYBRIDGE_USB_POLICY_H
 +#define GALAXYBRIDGE_USB_POLICY_H
 +static inline int galaxybridge_usb_open_once(void *device, int (*ordinary_open)(void *)) {

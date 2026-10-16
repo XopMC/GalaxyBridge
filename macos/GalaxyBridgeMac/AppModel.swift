@@ -136,6 +136,16 @@ final class AppModel: ObservableObject {
     private var shellProviderSubscriptions: [String: AnyCancellable] = [:]
     private var shellProbeTasks: [String: Task<Void, Never>] = [:]
     private var shellProbeSessions: [String: String] = [:]
+    private var shellProbeTickets: [String: UUID] = [:]
+    private struct ShellReadinessPreparation {
+        let ticket: UUID
+        let deviceID: String
+        let serial: String?
+        let sessionID: String?
+        let providerID: ObjectIdentifier
+        let task: Task<Bool, Error>
+    }
+    private var shellReadinessTasks: [String: ShellReadinessPreparation] = [:]
     private var shellPreferredDevices = Set<String>()
     private var requestedDirectDevices = Set<String>()
     private var preparingDirectDevices = Set<String>()
@@ -475,6 +485,71 @@ final class AppModel: ObservableObject {
         guard let serial = device.adbSerial else { return nil }
         return (serial, nil)
     }
+    private func shellReadinessIsCurrent(deviceID: String, serial: String?, sessionID: String?,
+                                         provider: ShellCapabilityBridgeProvider) -> Bool {
+        terminationAdmission.admitsWork && row(id: deviceID) != nil && row(id: deviceID)?.adbSerial == serial &&
+            companionControl(for: deviceID)?.authenticatedSessionID == sessionID && shellProviders[deviceID] === provider
+    }
+
+    private func refreshShellCapabilities(deviceID: String, serial: String?, sessionID: String?,
+                                          provider: ShellCapabilityBridgeProvider) async throws -> Bool {
+        try Task.checkCancellation()
+        guard shellReadinessIsCurrent(deviceID: deviceID, serial: serial, sessionID: sessionID, provider: provider) else {
+            throw CancellationError()
+        }
+        let key = serial.map { "adb:" + $0 } ?? "device:" + deviceID
+        if let preparation = shellReadinessTasks[key] ?? shellReadinessTasks.values.first(where: { $0.deviceID == deviceID }) {
+            // A replacement route must let the old activation settle before it
+            // can prepare the same physical phone under a new control session.
+            if preparation.deviceID != deviceID || preparation.serial != serial || preparation.sessionID != sessionID ||
+                preparation.providerID != ObjectIdentifier(provider) {
+                _ = try? await preparation.task.value
+                return try await refreshShellCapabilities(deviceID: deviceID, serial: serial, sessionID: sessionID, provider: provider)
+            }
+            let ready = try await preparation.task.value
+            try Task.checkCancellation()
+            guard shellReadinessIsCurrent(deviceID: deviceID, serial: serial, sessionID: sessionID, provider: provider) else {
+                throw CancellationError()
+            }
+            return ready
+        }
+        let ticket = UUID()
+        let task = Task { [weak self, weak provider] () throws -> Bool in
+            guard let self, let provider else { throw CancellationError() }
+            defer {
+                if self.shellReadinessTasks[key]?.ticket == ticket { self.shellReadinessTasks.removeValue(forKey: key) }
+            }
+            let ready = await provider.refresh()
+            try Task.checkCancellation()
+            guard self.shellReadinessIsCurrent(deviceID: deviceID, serial: serial, sessionID: sessionID, provider: provider) else {
+                throw CancellationError()
+            }
+            if ready { return true }
+            guard let serial, let control = self.companionControl(for: deviceID),
+                  ADBBindingStore().isVerified(serial: serial, peer: control.peer) else { return false }
+            do { try await ShellCapabilityBridgeActivation.activate(adb: ADBClient(), serial: serial) }
+            catch { try Task.checkCancellation(); throw error }
+            try Task.checkCancellation()
+            guard self.shellReadinessIsCurrent(deviceID: deviceID, serial: serial, sessionID: sessionID, provider: provider) else {
+                throw CancellationError()
+            }
+            let activated = await provider.refresh()
+            try Task.checkCancellation()
+            guard self.shellReadinessIsCurrent(deviceID: deviceID, serial: serial, sessionID: sessionID, provider: provider) else {
+                throw CancellationError()
+            }
+            return activated
+        }
+        shellReadinessTasks[key] = ShellReadinessPreparation(ticket: ticket, deviceID: deviceID, serial: serial,
+            sessionID: sessionID, providerID: ObjectIdentifier(provider), task: task)
+        let ready = try await task.value
+        try Task.checkCancellation()
+        guard shellReadinessIsCurrent(deviceID: deviceID, serial: serial, sessionID: sessionID, provider: provider) else {
+            throw CancellationError()
+        }
+        return ready
+    }
+
     private func prepareNearbyConnection(deviceID: String, automatic: Bool, connectAfterPreparation: Bool = true) {
         let id = deviceID.hasPrefix("device:") ? deviceID : "device:" + deviceID
         guard terminationAdmission.admitsWork, nearbyPreparationTasks[id] == nil, canConnectNearby(deviceID: id) else { return }
@@ -497,44 +572,35 @@ final class AppModel: ObservableObject {
             }
             do {
                 try Task.checkCancellation()
-                guard let provider = self.shellBridgeProvider(deviceID: id) else {
+                guard let provider = self.shellBridgeProvider(deviceID: id), let device = self.row(id: id) else {
                     guard connectAfterPreparation else { return }
                     let raw = id.removingPrefix("device:") ?? id
                     if automatic { self.nearbyConnection.autoConnectIfUnassociated(deviceID: raw) }
                     else { self.nearbyConnection.connect(deviceID: raw) }
                     return
                 }
-                if !(await provider.refresh()) {
+                let serial = device.adbSerial
+                let sessionID = self.companionControl(for: id)?.authenticatedSessionID
+                do {
+                    guard try await self.refreshShellCapabilities(deviceID: id, serial: serial, sessionID: sessionID, provider: provider) else {
+                        throw ShellCapabilityBridgeFailure.unavailable
+                    }
+                } catch {
+                    // Shell access is optional until advanced owners suspend.
+                    // Cancellation or a replaced route must never use fallback.
                     try Task.checkCancellation()
-                    guard let device = self.row(id: id), let serial = device.adbSerial else {
-                        guard connectAfterPreparation else { return }
-                        let raw = id.removingPrefix("device:") ?? id
-                        if automatic { self.nearbyConnection.autoConnectIfUnassociated(deviceID: raw) }
-                        else { self.nearbyConnection.connect(deviceID: raw) }
-                        return
+                    if error is CancellationError { throw error }
+                    guard self.shellReadinessIsCurrent(deviceID: id, serial: serial, sessionID: sessionID, provider: provider) else {
+                        throw CancellationError()
                     }
-                    do {
-                        guard let control = self.companionControl(for: id),
-                              ADBBindingStore().isVerified(serial: serial, peer: control.peer) else {
-                            throw ShellCapabilityBridgeFailure.unavailable
-                        }
-                        try await ShellCapabilityBridgeActivation.activate(adb: ADBClient(), serial: serial)
-                        guard await provider.refresh() else { throw ShellCapabilityBridgeFailure.unavailable }
-                    } catch {
-                        // Shell access is optional. No advanced owner has been
-                        // suspended yet, so its activation failure can safely
-                        // leave those owners on their existing route and continue
-                        // with basic nearby connectivity. Settlement errors below
-                        // remain terminal and must never use this fallback.
-                        try Task.checkCancellation()
-                        guard connectAfterPreparation else { return }
-                        let raw = id.removingPrefix("device:") ?? id
-                        if automatic { self.nearbyConnection.autoConnectIfUnassociated(deviceID: raw) }
-                        else { self.nearbyConnection.connect(deviceID: raw) }
-                        return
-                    }
+                    guard connectAfterPreparation else { return }
+                    let raw = id.removingPrefix("device:") ?? id
+                    if automatic { self.nearbyConnection.autoConnectIfUnassociated(deviceID: raw) }
+                    else { self.nearbyConnection.connect(deviceID: raw) }
+                    return
                 }
                 try Task.checkCancellation()
+                let generation = provider.bootGeneration
                 self.preparingDirectDevices.insert(id)
                 let manualPower = self.phonePrivacyManualPower[id]
                 let suspension = await self.applicationWindowCoordinator?.suspendForRouteChange(deviceID: id)
@@ -549,6 +615,8 @@ final class AppModel: ObservableObject {
                 await self.phoneDisplayPrivacy.waitForSettlement(deviceID: id)
                 if case .failed = self.phoneDisplayPrivacy.status(deviceID: id) { throw ShellCapabilityBridgeFailure.operationFailed }
                 try Task.checkCancellation()
+                guard self.shellReadinessIsCurrent(deviceID: id, serial: serial, sessionID: sessionID, provider: provider),
+                      provider.bootGeneration == generation else { throw CancellationError() }
                 self.shellPreferredDevices.insert(id); self.preparingDirectDevices.remove(id)
                 if let manualPower { self.phonePrivacyManualPower[id] = manualPower }
                 self.reconcileEnhancedClipboardSessions(); self.reconcilePhoneDisplayPrivacyRoutes()
@@ -574,16 +642,28 @@ final class AppModel: ObservableObject {
             let key = control.authenticatedSessionID + "|" + (device.adbSerial ?? "")
             guard shellProbeSessions[device.id] != key else { continue }
             shellProbeSessions[device.id] = key
+            let ticket = UUID(); shellProbeTickets[device.id] = ticket
             shellProbeTasks[device.id] = Task { [weak self, weak provider] in
                 guard let self, let provider else { return }
-                defer { self.shellProbeTasks.removeValue(forKey: device.id) }
-                var ready = await provider.refresh()
-                guard self.terminationAdmission.admitsWork,
-                      self.companionControl(for: device.id)?.authenticatedSessionID == control.authenticatedSessionID else { return }
-                if !ready, let serial = device.adbSerial, ADBBindingStore().isVerified(serial: serial, peer: control.peer) {
-                    do { try await ShellCapabilityBridgeActivation.activate(adb: ADBClient(), serial: serial); ready = await provider.refresh() }
-                    catch { /* No capability is advertised until a real STATUS succeeds. */ }
+                defer {
+                    if self.shellProbeTickets[device.id] == ticket {
+                        self.shellProbeTickets.removeValue(forKey: device.id)
+                        self.shellProbeTasks.removeValue(forKey: device.id)
+                    }
                 }
+                let ready: Bool
+                do {
+                    ready = try await self.refreshShellCapabilities(deviceID: device.id, serial: device.adbSerial,
+                        sessionID: control.authenticatedSessionID, provider: provider)
+                } catch {
+                    guard !(error is CancellationError), !Task.isCancelled,
+                          self.shellReadinessIsCurrent(deviceID: device.id, serial: device.adbSerial,
+                              sessionID: control.authenticatedSessionID, provider: provider) else { return }
+                    ready = false // No capability is advertised until a current STATUS succeeds.
+                }
+                guard !Task.isCancelled,
+                      self.shellReadinessIsCurrent(deviceID: device.id, serial: device.adbSerial,
+                          sessionID: control.authenticatedSessionID, provider: provider) else { return }
                 if ready, !self.shellPreferredDevices.contains(device.id),
                    self.requestedDirectDevices.contains(device.id) || (self.nearbyAutoConnect(deviceID: device.id) && device.adbSerial != nil) {
                     self.prepareNearbyConnection(deviceID: device.id, automatic: self.nearbyAutoConnect(deviceID: device.id),
@@ -895,6 +975,7 @@ final class AppModel: ObservableObject {
 #if !GALAXYBRIDGE_APP_STORE
         for task in nearbyPreparationTasks.values { task.cancel() }
         for task in shellProbeTasks.values { task.cancel() }
+        for preparation in shellReadinessTasks.values { preparation.task.cancel() }
         ADBOwnedRuntime.shared.beginShutdown()
 #endif
         let cacheShutdown = cacheMaintenance.beginShutdown()
@@ -1075,6 +1156,7 @@ final class AppModel: ObservableObject {
 #if !GALAXYBRIDGE_APP_STORE
             shellProbeTasks.removeValue(forKey: deviceID)?.cancel()
             shellProbeSessions.removeValue(forKey: deviceID)
+            shellProbeTickets.removeValue(forKey: deviceID)
             shellProviders.removeValue(forKey: deviceID)
             shellProviderSubscriptions.removeValue(forKey: deviceID)?.cancel()
             shellPreferredDevices.remove(deviceID); requestedDirectDevices.remove(deviceID)
