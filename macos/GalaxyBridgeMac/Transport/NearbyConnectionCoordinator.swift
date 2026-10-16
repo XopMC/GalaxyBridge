@@ -15,12 +15,21 @@ enum NearbyConnectionStatus: Equatable, Sendable {
 /// operations are authenticated inside the signed-hello/AEAD session.
 @MainActor
 final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurrency CBCentralManagerDelegate,
-    @preconcurrency CBPeripheralDelegate, CLLocationManagerDelegate {
+    @preconcurrency CBPeripheralDelegate, @preconcurrency CLLocationManagerDelegate {
     @Published private(set) var statuses: [String: NearbyConnectionStatus] = [:]
     @Published private(set) var nearbyPairingURI: String?
+    @Published private(set) var locationPermissionHintKey: String?
+    @Published private(set) var discoverySuggestions: [NearbyDiscoverySuggestion] = []
     private static let service = CBUUID(string: "6e5a0001-6b47-4b8f-8f41-54f4a681e602")
     private static let rx = CBUUID(string: "6e5a0002-6b47-4b8f-8f41-54f4a681e602")
     private static let tx = CBUUID(string: "6e5a0003-6b47-4b8f-8f41-54f4a681e602")
+    private static let metadata = CBUUID(string: "6e5a0004-6b47-4b8f-8f41-54f4a681e602")
+    private final class DiscoveryProbe {
+        let peripheral: CBPeripheral
+        var deadline: Task<Void, Never>?
+        var closing = false
+        init(_ peripheral: CBPeripheral) { self.peripheral = peripheral }
+    }
     private final class Session {
         let peripheral: CBPeripheral
         let generation = UUID()
@@ -68,6 +77,7 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
     private let peers: () -> [PairedPeer]
     private let onDescriptor: (GBDirectLinkDescriptor) -> Void
     private let onPairingCommitted: () -> Void
+    private let onVerifiedPairing: (String) -> Void
     private let onReleaseLease: @MainActor (String, String) async -> Bool
     private let onRenewLease: @MainActor (String, String) async -> Bool
     private let identity = KeychainIdentityStore()
@@ -77,6 +87,13 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
     private let location = CLLocationManager()
     private var discoveryWanted = false
     private var candidates: [UUID: CBPeripheral] = [:]
+    private var discoveryCatalog = NearbyDiscoveryCatalog()
+    private let discoveryOrigin = ContinuousClock.now
+    private var discoveryMaintenance: Task<Void, Never>?
+    private var discoveryProbe: DiscoveryProbe?
+    private var offerCandidateID: UUID?
+    private var offerRetryBudget = NearbyPairingRetryBudget()
+    private var offerRetry: Task<Void, Never>?
     private var sessions: [UUID: Session] = [:]
     private var retiring: [UUID: Session] = [:]
     private var requested = Set<String>()
@@ -97,18 +114,41 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
 
     init(peers: @escaping () -> [PairedPeer], onDescriptor: @escaping (GBDirectLinkDescriptor) -> Void,
          onPairingCommitted: @escaping () -> Void,
+         onVerifiedPairing: @escaping (String) -> Void = { _ in },
          onReleaseLease: @escaping @MainActor (String, String) async -> Bool = { _, _ in false },
          onRenewLease: @escaping @MainActor (String, String) async -> Bool = { _, _ in false }) {
         self.peers = peers; self.onDescriptor = onDescriptor; self.onPairingCommitted = onPairingCommitted
+        self.onVerifiedPairing = onVerifiedPairing
         self.onReleaseLease = onReleaseLease
         self.onRenewLease = onRenewLease
         super.init(); location.delegate = self
     }
 
+    private func updateLocationPermissionHint() {
+        let key: String? = switch location.authorizationStatus {
+        case .denied, .restricted: "NEARBY_LOCATION_PERMISSION_HINT"
+        default: nil
+        }
+        if locationPermissionHintKey != key { locationPermissionHintKey = key }
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        updateLocationPermissionHint()
+    }
+
     func startDiscovery() {
         discoveryWanted = true
         if central == nil { central = CBCentralManager(delegate: self, queue: .main) }
-        if central?.state == .poweredOn { central?.scanForPeripherals(withServices: [Self.service], options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]) }
+        if central?.state == .poweredOn { central?.scanForPeripherals(withServices: [Self.service], options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]) }
+        if discoveryMaintenance == nil {
+            discoveryMaintenance = Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                    guard let self, self.discoveryWanted else { return }
+                    self.refreshDiscovery(); self.pumpDiscoveryProbe()
+                }
+            }
+        }
         for peer in peers() where statuses[peer.deviceID] == nil { statuses[peer.deviceID] = .discovering }
     }
 
@@ -124,17 +164,34 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
     func autoConnectIfUnassociated(deviceID: String) {
         guard location.authorizationStatus == .authorizedAlways,
               peers().contains(where: { $0.deviceID == deviceID }), !requested.contains(deviceID), autoTickets[deviceID] == nil else { return }
+        let group = sharedDescriptor
+        if let group, !hasVerifiedSharedOwner(group) { return }
         let ticket = UUID(), generation = lifecycle
         autoTickets[deviceID] = ticket
         Task { [weak self, wifi] in
-            let unassociated = await wifi.isUnassociated()
+            let permitted: Bool
+            if let group { permitted = await wifi.isOwnedAssociation(name: group.networkName) }
+            else { permitted = await wifi.isUnassociated() }
             guard let self, self.lifecycle == generation, self.autoTickets[deviceID] == ticket else { return }
             self.autoTickets.removeValue(forKey: deviceID)
-            guard unassociated,
+            guard permitted, self.sharedDescriptor == group,
                   self.location.authorizationStatus == .authorizedAlways,
                   self.peers().contains(where: { $0.deviceID == deviceID }), !self.requested.contains(deviceID) else { return }
+            if let group, !self.hasVerifiedSharedOwner(group) { return }
             self.beginConnect(deviceID: deviceID, automatic: true)
         }
+    }
+
+    func cancelAutomaticConnection(deviceID: String) {
+        autoTickets.removeValue(forKey: deviceID)
+        guard automaticTargets.contains(deviceID), statuses[deviceID] != .connected else { return }
+        disconnect(deviceID: deviceID)
+    }
+
+    private func hasVerifiedSharedOwner(_ descriptor: GBDirectLinkDescriptor) -> Bool {
+        guard let owner = sessions.values.first(where: { $0.deviceID == descriptor.ownerDeviceID && $0.lifetime.verified &&
+            $0.descriptor?.networkName == descriptor.networkName && $0.descriptor?.ownerDeviceID == descriptor.ownerDeviceID }) else { return false }
+        return admitsTrustedSession(owner)
     }
 
     private func beginConnect(deviceID: String, automatic: Bool) {
@@ -146,7 +203,7 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
             if let descriptor = anchor.descriptor { onDescriptor(descriptor) }; return
         }
         guard sessions.values.allSatisfy({ $0.deviceID != deviceID && $0.target != deviceID }) else { return }
-        guard requested.contains(deviceID) || requested.count < 2 else { statuses[deviceID] = .failed("session_limit"); return }
+        guard requested.contains(deviceID) || requested.count < 5 else { statuses[deviceID] = .failed("session_limit"); return }
         requested.insert(deviceID); tried[deviceID] = []
         if automatic { automaticTargets.insert(deviceID) } else { automaticTargets.remove(deviceID) }
         statuses[deviceID] = .discovering
@@ -159,13 +216,20 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
         startDiscovery(); pump()
     }
 
-    func beginOfflinePairing() {
+    func beginOfflinePairing(candidateID: UUID? = nil) {
+        let candidateID = candidateID ?? offerCandidateID
         cancelOffer()
+        refreshDiscovery()
+        if let candidateID, !discoverySuggestions.contains(where: { $0.id == candidateID }) { return }
+        offerCandidateID = candidateID
+        offerRetryBudget = NearbyPairingRetryBudget()
         tried["offline"] = []
         do {
             let key = try identity.privateKey()
             let created = try NearbyOfflineOffer(hostID: hostID(), identity: key.publicKey.x963Representation)
             offer = created; nearbyPairingURI = created.uri
+            updateLocationPermissionHint()
+            if location.authorizationStatus == .notDetermined { location.requestWhenInUseAuthorization() }
             offerExpiry = Task { [weak self] in
                 do { try await Task.sleep(for: .seconds(120)) } catch { return }
                 self?.cancelOffer()
@@ -226,6 +290,9 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
     func stop() {
         lifecycle = UUID(); autoTickets.removeAll()
         discoveryWanted = false; central?.stopScan()
+        discoveryMaintenance?.cancel(); discoveryMaintenance = nil
+        endDiscoveryProbe(metadata: nil)
+        discoveryCatalog.removeAll(); discoverySuggestions = []
         requested.removeAll(); tried.removeAll(); candidates.removeAll(); cancelOffer()
         automaticTargets.removeAll()
         targetDeadlines.values.forEach { $0.cancel() }; targetDeadlines.removeAll()
@@ -254,19 +321,82 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
     }
 
     private func cancelOffer() {
-        offerExpiry?.cancel(); offerExpiry = nil; offer = nil; nearbyPairingURI = nil
+        offerExpiry?.cancel(); offerExpiry = nil; offer = nil; nearbyPairingURI = nil; offerCandidateID = nil
+        offerRetry?.cancel(); offerRetry = nil
         for session in Array(sessions.values) where session.offer != nil && session.peer == nil { retire(session, sendRelease: false) }
+    }
+
+    private var discoveryTime: TimeInterval {
+        let elapsed = discoveryOrigin.duration(to: .now).components
+        return Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+    }
+    private func refreshDiscovery() {
+        discoveryCatalog.expire(at: discoveryTime)
+        candidates = candidates.filter { discoveryCatalog.identifiers.contains($0.key) || sessions[$0.key] != nil ||
+            retiring[$0.key] != nil || discoveryProbe?.peripheral.identifier == $0.key }
+        let suggestions = discoveryCatalog.suggestions
+        if discoverySuggestions != suggestions { discoverySuggestions = suggestions }
+    }
+    /// Read one short public model string. Never sends bootstrap Hello or a
+    /// network request, creates trust, or asks for Wi-Fi/location permission.
+    private func pumpDiscoveryProbe() {
+        guard discoveryWanted, central?.state == .poweredOn, discoveryProbe == nil, offer == nil,
+              requested.allSatisfy({ statuses[$0] == .connected }),
+              sessions.values.allSatisfy({ $0.lifetime.verified }), retiring.isEmpty,
+              let id = discoveryCatalog.nextProbe(at: discoveryTime) else { return }
+        guard let peripheral = candidates[id], sessions[id] == nil, peripheral.state == .disconnected else {
+            discoveryCatalog.finishProbe(id, metadata: nil); return
+        }
+        let probe = DiscoveryProbe(peripheral)
+        discoveryProbe = probe; peripheral.delegate = self
+        probe.deadline = Task { [weak self, weak probe] in
+            do { try await Task.sleep(for: .seconds(8)) } catch { return }
+            guard let self, let probe, self.discoveryProbe === probe else { return }
+            self.endDiscoveryProbe(metadata: nil)
+        }
+        central?.connect(peripheral)
+    }
+    private func endDiscoveryProbe(metadata: Data?) {
+        guard let probe = discoveryProbe, !probe.closing else { return }
+        probe.closing = true; probe.deadline?.cancel()
+        let fingerprint = metadata.flatMap { NearbyDiscoveryMetadata.parse($0)?.pairedHostFingerprint } != nil
+            ? try? identity.existingFingerprint() : nil
+        discoveryCatalog.finishProbe(probe.peripheral.identifier, metadata: metadata, localHostFingerprint: fingerprint)
+        refreshDiscovery()
+        // Retain the probe until CoreBluetooth confirms closure, so a late
+        // disconnect cannot be mistaken for a new authenticated session.
+        central?.cancelPeripheralConnection(probe.peripheral)
+    }
+    private func settleDiscoveryProbe(_ peripheral: CBPeripheral) -> Bool {
+        guard let probe = discoveryProbe, probe.peripheral.identifier == peripheral.identifier else { return false }
+        probe.deadline?.cancel(); discoveryCatalog.finishProbe(peripheral.identifier, metadata: nil)
+        discoveryProbe = nil; refreshDiscovery(); pump()
+        return true
     }
 
     private func pump() {
         guard discoveryWanted, central?.state == .poweredOn, retirements.isEmpty else { return }
-        while sessions.count + retiring.count < 2 {
+        if discoveryProbe != nil {
+            if offer != nil || requested.contains(where: { statuses[$0] != .connected }) { endDiscoveryProbe(metadata: nil) }
+            return
+        }
+        while sessions.count + retiring.count < 5 {
             let target = requested.sorted().first { id in !sessions.values.contains(where: { $0.target == id || $0.deviceID == id }) &&
                 candidates.keys.contains(where: { !(tried[id] ?? []).contains($0) && sessions[$0] == nil }) }
             let offline = target == nil && offer?.valid() == true && !sessions.values.contains(where: { $0.offer != nil })
-            guard target != nil || offline else { return }
+            guard target != nil || offline else { pumpDiscoveryProbe(); return }
             let key = target ?? "offline"
-            guard let peripheral = candidates.values.first(where: { sessions[$0.identifier] == nil && retiring[$0.identifier] == nil && !(tried[key] ?? []).contains($0.identifier) }) else { return }
+            guard let peripheral = candidates.values.first(where: { sessions[$0.identifier] == nil && retiring[$0.identifier] == nil && !(tried[key] ?? []).contains($0.identifier) &&
+                (!offline || offerCandidateID == nil || offerCandidateID == $0.identifier) }) else { return }
+            if offline {
+                guard offerRetryBudget.permit(at: discoveryTime), let sessionID = offer?.sessionID else { return }
+                offerRetry?.cancel()
+                offerRetry = Task { [weak self] in
+                    do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                    guard let self, self.offer?.sessionID == sessionID, self.offer?.valid() == true else { return }
+                    self.tried["offline"] = []; self.pump()
+                }
+            }
             guard (tried[key]?.count ?? 0) < 32 else {
                 if let target { disconnect(deviceID: target); statuses[target] = .failed("probe_limit") } else { cancelOffer() }
                 return
@@ -498,6 +628,7 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
                 guard let peer = peers().first(where: { $0.deviceID == target }), hello.deviceID == peer.deviceID else { throw NearbyTransportFailure.authentication }
                 session.crypto = try session.agreement.complete(remote: hello, expectedIdentity: peer.identityPublicKey)
                 session.peer = peer; session.deviceID = peer.deviceID
+                discoveryCatalog.markTrusted(session.peripheral.identifier); refreshDiscovery()
                 requestLink(session)
             } else {
                 guard let offer = session.offer, offer.valid(), self.offer?.sessionID == offer.sessionID,
@@ -680,12 +811,15 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
                     publicKeyX963: staged.peer.identityPublicKey) else { throw NearbyTransportFailure.authentication }
             let promotedPeer = try peerStore.promote(deviceID: ack.deviceID, sessionID: offer.sessionID)
             session.peer = promotedPeer
+            discoveryCatalog.markTrusted(session.peripheral.identifier); refreshDiscovery()
             CompanionLifecycleEvents.pairingStored(promotedPeer)
             self.offer = nil; nearbyPairingURI = nil; offerExpiry?.cancel(); offerExpiry = nil
+            offerRetry?.cancel(); offerRetry = nil; offerCandidateID = nil
             onPairingCommitted(); update(session, .idle)
-            // Pairing proves trust only. Creating/joining a network requires a
-            // separate explicit connect(deviceID:) action.
-            retire(session, sendRelease: false); pump()
+            retire(session, sendRelease: false)
+            // The app may now resolve an existing route or request a safe
+            // automatic connection using this cryptographically verified ID.
+            onVerifiedPairing(promotedPeer.deviceID); pump()
         } else { throw NearbyTransportFailure.frame }
     }
 
@@ -721,7 +855,7 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
                     guard self.sessions.values.contains(where: { $0.deviceID == owner && $0.lifetime.verified }) else { throw NearbyTransportFailure.ownership }
                 }
                 try await wifi.join(name: descriptor.networkName, password: descriptor.passphrase, owner: session.generation,
-                    automatic: session.automatic && session.joinOwnerDeviceID == nil)
+                    automatic: session.automatic, sharingOwnedAssociation: session.joinOwnerDeviceID != nil)
                 guard self.current(session), !Task.isCancelled else { throw CancellationError() }
                 guard self.peers().contains(where: { $0.deviceID == peer.deviceID && $0.identityPublicKey == peer.identityPublicKey && $0.tlsCertificateSHA256 == peer.tlsCertificateSHA256 }) else { throw NearbyTransportFailure.authentication }
                 self.update(session, .verifying)
@@ -741,26 +875,34 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         if central.state == .poweredOn, discoveryWanted { startDiscovery(); pump() }
         else if central.state != .poweredOn {
+            discoveryProbe?.deadline?.cancel(); discoveryProbe = nil
+            discoveryCatalog.removeAll(); discoverySuggestions = []
             for session in Array(sessions.values) { bootstrapLost(session, code: "bluetooth_unavailable") }
         }
     }
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        if candidates[peripheral.identifier] == nil, candidates.count >= 16 {
-            guard let victim = candidates.keys.first(where: { sessions[$0] == nil && retiring[$0] == nil }) else { return }
-            candidates.removeValue(forKey: victim)
-        }
-        candidates[peripheral.identifier] = peripheral; pump()
+        guard discoveryWanted else { return }
+        discoveryCatalog.observe(peripheral.identifier, at: discoveryTime)
+        candidates[peripheral.identifier] = peripheral
+        refreshDiscovery(); pump()
     }
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        if let probe = discoveryProbe, probe.peripheral.identifier == peripheral.identifier {
+            if probe.closing { central.cancelPeripheralConnection(peripheral) }
+            else { peripheral.discoverServices([Self.service]) }
+            return
+        }
         guard let session = sessions[peripheral.identifier] else { central.cancelPeripheralConnection(peripheral); return }
         update(session, .authenticating); peripheral.discoverServices([Self.service])
     }
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        if settleDiscoveryProbe(peripheral) { return }
         if let retired = retiring.removeValue(forKey: peripheral.identifier) { retired.closeDeadline?.cancel(); finishGroupCleanup(retired.generation); drainGroupRequests(); pump(); return }
         if let session = sessions[peripheral.identifier] { bootstrapLost(session, code: "ble_connection_failed") }
     }
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        if settleDiscoveryProbe(peripheral) { return }
         if let retired = retiring.removeValue(forKey: peripheral.identifier) { retired.closeDeadline?.cancel(); finishGroupCleanup(retired.generation); drainGroupRequests(); pump(); return }
         if let session = sessions[peripheral.identifier] { bootstrapLost(session, code: "ble_disconnected") }
     }
@@ -778,11 +920,19 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
         session.rx = nil; session.tx = nil; session.crypto = nil
     }
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        if let probe = discoveryProbe, probe.peripheral.identifier == peripheral.identifier {
+            guard !probe.closing, error == nil, let service = peripheral.services?.first(where: { $0.uuid == Self.service }) else { endDiscoveryProbe(metadata: nil); return }
+            peripheral.discoverCharacteristics([Self.metadata], for: service); return
+        }
         guard let session = sessions[peripheral.identifier], !session.lifetime.bootstrapDetached else { return }
         guard error == nil, let service = peripheral.services?.first(where: { $0.uuid == Self.service }) else { fail(session, code: "ble_service_missing"); return }
         peripheral.discoverCharacteristics([Self.rx, Self.tx], for: service)
     }
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        if let probe = discoveryProbe, probe.peripheral.identifier == peripheral.identifier {
+            guard !probe.closing, error == nil, let metadata = service.characteristics?.first(where: { $0.uuid == Self.metadata && $0.properties.contains(.read) }) else { endDiscoveryProbe(metadata: nil); return }
+            peripheral.readValue(for: metadata); return
+        }
         guard let session = sessions[peripheral.identifier], !session.lifetime.bootstrapDetached else { return }
         session.rx = service.characteristics?.first(where: { $0.uuid == Self.rx && $0.properties.contains(.write) })
         session.tx = service.characteristics?.first(where: { $0.uuid == Self.tx && $0.properties.contains(.indicate) })
@@ -807,6 +957,10 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
         session.writePending = false; flush(session)
     }
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        if let probe = discoveryProbe, probe.peripheral.identifier == peripheral.identifier {
+            guard !probe.closing, characteristic.uuid == Self.metadata else { return }
+            endDiscoveryProbe(metadata: error == nil ? characteristic.value : nil); return
+        }
         guard let session = sessions[peripheral.identifier], !session.lifetime.bootstrapDetached, characteristic.uuid == Self.tx else { return }
         guard error == nil, let bytes = characteristic.value else { bootstrapLost(session, code: "ble_read_failed"); return }
         do { for frame in try session.decoder.append(bytes) { try receive(frame, session) } }

@@ -13,6 +13,13 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
         let internalPath = ClientSetupModel.defaultStorageURL(bundleIdentifier: "com.xopmc.GalaxyBridge.internal", homeDirectory: root)
         let publicPath = ClientSetupModel.defaultStorageURL(bundleIdentifier: "com.xopmc.GalaxyBridge", homeDirectory: root)
         try require(internalPath != publicPath && internalPath.path.contains("/GalaxyBridgeInternal/"), "Internal preferences share the customer profile")
+        let legacyPath = root.appendingPathComponent("legacy-v1.json")
+        let legacyChoices: [String: Any] = ["version": 1, "choices": [first: ["screen"], second: ["calls"]]]
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: legacyChoices).write(to: legacyPath)
+        let legacy = ClientSetupModel(storageURL: legacyPath)
+        try require(legacy.selection(deviceID: first) == Set(ClientSetupFeature.shippingFeatures), "old verification checklist incorrectly disabled shipping features")
+        try require(legacy.selection(deviceID: second) == Set(ClientSetupFeature.shippingFeatures + [.calls]), "old optional calls choice was lost")
         let internalModel = ClientSetupModel(storageURL: internalPath), publicModel = ClientSetupModel(storageURL: publicPath)
         try internalModel.saveSelection(deviceID: first, features: [.calls])
         try publicModel.saveSelection(deviceID: first, features: [.screen])
@@ -21,13 +28,14 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
         try internalModel.forget(deviceID: first)
         try require(ClientSetupModel(storageURL: publicPath).selection(deviceID: first) == [.screen], "Internal forget removes customer choices")
         let model = ClientSetupModel(storageURL: path)
-        try require(model.selection(deviceID: first).isEmpty, "new device starts without fabricated choices")
+        try require(model.selection(deviceID: first) == Set(ClientSetupFeature.shippingFeatures), "new phone must have all shipping features available")
         for alias in ["usb:serial", "device:not-a-verified-identity", "wifi:192.168.1.2"] {
             do { try model.saveSelection(deviceID: alias, features: [.screen]); throw FixtureError.failed("alias accepted") }
             catch ClientSetupError.unverifiedDevice {}
         }
-        do { try model.saveSelection(deviceID: first, features: []); throw FixtureError.failed("empty selection accepted") }
-        catch ClientSetupError.emptySelection {}
+        try model.saveSelection(deviceID: first, features: [])
+        try require(model.selection(deviceID: first).isEmpty, "all-off choice must persist")
+        try require(ClientSetupModel(storageURL: path).selection(deviceID: first).isEmpty, "all-off choice lost on restart")
         try model.saveSelection(deviceID: first, features: [.screen, .files])
         try model.saveSelection(deviceID: second, features: [.notifications])
         try require(!model.allSelectedVerified(deviceID: first), "choices are not live evidence")
@@ -69,7 +77,7 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
                         "unavailable choice silently removed")
         }
         try model.forget(deviceID: first)
-        try require(ClientSetupModel(storageURL: path).selection(deviceID: first).isEmpty, "forget left saved choices")
+        try require(ClientSetupModel(storageURL: path).selection(deviceID: first) == Set(ClientSetupFeature.shippingFeatures), "forget must restore defaults")
         let corrupt = root.appendingPathComponent("corrupt.json")
         try Data("broken-storage".utf8).write(to: corrupt)
         let corruptModel = ClientSetupModel(storageURL: corrupt)
@@ -97,6 +105,31 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
         try require(!obstructed.allSelectedVerified(deviceID: first), "failed forget preserved live proof")
         try require(obstructed.selection(deviceID: first) == [.screen], "failed forget pretended preferences were removed")
         try require(try Data(contentsOf: sentinel) == Data("existing-data".utf8), "failed preference save destroyed destination")
+        let optional = ClientSetupModel(storageURL: root.appendingPathComponent("optional.json"))
+        try optional.preserveAvailableOptionalCalls(deviceID: first)
+        try require(optional.selection(deviceID: first).contains(.calls), "existing authorized calls were disabled by default setup")
+        try optional.saveSelection(deviceID: first, features: [.screen])
+        try optional.preserveAvailableOptionalCalls(deviceID: first)
+        try require(!optional.selection(deviceID: first).contains(.calls), "explicit calls off was overwritten")
+        let sync = ClientSetupModel(storageURL: root.appendingPathComponent("sync.json"))
+        try sync.saveSelection(deviceID: first, features: [.clipboard])
+        let request = try sync.beginConfiguration(deviceID: first, sessionID: "session-a")
+        try require(sync.synchronization(deviceID: first) == .pending, "request not pending")
+        try require(!sync.receiveConfiguration(deviceID: second, sessionID: "session-a", requestID: request.requestID,
+            revision: request.revision, enabledIDs: ["clipboard"], accepted: true), "cross-phone ack accepted")
+        try require(!sync.receiveConfiguration(deviceID: first, sessionID: "session-old", requestID: request.requestID,
+            revision: request.revision, enabledIDs: ["clipboard"], accepted: true), "stale-session ack accepted")
+        try require(!sync.receiveConfiguration(deviceID: first, sessionID: "session-a", requestID: request.requestID,
+            revision: request.revision, enabledIDs: ["camera"], accepted: true), "different policy acknowledged")
+        try require(sync.receiveConfiguration(deviceID: first, sessionID: "session-a", requestID: request.requestID,
+            revision: request.revision, enabledIDs: ["clipboard"], accepted: true), "exact persisted policy ack rejected")
+        try require(sync.synchronization(deviceID: first) == .acknowledged, "ack status absent")
+        sync.disconnectConfiguration(deviceID: first)
+        try require(sync.synchronization(deviceID: first) == .pending, "disconnect kept phone acknowledgement")
+        let next = try ClientSetupModel(storageURL: root.appendingPathComponent("sync.json")).beginConfiguration(deviceID: first, sessionID: "session-b")
+        try require(next.revision > request.revision, "reconnect reused replayable revision")
+        sync.markLegacy(deviceID: first)
+        try require(sync.synchronization(deviceID: first) == .localOnly, "legacy peer has fabricated phone acknowledgement")
         print("Client setup passed: separate Internal/public storage, durable selection, exact attempt evidence, stale/cross-device rejection, disconnect/relaunch reset, unsupported pending, corrupt preservation and failed-write/forget semantics.")
     }
 }

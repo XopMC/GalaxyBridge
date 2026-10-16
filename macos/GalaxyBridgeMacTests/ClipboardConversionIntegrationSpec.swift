@@ -84,6 +84,7 @@ struct CompanionConnections { let control: CompanionTLSClient }
     var clipboardTrustGeneration = UUID()
     var clipboardTrustPeer: PairedPeer?
     var usesClipboardOccurrences = false
+    var supportsClipboardAvailability = true
     var sent: [String] = []
     func setText(_ text: String, changeID: String) -> Bool { sent.append(text); return true }
 }
@@ -106,6 +107,7 @@ struct ADBBindingStore {
 }
 struct TestCaptureRoute { let shellProvider: Bool? = true }
 @MainActor final class ClipboardAppModelProbe {
+    let clientSetup: ClientSetupModel
     let clipboardPasteboard = TestPasteboard()
     let clipboardConversion: MacClipboardConversionWorker
     var lastPasteboardChangeCount = 0
@@ -134,7 +136,10 @@ struct TestCaptureRoute { let shellProvider: Bool? = true }
 
     var cancellables = Set<AnyCancellable>()
     var broadcasts: [Data] { controls.flatMap(\.sent) }
-    init(queue: DispatchQueue, encode: @escaping @Sendable (MacClipboardImageSource) -> Data?) {
+    init(queue: DispatchQueue,
+         featureStorageURL: URL = FileManager.default.temporaryDirectory.appendingPathComponent("gb-clipboard-features-" + UUID().uuidString).appendingPathComponent("choices.json"),
+         encode: @escaping @Sendable (MacClipboardImageSource) -> Data?) {
+        clientSetup = ClientSetupModel(storageURL: featureStorageURL)
         clipboardConversion = MacClipboardConversionWorker(queue: queue, encodeImage: encode)
     }
     static func clipboardImageSource(from pasteboard: TestPasteboard) -> MacClipboardImageSource? {
@@ -175,7 +180,9 @@ struct TestCaptureRoute { let shellProvider: Bool? = true }
     // ACTUAL_APP_MODEL_CLIPBOARD_METHODS
 }
 @main enum ClipboardConversionIntegrationSpec {
-    @MainActor static func main() async {
+    @MainActor static func main() async throws {
+        await repeatedVendorCopiesDoNotRewriteEveryPhone()
+        try await disabledFeatureIsolatesPhone()
         let eligibilityQueue = DispatchQueue(label: "clipboard.integration.eligibility")
         let ineligible = ClipboardAppModelProbe(queue: eligibilityQueue, encode: { _ in preconditionFailure("No eligible encoder work") })
         ineligible.publishClipboardIfChanged()
@@ -249,7 +256,58 @@ struct TestCaptureRoute { let shellProvider: Bool? = true }
         await promotionBeforeDeferredMergeFencesClipboard()
         await recipientsStayBoundToCopyOccurrence()
         await clipboardFallbackKeepsOriginalRoute()
-        print("PASS actual AppModel clipboard poll/completion: early eligibility, async conversion, live occurrence fence, unchanged and remote echo suppression")
+        print("PASS actual AppModel clipboard poll/completion: real per-phone disabled send/history/input isolation, early eligibility, async conversion, live occurrence fence, unchanged and remote echo suppression")
+    }
+    @MainActor static func repeatedVendorCopiesDoNotRewriteEveryPhone() async {
+        let probe = ClipboardAppModelProbe(queue: DispatchQueue(label: "clipboard.integration.vendor-recopy"), encode: { _ in nil })
+        let ids = (0..<3).map { _ in "device:" + UUID().uuidString.lowercased() }
+        let a = probe.connect(ids[0]), b = probe.connect(ids[1]), c = probe.connect(ids[2])
+        for id in ids { probe.clipboardSessions[id] = ScrcpyClipboardSession() }
+        func copy(_ id: String, _ occurrence: String, _ content: Data) {
+            probe.acceptRemoteClipboard(deviceID: id, changeID: occurrence, kind: .text, content: content, sensitive: false,
+                sourceRouteID: "clipboard:" + probe.clipboardSessions[id]!.clipboardTrustGeneration.uuidString)
+        }
+        let first = Data("first copy".utf8), second = Data("next copy".utf8)
+        copy(ids[0], "genuine-first", first)
+        precondition(b.sent == [first] && c.sent == [first])
+        for index in 0..<10 {
+            copy(ids[1 + index % 2], "vendor-new-occurrence-\(index)", first)
+        }
+        precondition(a.sent.isEmpty && b.sent.count <= 2 && c.sent.count <= 2,
+            "A vendor keyboard recopy with a fresh ID must not rewrite an unchanged clipboard on every other phone")
+        copy(ids[0], "deliberate-identical-recopy", first)
+        precondition(probe.seenClipboardChangeIDs.contains("deliberate-identical-recopy"),
+            "Identical genuine copies must still be admitted as occurrences and history")
+        copy(ids[0], "genuine-next", second)
+        precondition(b.sent.last == second && c.sent.last == second && probe.clipboardPasteboard.text == "next copy")
+        copy(ids[1], "genuine-previous-content-recopy", first)
+        precondition(a.sent == [first] && c.sent.last == first && probe.clipboardPasteboard.text == "first copy",
+            "A genuine later copy of an older value must replace the newer clipboard")
+        let replacement = probe.connect(ids[2])
+        probe.broadcastClipboard(kind: .text, content: first, changeID: "fresh-after-route-replacement", excluding: nil)
+        precondition(replacement.sent == [first], "A new authenticated route must not inherit an old payload claim")
+    }
+    @MainActor static func disabledFeatureIsolatesPhone() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("gb-clipboard-feature-policy-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = DispatchQueue(label: "clipboard.integration.feature-policy")
+        let probe = ClipboardAppModelProbe(queue: queue, featureStorageURL: root.appendingPathComponent("choices.json"), encode: { _ in nil })
+        let first = "device:" + UUID().uuidString.lowercased(), second = "device:" + UUID().uuidString.lowercased()
+        let a = probe.connect(first, fingerprint: Data([11])), b = probe.connect(second, fingerprint: Data([22]))
+        try probe.clientSetup.saveSelection(deviceID: first, features: Set(ClientSetupFeature.shippingFeatures).subtracting([.clipboard]))
+        probe.clipboardPasteboard.image = nil
+        probe.publishClipboardIfChanged()
+        await Task.detached { queue.sync {} }.value
+        for _ in 0..<100 { await Task.yield() }
+        precondition(a.sent.isEmpty && b.sent == [Data("fixture".utf8)] && probe.cacheMaintenance.devices == [second],
+            "Clipboard OFF must prevent outbound send/history for A while B remains active")
+        let before = probe.cacheMaintenance.admitted
+        probe.acceptRemoteClipboard(deviceID: first, changeID: "disabled-A", kind: .text, content: Data("blocked".utf8), sensitive: false)
+        precondition(probe.clipboardPasteboard.text == "fixture" && probe.cacheMaintenance.admitted == before && !probe.seenClipboardChangeIDs.contains("disabled-A"),
+            "Clipboard OFF must reject remote input before pasteboard/history/dedupe admission")
+        probe.acceptRemoteClipboard(deviceID: second, changeID: "enabled-B", kind: .text, content: Data("allowed".utf8), sensitive: false)
+        precondition(probe.clipboardPasteboard.text == "allowed" && probe.cacheMaintenance.devices == [second, second] && a.sent.isEmpty,
+            "Disabled A must not receive fanout from B or disable B's inbound clipboard")
     }
     @MainActor static func recipientsStayBoundToCopyOccurrence() async {
         for scenario in ["late join", "identity replacement", "connection replacement", "trust replacement", "other recipient revoked", "unchanged"] {

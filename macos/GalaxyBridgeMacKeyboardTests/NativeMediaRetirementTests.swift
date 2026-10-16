@@ -9,6 +9,35 @@ import Testing
 
 @Suite(.serialized)
 struct NativeMediaRetirementTests {
+    @Test @MainActor func disabledAudioNeverReachesTheActualProducerLaunch() async throws {
+        for enabled in [false, true] {
+            for application in [false, true] {
+                let captured = NativeFixtureBox<[ScrcpyLaunchConfiguration]>([])
+                let session = try ScrcpySession(serial: "feature-audio-no-ADB",
+                    adb: ADBClient(testingExecutableURL: URL(fileURLWithPath: "/usr/bin/true")),
+                    physicalDisplayPolicy: .leaveUnchanged, automaticDisplayManagement: false,
+                    clipboardPollingEnabled: false, audioCaptureEnabled: enabled,
+                    quicSelection: .init(targetToken: 9),
+                    quicPreparedLaunch: { configuration, _ in
+                        captured.update { $0.append(configuration) }
+                        throw QuicFixtureError.unsupported
+                    })
+                let target = application ? try ScrcpyApplicationTarget(packageName: "com.example.synthetic") : nil
+                session.start(preferredCodec: .h264, applicationTarget: target)
+                try await NativeFixtures.until {
+                    if case .failed = session.state { return true }
+                    return false
+                }
+                await session.stopAndWaitForCleanup()
+                let configuration = try #require(captured.value.first)
+                #expect(captured.value.count == 1)
+                #expect(configuration.audioEnabled == (enabled && !application))
+                #expect(configuration.serverArguments.contains("audio=false") == (!enabled || application))
+                #expect(session.cleanupPhysicallySettled)
+            }
+        }
+    }
+
     @Test @MainActor func crossInstanceRetirementCannotTreatDeadlineAsPhysicalCleanup() async throws {
         let session = try ScrcpySession(serial: "native-cleanup-deadline-no-adb",
             adb: ADBClient(testingExecutableURL: URL(fileURLWithPath: "/usr/bin/true")),

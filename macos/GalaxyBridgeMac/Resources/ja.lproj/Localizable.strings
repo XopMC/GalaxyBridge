@@ -363,3 +363,31 @@
 "NOTIFICATION_MORE_ACTIONS" = "その他の操作";
 "NEARBY_WIFI_CONCURRENCY_HINT" = "スマートフォンのWi-Fiと直接接続の同時使用は未確認、または非対応です。USBか共通のローカルネットワークを使用してください。";
 "INTERNET_OFF" = "オフ";
+
+"DISCOVERY_NEARBY_TITLE" = "近くのスマートフォン";
+
+"DISCOVERY_UNTRUSTED_HINT" = "Galaxy Bridge Helper でコードをスキャンして、この端末を確認してください。";
+
+"DISCOVERY_GENERIC_PHONE" = "Android スマートフォン";
+
+"DISCOVERY_ADD_PHONE" = "端末を追加";
+
+"DEVICE_FEATURES_TITLE" = "スマートフォンの機能";
+
+"DEVICE_FEATURES_BODY" = "この端末から Mac に共有する機能を選択します。カメラとインターネット共有は操作したときだけ開始します。";
+
+"DEVICE_FEATURES_PENDING" = "この Mac に保存しました。端末が接続すると設定を送信します。";
+
+"DEVICE_FEATURES_APPLYING" = "端末に設定を適用中…";
+
+"DEVICE_FEATURES_APPLIED" = "この端末に設定を適用しました。";
+
+"DEVICE_FEATURES_UPDATE_PHONE" = "Mac 側の設定は有効です。端末側にも適用するには、端末のアプリを更新してください。";
+
+"DEVICE_FEATURES_FAILED" = "Mac に保存しました。端末に再接続して設定の適用を再試行してください。";
+
+"FEATURE_INTERNET" = "インターネット共有";
+
+"FEATURE_DISABLED" = "この端末ではこの機能がオフになっています。";
+
+"NEARBY_LOCATION_PERMISSION_HINT" = "近くのスマートフォンに接続するには、「システム設定 → プライバシーとセキュリティ → 位置情報サービス」で Galaxy Bridge の位置情報へのアクセスを許可してください。";

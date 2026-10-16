@@ -127,7 +127,7 @@ public  final class NotificationActionDescriptor extends
    * @param value The acceptsText to set.
    */
   private void setAcceptsText(boolean value) {
-    
+
     acceptsText_ = value;
   }
   /**
@@ -437,4 +437,3 @@ public  final class NotificationActionDescriptor extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

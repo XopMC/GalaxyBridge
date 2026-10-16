@@ -38,7 +38,7 @@ public  final class PairingResponse extends
    * @param value The accepted to set.
    */
   private void setAccepted(boolean value) {
-    
+
     accepted_ = value;
   }
   /**
@@ -65,7 +65,7 @@ public  final class PairingResponse extends
    */
   private void setIdentityPublicKey(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     identityPublicKey_ = value;
   }
   /**
@@ -139,7 +139,7 @@ public  final class PairingResponse extends
    */
   private void setServerNonce(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     serverNonce_ = value;
   }
   /**
@@ -166,7 +166,7 @@ public  final class PairingResponse extends
    */
   private void setTranscriptSignature(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     transcriptSignature_ = value;
   }
   /**
@@ -193,7 +193,7 @@ public  final class PairingResponse extends
    */
   private void setTlsCertificateSha256(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     tlsCertificateSha256_ = value;
   }
   /**
@@ -763,4 +763,3 @@ public  final class PairingResponse extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

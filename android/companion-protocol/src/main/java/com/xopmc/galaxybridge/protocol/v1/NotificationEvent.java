@@ -273,7 +273,7 @@ public  final class NotificationEvent extends
    * @param value The postedAtUnixMs to set.
    */
   private void setPostedAtUnixMs(long value) {
-    
+
     postedAtUnixMs_ = value;
   }
   /**
@@ -296,7 +296,7 @@ public  final class NotificationEvent extends
   /**
    * <code>repeated .galaxybridge.v1.NotificationActionDescriptor actions = 7;</code>
    */
-  public java.util.List<? extends com.xopmc.galaxybridge.protocol.v1.NotificationActionDescriptorOrBuilder> 
+  public java.util.List<? extends com.xopmc.galaxybridge.protocol.v1.NotificationActionDescriptorOrBuilder>
       getActionsOrBuilderList() {
     return actions_;
   }
@@ -393,7 +393,7 @@ public  final class NotificationEvent extends
    * @param value The removed to set.
    */
   private void setRemoved(boolean value) {
-    
+
     removed_ = value;
   }
   /**
@@ -420,7 +420,7 @@ public  final class NotificationEvent extends
    */
   private void setAppIconPng(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     appIconPng_ = value;
   }
   /**
@@ -458,7 +458,7 @@ public  final class NotificationEvent extends
    * @param value The initialSnapshot to set.
    */
   private void setInitialSnapshot(boolean value) {
-    
+
     initialSnapshot_ = value;
   }
   /**
@@ -1133,4 +1133,3 @@ public  final class NotificationEvent extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

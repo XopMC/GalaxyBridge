@@ -107,13 +107,13 @@ public enum CallState
           }
         };
 
-  public static com.google.protobuf.Internal.EnumVerifier 
+  public static com.google.protobuf.Internal.EnumVerifier
       internalGetVerifier() {
     return CallStateVerifier.INSTANCE;
   }
 
-  private static final class CallStateVerifier implements 
-       com.google.protobuf.Internal.EnumVerifier { 
+  private static final class CallStateVerifier implements
+       com.google.protobuf.Internal.EnumVerifier {
           static final com.google.protobuf.Internal.EnumVerifier
               INSTANCE = new CallStateVerifier();
           @java.lang.Override
@@ -130,4 +130,3 @@ public enum CallState
 
   // @@protoc_insertion_point(enum_scope:galaxybridge.v1.CallState)
 }
-

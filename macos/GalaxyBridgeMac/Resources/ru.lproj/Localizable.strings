@@ -360,3 +360,31 @@
 "NOTIFICATION_MORE_ACTIONS" = "Ещё действия";
 "NEARBY_WIFI_CONCURRENCY_HINT" = "Совместная работа Wi-Fi телефона и прямого подключения не проверена или не поддерживается. Используйте USB или общую локальную сеть.";
 "INTERNET_OFF" = "Выключено";
+
+"DISCOVERY_NEARBY_TITLE" = "Телефоны поблизости";
+
+"DISCOVERY_UNTRUSTED_HINT" = "Отсканируйте код в Galaxy Bridge Helper, чтобы подтвердить телефон.";
+
+"DISCOVERY_GENERIC_PHONE" = "Телефон Android";
+
+"DISCOVERY_ADD_PHONE" = "Добавить телефон";
+
+"DEVICE_FEATURES_TITLE" = "Функции телефона";
+
+"DEVICE_FEATURES_BODY" = "Выберите, чем этот телефон делится с Mac. Камера и интернет включаются только по вашему запросу.";
+
+"DEVICE_FEATURES_PENDING" = "Сохранено на Mac. Настройки будут переданы при подключении телефона.";
+
+"DEVICE_FEATURES_APPLYING" = "Применяем настройки на телефоне…";
+
+"DEVICE_FEATURES_APPLIED" = "Настройки применены на телефоне.";
+
+"DEVICE_FEATURES_UPDATE_PHONE" = "Ограничения на Mac действуют. Обновите приложение телефона, чтобы применить настройки и на нём.";
+
+"DEVICE_FEATURES_FAILED" = "Сохранено на Mac. Не удалось применить на телефоне — подключите его снова.";
+
+"FEATURE_INTERNET" = "Общий интернет";
+
+"FEATURE_DISABLED" = "Эта функция выключена для этого телефона.";
+
+"NEARBY_LOCATION_PERMISSION_HINT" = "Чтобы подключать телефоны поблизости, разрешите Galaxy Bridge доступ к геопозиции: Системные настройки → Конфиденциальность и безопасность → Службы геолокации.";

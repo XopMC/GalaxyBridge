@@ -1,4 +1,12 @@
 import Foundation
+import CryptoKit
+
+struct ClipboardDeliveryEpoch: Equatable, Sendable {
+    let trustGeneration: UUID
+    let routeIDs: Set<String>
+}
+
+enum ClipboardDeliveryKind: UInt8, Sendable { case text, png }
 
 /// Process-local ordering and loop suppression for the shared Mac/Galaxy
 /// clipboard. `AppModel` is main-actor isolated, so assigning the revision at
@@ -13,6 +21,14 @@ struct ClipboardHubState: Sendable {
     private var revision: UInt64 = 0
     private var seenChangeIDs = Set<String>()
     private var seenChangeIDOrder: [String] = []
+    private struct PhoneClipboard: Sendable {
+        let epoch: ClipboardDeliveryEpoch
+        let kind: ClipboardDeliveryKind
+        let digest: Data
+        let confirmed: Bool
+    }
+    private var phoneClipboards: [String: PhoneClipboard] = [:]
+    private var phoneOrder: [String] = []
 
     init(seenCapacity: Int = 512) {
         precondition(seenCapacity > 0)
@@ -38,6 +54,31 @@ struct ClipboardHubState: Sendable {
         let value = "hub:\(revision):\(UUID().uuidString.lowercased())"
         _ = remember(changeID: value)
         return value
+    }
+
+    /// Occurrence ordering and physical writes are separate: OEM clipboard
+    /// managers can recreate the same payload with a new ID and timestamp.
+    /// Keep accepting those occurrences without rewriting every other phone.
+    func needsDelivery(deviceID: String, epoch: ClipboardDeliveryEpoch,
+                       kind: ClipboardDeliveryKind, content: Data) -> Bool {
+        guard let current = phoneClipboards[deviceID], current.epoch == epoch, current.confirmed else { return true }
+        return current.kind != kind || current.digest != Data(SHA256.hash(data: content))
+    }
+
+    mutating func observeClipboard(deviceID: String, epoch: ClipboardDeliveryEpoch,
+                                  kind: ClipboardDeliveryKind, content: Data, confirmed: Bool = false) {
+        let digest = Data(SHA256.hash(data: content))
+        let prior = phoneClipboards[deviceID]
+        let retainsConfirmation = prior?.epoch == epoch && prior?.kind == kind && prior?.digest == digest && prior?.confirmed == true
+        phoneClipboards[deviceID] = PhoneClipboard(epoch: epoch, kind: kind, digest: digest, confirmed: confirmed || retainsConfirmation)
+        phoneOrder.removeAll { $0 == deviceID }
+        phoneOrder.append(deviceID)
+        while phoneOrder.count > 64 { phoneClipboards.removeValue(forKey: phoneOrder.removeFirst()) }
+    }
+
+    mutating func forgetClipboard(deviceID: String) {
+        phoneClipboards.removeValue(forKey: deviceID)
+        phoneOrder.removeAll { $0 == deviceID }
     }
 
     static func destinations(allConnectedDeviceIDs: [String], excluding sourceDeviceID: String?) -> [String] {

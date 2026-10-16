@@ -124,7 +124,7 @@ public  final class ClipboardUpdate extends
    */
   private void setContent(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     content_ = value;
   }
   /**
@@ -150,7 +150,7 @@ public  final class ClipboardUpdate extends
    * @param value The sensitive to set.
    */
   private void setSensitive(boolean value) {
-    
+
     sensitive_ = value;
   }
   /**
@@ -487,4 +487,3 @@ public  final class ClipboardUpdate extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

@@ -310,6 +310,7 @@ class MediaProjectionCaptureService : Service() {
     private var lastKeyFrameRequestAt = -1_000L
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!com.xopmc.galaxybridge.setup.DeviceFeaturePreferences(this).isEnabled("screen")) { stopSelf(); return START_NOT_STICKY }
         startForeground(NOTIFICATION_ID, serviceNotification(capture = true))
         if (intent == null) return START_NOT_STICKY
         val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
@@ -519,6 +520,7 @@ class MediaProjectionCaptureService : Service() {
     }
 
     private fun startAudioCapture(mediaProjection: MediaProjection) {
+        if (!com.xopmc.galaxybridge.setup.DeviceFeaturePreferences(this).isEnabled("audio")) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             EncodedAudioBus.setCapturing(false)
             return
@@ -598,7 +600,7 @@ class MediaProjectionCaptureService : Service() {
         val info = MediaCodec.BufferInfo()
         var submittedFrames = 0L
         try {
-            while (audioRunning && !Thread.currentThread().isInterrupted) {
+            while (audioRunning && !Thread.currentThread().isInterrupted && com.xopmc.galaxybridge.setup.DeviceFeaturePreferences(this).isEnabled("audio")) {
                 val inputIndex = codec.dequeueInputBuffer(AUDIO_CODEC_TIMEOUT_US)
                 if (inputIndex >= 0) {
                     val input = codec.getInputBuffer(inputIndex) ?: continue

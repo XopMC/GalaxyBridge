@@ -16,6 +16,8 @@ struct PairingAcknowledgement {
 enum PairingPresentation { case idle }
 @MainActor final class NearbyPairingPromotionFixture {
     final class Session {
+        struct Peripheral { let identifier = UUID() }
+        let peripheral = Peripheral()
         let deviceID: String?
         var commitTranscript: Data?
         var commitSignature: Data?
@@ -28,6 +30,10 @@ enum PairingPresentation { case idle }
     var offerExpiry: Task<Void, Never>?
     var dismissals = 0
     var retirements = 0
+    var verifiedPeerIDs: [String] = []
+    var discoveryCatalog = NearbyDiscoveryCatalog()
+    var offerRetry: Task<Void, Never>?
+    var offerCandidateID: UUID?
     var eventAlreadyPublished: () -> Bool = { false }
     init(store: PairedPeerStore, offer: NearbyOfflineOffer) { peerStore = store; self.offer = offer; nearbyPairingURI = offer.uri }
     func onPairingCommitted() {
@@ -37,6 +43,11 @@ enum PairingPresentation { case idle }
     func update(_ session: Session, _ presentation: PairingPresentation) {}
     func retire(_ session: Session, sendRelease: Bool) { precondition(!sendRelease); retirements += 1 }
     func pump() {}
+    func refreshDiscovery() {}
+    func onVerifiedPairing(_ deviceID: String) {
+        precondition(eventAlreadyPublished() && retirements == 1, "automatic route resolution follows durable trust and retirement")
+        verifiedPeerIDs.append(deviceID)
+    }
     func receiveAcknowledgement(_ ack: PairingAcknowledgement, _ session: Session, _ offer: NearbyOfflineOffer) throws {
         // ACTUAL_OFFER_ADMISSION
         // ACTUAL_ACKNOWLEDGEMENT_BRANCH
@@ -76,7 +87,7 @@ enum PairingPresentation { case idle }
         wrongIdentity.transcriptSignature = try macKey.signature(for: acknowledgementTranscript).derRepresentation
         do { try coordinator.receiveAcknowledgement(wrongIdentity, session, offer); preconditionFailure("Invalid signed Ack was accepted") }
         catch NearbyTransportFailure.authentication {}
-        precondition(promoted.isEmpty && coordinator.dismissals == 0 && (try? store.peers()) == [])
+        precondition(promoted.isEmpty && coordinator.dismissals == 0 && coordinator.verifiedPeerIDs.isEmpty && (try? store.peers()) == [])
 
         backend.failNextWrite = true
         do { try coordinator.receiveAcknowledgement(valid, session, offer); preconditionFailure("Failed promotion was accepted") }
@@ -87,6 +98,7 @@ enum PairingPresentation { case idle }
         try coordinator.receiveAcknowledgement(valid, session, offer)
         precondition(promoted == [peer] && occurrences.count == 1 && session.peer == peer)
         precondition(coordinator.dismissals == 1 && coordinator.retirements == 1 && coordinator.nearbyPairingURI == nil)
+        precondition(coordinator.verifiedPeerIDs == [peer.deviceID])
         do { try coordinator.receiveAcknowledgement(valid, session, offer); preconditionFailure("A retired offer was replayed") }
         catch NearbyTransportFailure.invalidOffer {}
         precondition(promoted.count == 1 && coordinator.dismissals == 1 && coordinator.retirements == 1,

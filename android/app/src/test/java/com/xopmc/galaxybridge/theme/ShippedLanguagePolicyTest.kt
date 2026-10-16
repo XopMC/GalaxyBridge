@@ -36,9 +36,25 @@ class ShippedLanguagePolicyTest {
         }
         assertEquals("Continue", values["action_continue"])
         assertEquals("Connect your Mac", values["identity_title"])
-        assertEquals("Choose what to set up", values["setup_features_title"])
+        assertEquals("Connection options", values["connection_options"])
         val russian = xml(resources.resolve("values-ru/strings.xml")).getElementsByTagName("string")
         assertEquals("Every localized key must have an unqualified fallback", russian.length, values.size)
+    }
+
+    @Test
+    fun everyShippedCatalogHasCompleteAutomaticSetupCopy() {
+        val english = xml(resources.resolve("values/strings.xml")).getElementsByTagName("string")
+        val expected = (0 until english.length).map { (english.item(it) as Element).getAttribute("name") }.toSet()
+        for (directory in listOf("values", "values-ru", "values-de", "values-fr", "values-es", "values-pt",
+            "values-ar", "values-b+zh+Hans", "values-b+zh+Hant", "values-ja", "values-ko")) {
+            val strings = xml(resources.resolve("$directory/strings.xml")).getElementsByTagName("string")
+            val keys = (0 until strings.length).map { (strings.item(it) as Element).getAttribute("name") }
+            assertEquals("$directory must not contain duplicate keys", keys.size, keys.toSet().size)
+            assertEquals(directory, expected, keys.toSet())
+            assertEquals(false, "setup_features_title" in keys)
+            assertEquals(true, "setup_notification_access_body" in keys)
+            assertEquals(true, "internet_availability_description" in keys)
+        }
     }
 
     private fun xml(path: Path) = Files.newInputStream(path).use {

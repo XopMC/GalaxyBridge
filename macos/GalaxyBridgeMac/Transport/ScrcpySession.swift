@@ -53,6 +53,8 @@ final class ScrcpySession: ObservableObject {
     @Published private(set) var state: ScrcpySessionState = .idle
     @Published private(set) var videoSize: CGSize = .zero
     @Published private(set) var displayEpoch: UInt32 = 0
+    @Published private(set) var phoneDisplayPrivacyReady = false
+    private var phonePrivacyReadiness = PhonePrivacySessionReadiness()
     @Published private(set) var screenInterlockPresentation: ScreenInterlockPresentation = .waitingForFirstFrame
     @Published private(set) var mediaHealth: [UInt32:QuicMediaHealth] = [:]
     private var lastMediaFrame: NativeMediaSourceIdentity?
@@ -72,6 +74,7 @@ final class ScrcpySession: ObservableObject {
     private(set) var displayRestorationFailure: String?
     private let primaryDiagnosticsEnabled: Bool
     private let clipboardPollingEnabled: Bool
+    private let audioCaptureEnabled: Bool
     private let wirelessADBVideoRecovery: WirelessADBVideoIngressRecovery?
     private let quicSelection: QuicWirelessSelection?
     private let quicPreparedLaunch: (@Sendable (ScrcpyLaunchConfiguration, UInt64) async throws -> QuicBackendBridge.Launch)?
@@ -249,6 +252,7 @@ final class ScrcpySession: ObservableObject {
             if !self.hasDeliveredFirstFrameEvent {
                 self.hasDeliveredFirstFrameEvent = true
                 self.handleScreenInterlock(.firstFrame)
+                self.updatePhonePrivacyReadiness(.firstFrame)
             }
             if let owned { owned(frame) }
             else if let diagnostic { diagnostic(frame.pixelBuffer, frame.presentationTime, frame.epoch, frame.trace) }
@@ -266,6 +270,7 @@ final class ScrcpySession: ObservableObject {
         automaticDisplayManagement: Bool = true,
         primaryDiagnosticsEnabled: Bool = false,
         clipboardPollingEnabled: Bool = true,
+        audioCaptureEnabled: Bool = true,
         quicSelection: QuicWirelessSelection? = nil,
         quicPreparedLaunch: (@Sendable (ScrcpyLaunchConfiguration, UInt64) async throws -> QuicBackendBridge.Launch)? = nil,
         keyboardEmissionSink: ((ScrcpyKeyboardEmission) -> Void)? = nil,
@@ -283,6 +288,7 @@ final class ScrcpySession: ObservableObject {
         self.automaticDisplayManagement = shellProvider == nil && automaticDisplayManagement
         self.primaryDiagnosticsEnabled = primaryDiagnosticsEnabled
         self.clipboardPollingEnabled = clipboardPollingEnabled
+        self.audioCaptureEnabled = audioCaptureEnabled
         wirelessADBVideoRecovery = shellProvider != nil || serial.contains(":") || serial.contains("_adb-tls-connect._tcp")
             ? WirelessADBVideoIngressRecovery()
             : nil
@@ -302,6 +308,7 @@ final class ScrcpySession: ObservableObject {
         if isFailure { stopResources(); retryOwnedCleanup() }
         invalidateApplicationDisplayObservation()
         hasDeliveredFirstFrameEvent = false
+        phonePrivacyReadiness.reset(); phoneDisplayPrivacyReady = false
         primaryDiagnosticsStartedAt = ProcessInfo.processInfo.systemUptime
         preparationTask?.cancel()
         let target = requestedTarget ?? captureTarget
@@ -632,8 +639,8 @@ final class ScrcpySession: ObservableObject {
             videoCodecConstantBitRate: constantBitRateExperiment,
             videoCodecFastestComplexity: fastestComplexityExperiment,
             videoCodecBaselineProfile: baselineProfileExperiment,
-            audioEnabled: Bundle.main.bundleIdentifier == "com.xopmc.GalaxyBridge.internal"
-                && ProcessInfo.processInfo.arguments.contains("--qa-disable-scrcpy-audio") ? false : nil,
+            audioEnabled: !audioCaptureEnabled || (Bundle.main.bundleIdentifier == "com.xopmc.GalaxyBridge.internal"
+                && ProcessInfo.processInfo.arguments.contains("--qa-disable-scrcpy-audio")) ? false : nil,
             tunnelForward: shellProvider != nil || !reverseTunnelExperiment,
             captureTarget: captureTarget,
             applicationTarget: applicationTarget,
@@ -683,6 +690,7 @@ final class ScrcpySession: ObservableObject {
                     guard let self, self.nativeOwner === owner, owner.attempt.isAdmitted else { return }
                     self.handleScreenInterlock(.controlReady); self.controlReadyHandler?()
                     self.sendInitialControlMessages(); self.startClipboardPollingIfNeeded()
+                    self.updatePhonePrivacyReadiness(.controlReady)
                 } },
                 media: { [weak self] media in
                     ScrcpyPrimaryMediaDelivery.deliver(media.work.event, trace: media.work.trace, metadataOnly: true) { [weak self] event, trace in
@@ -931,6 +939,7 @@ final class ScrcpySession: ObservableObject {
                     self.controlReadyHandler?()
                     self.sendInitialControlMessages()
                     self.startClipboardPollingIfNeeded()
+                    self.updatePhonePrivacyReadiness(.controlReady)
                 }
             },
             messageHandler: { [weak self] message in
@@ -1125,6 +1134,10 @@ final class ScrcpySession: ObservableObject {
                 self.keyboardInputQueue.completeClipboardSettlement(ticket: ticket)
             )
         }
+    }
+
+    private func updatePhonePrivacyReadiness(_ event: PhonePrivacySessionReadiness.Event) {
+        if phonePrivacyReadiness.receive(event) { phoneDisplayPrivacyReady = true }
     }
 
     private func handleScreenInterlock(_ event: ScreenInterlockEvent) {
@@ -1361,6 +1374,7 @@ final class ScrcpySession: ObservableObject {
         primaryDiagnostics?.terminate()
         primaryDiagnostics = nil
         handleScreenInterlock(.stopped)
+        phonePrivacyReadiness.reset(); phoneDisplayPrivacyReady = false
         hasDeliveredFirstFrameEvent = false
         mediaHealth=[:];lastMediaFrame=nil
         videoSocket?.cancel()

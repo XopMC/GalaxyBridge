@@ -81,7 +81,7 @@ public  final class AdbBindingRequest extends
    */
   private void setNonce(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     nonce_ = value;
   }
   /**
@@ -341,4 +341,3 @@ public  final class AdbBindingRequest extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

@@ -127,7 +127,7 @@ public  final class ErrorEvent extends
    * @param value The retryable to set.
    */
   private void setRetryable(boolean value) {
-    
+
     retryable_ = value;
   }
   /**
@@ -437,4 +437,3 @@ public  final class ErrorEvent extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

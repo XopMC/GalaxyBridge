@@ -5,7 +5,10 @@ enum class SetupFeature(val storageID: String) {
     Notifications("notifications"), Files("files"), Camera("camera"), Calls("calls"),
 }
 
-data class SetupSelection(val features: Set<SetupFeature> = emptySet(), val confirmed: Boolean = false) {
+data class SetupSelection(
+    val features: Set<SetupFeature> = SetupFeature.entries.toSet() - SetupFeature.Calls,
+    val confirmed: Boolean = true,
+) {
     fun selecting(feature: SetupFeature, selected: Boolean) = copy(
         features = if (selected) features + feature else features - feature,
         confirmed = false,
@@ -13,6 +16,9 @@ data class SetupSelection(val features: Set<SetupFeature> = emptySet(), val conf
     fun confirm() = copy(confirmed = features.isNotEmpty())
     val savedIDs: Set<String> get() = features.mapTo(mutableSetOf()) { it.storageID }
     companion object {
+        // Every shipping function is available initially. Calls are not a shipping function.
+        fun defaultForDistribution(distribution: String): SetupSelection = SetupSelection()
+
         fun restore(ids: Set<String>?, confirmed: Boolean): SetupSelection {
             val features = SetupFeature.entries.filterTo(mutableSetOf()) { it.storageID in ids.orEmpty() }
             return SetupSelection(features, confirmed && features.isNotEmpty() && features.size == ids?.size)
@@ -39,6 +45,8 @@ data class SetupSnapshot(
     val callRuntimePermissionsGranted: Boolean,
     val selection: SetupSelection = SetupSelection(),
     val connectionPath: SetupConnectionPath = SetupConnectionPath.FullMac,
+    val nearbyDevicesGranted: Boolean = true,
+    val nearbyEnabled: Boolean = true,
 )
 
 data class SetupState(
@@ -61,6 +69,7 @@ enum class SetupKind {
 }
 
 enum class SetupAction {
+    NearbyDevicesPermission,
     LocalNetworkPermission,
     PostNotificationsPermission,
     CameraPermission,
@@ -81,10 +90,7 @@ object SetupStateResolver {
 
     fun resolve(snapshot: SetupSnapshot): SetupState {
         val selected = snapshot.selection.features
-        if (!snapshot.selection.confirmed || selected.isEmpty()) {
-            return SetupState(emptyList(), emptyList(), SetupStage.ChooseFeatures)
-        }
-        val requirements = selected.flatMap { requirements(it, snapshot) }.toSet()
+        val requirements = selected.flatMap { requirements(it, snapshot) }.toSet() + connectionRequirements(snapshot)
         val cards = SetupAction.entries.filter { it in requirements }.map {
             SetupCard(it, when (it) {
                 SetupAction.AccessibilitySettings, SetupAction.NotificationListenerSettings -> SetupKind.SpecialAccess
@@ -104,10 +110,15 @@ object SetupStateResolver {
         return SetupState(cards, cards.filter { it.kind == SetupKind.RuntimePermission }.map { it.action }, stage, unavailable)
     }
 
-    // This inventory does not launch requests. Only an explicit UI action may do so.
-    fun requirements(feature: SetupFeature, snapshot: SetupSnapshot): Set<SetupAction> = buildSet {
+    private fun connectionRequirements(snapshot: SetupSnapshot): Set<SetupAction> = buildSet {
+        if (snapshot.nearbyEnabled && !snapshot.nearbyDevicesGranted) add(SetupAction.NearbyDevicesPermission)
         if (snapshot.apiLevel >= 37 && !snapshot.localNetworkGranted) add(SetupAction.LocalNetworkPermission)
         if (!snapshot.paired) add(SetupAction.PairMac)
+    }
+
+    // This inventory does not launch requests. The bounded first-launch journey and explicit retries use it.
+    fun requirements(feature: SetupFeature, snapshot: SetupSnapshot): Set<SetupAction> = buildSet {
+        addAll(connectionRequirements(snapshot))
         when (feature) {
             SetupFeature.Camera -> {
                 if (snapshot.apiLevel >= 33 && !snapshot.postNotificationsGranted) add(SetupAction.PostNotificationsPermission)

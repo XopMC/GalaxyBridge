@@ -24,6 +24,7 @@ internal object CompanionCapabilityResolver {
             // App-owned MediaStore Downloads need no SAF tree or storage permission on API 31+.
             Capability.CAPABILITY_FILES,
             Capability.CAPABILITY_NOTIFICATION_ACTION_RESULTS,
+            Capability.CAPABILITY_FEATURE_CONFIGURATION,
         )
         val unavailable = linkedMapOf<String, String>()
         if (BuildConfig.DISTRIBUTION != "play" && com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current?.shell?.isAvailable == true) {
@@ -89,6 +90,23 @@ internal object CompanionCapabilityResolver {
             unavailable[Capability.CAPABILITY_CAMERA_STREAM.name] = "camera_permission_required"
         }
         unavailable[Capability.CAPABILITY_VIRTUAL_DISPLAY.name] = "enhanced_adb_required"
+
+        val features = com.xopmc.galaxybridge.setup.DeviceFeaturePreferences(context)
+        val featureCapabilities = mapOf(
+            "screen" to listOf(Capability.CAPABILITY_SCREEN_CAPTURE, Capability.CAPABILITY_INPUT_INJECTION),
+            "audio" to listOf(Capability.CAPABILITY_AUDIO_FORWARDING),
+            "clipboard" to listOf(Capability.CAPABILITY_CLIPBOARD_READ, Capability.CAPABILITY_CLIPBOARD_WRITE),
+            "files" to listOf(Capability.CAPABILITY_FILES),
+            "notifications" to listOf(Capability.CAPABILITY_NOTIFICATIONS),
+            "camera" to listOf(Capability.CAPABILITY_CAMERA_STREAM),
+            "calls" to listOf(Capability.CAPABILITY_CALLS),
+            "recording" to listOf(Capability.CAPABILITY_RECORDING),
+            "internet" to listOf(Capability.CAPABILITY_INTERNET_GATEWAY),
+        )
+        featureCapabilities.forEach { (feature, capabilities) -> if (!features.isEnabled(feature)) {
+            available.removeAll(capabilities.toSet())
+            capabilities.forEach { unavailable[it.name] = "feature_disabled" }
+        } }
 
         return CapabilityUpdate.newBuilder()
             .setTransport(TransportKind.TRANSPORT_KIND_COMPANION_LAN)

@@ -223,7 +223,7 @@ public  final class SmsEvent extends
    * @param value The timestampUnixMs to set.
    */
   private void setTimestampUnixMs(long value) {
-    
+
     timestampUnixMs_ = value;
   }
   /**
@@ -249,7 +249,7 @@ public  final class SmsEvent extends
    * @param value The outgoing to set.
    */
   private void setOutgoing(boolean value) {
-    
+
     outgoing_ = value;
   }
   /**
@@ -688,4 +688,3 @@ public  final class SmsEvent extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

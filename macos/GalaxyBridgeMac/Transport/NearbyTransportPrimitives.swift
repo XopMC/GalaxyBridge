@@ -1,5 +1,91 @@
 import Foundation
 
+/// A peripheral UUID is an in-memory routing hint, never a paired identity.
+struct NearbyDiscoverySuggestion: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let model: String?
+}
+
+enum NearbyDiscoveryMetadata {
+    struct Payload { let model: String; let pairedHostFingerprint: Data? }
+    static func decode(_ data: Data) -> String? { parse(data)?.model }
+    static func parse(_ data: Data) -> Payload? {
+        guard data.count <= 134, let value = String(data: data, encoding: .utf8) else { return nil }
+        let fields = value.split(separator: "\n", omittingEmptySubsequences: false)
+        guard (fields.count == 2 && fields[0] == "GBD1") || (fields.count == 3 && fields[0] == "GBD2") else { return nil }
+        let bytes = fields[1].utf8
+        guard (1...64).contains(bytes.count) else { return nil }
+        guard bytes.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || [32, 40, 41, 43, 45, 46, 95].contains($0) }),
+              let model = String(bytes: bytes, encoding: .utf8), model == model.trimmingCharacters(in: .whitespaces), !model.isEmpty else { return nil }
+        var fingerprint: Data?
+        if fields.count == 3 {
+            let hex = Array(fields[2].utf8)
+            guard hex.count == 64, hex.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { return nil }
+            func nibble(_ byte: UInt8) -> UInt8 { byte <= 57 ? byte - 48 : byte - 87 }
+            fingerprint = Data(stride(from: 0, to: 64, by: 2).map { nibble(hex[$0]) * 16 + nibble(hex[$0 + 1]) })
+        }
+        return Payload(model: model, pairedHostFingerprint: fingerprint)
+    }
+}
+
+/// Memory-only, bounded independently of trust storage and network sessions.
+struct NearbyDiscoveryCatalog {
+    private struct Entry {
+        var seen: TimeInterval
+        var model: String?
+        var probed: TimeInterval?
+        var trusted = false
+        var hostHintMatches = false
+    }
+    private var entries: [UUID: Entry] = [:]
+    private var activeProbe: UUID?
+    private var nextProbeTime: TimeInterval = 0
+    var identifiers: Set<UUID> { Set(entries.keys) }
+    var suggestions: [NearbyDiscoverySuggestion] {
+        entries.filter { !$0.value.trusted && !$0.value.hostHintMatches }.sorted { $0.key.uuidString < $1.key.uuidString }.prefix(8)
+            .map { NearbyDiscoverySuggestion(id: $0.key, model: $0.value.model) }
+    }
+    mutating func observe(_ id: UUID, at now: TimeInterval) {
+        expire(at: now)
+        if var entry = entries[id] { entry.seen = now; entries[id] = entry; return }
+        if entries.count >= 16, let oldest = entries.filter({ $0.key != activeProbe }).min(by: { $0.value.seen < $1.value.seen })?.key {
+            entries.removeValue(forKey: oldest)
+        }
+        guard entries.count < 16 else { return }
+        entries[id] = Entry(seen: now)
+    }
+    mutating func expire(at now: TimeInterval) { entries = entries.filter { now - $0.value.seen < 30 } }
+    mutating func markTrusted(_ id: UUID) { entries[id]?.trusted = true }
+    mutating func nextProbe(at now: TimeInterval) -> UUID? {
+        guard activeProbe == nil, now >= nextProbeTime,
+              let id = entries.filter({ !$0.value.trusted && ($0.value.probed == nil || now - $0.value.probed! >= 30) })
+                .sorted(by: { $0.key.uuidString < $1.key.uuidString }).first?.key else { return nil }
+        entries[id]?.probed = now; activeProbe = id; nextProbeTime = now + 2
+        return id
+    }
+    mutating func finishProbe(_ id: UUID, metadata: Data?, localHostFingerprint: Data? = nil) {
+        guard activeProbe == id else { return }
+        activeProbe = nil
+        if let metadata, let parsed = NearbyDiscoveryMetadata.parse(metadata) {
+            entries[id]?.model = parsed.model
+            // This unauthenticated hint can hide only its own suggestion. It
+            // cannot grant trust, identity, connection, or a Wi-Fi operation.
+            entries[id]?.hostHintMatches = localHostFingerprint != nil && parsed.pairedHostFingerprint == localHostFingerprint
+        }
+    }
+    mutating func removeAll() { entries.removeAll(); activeProbe = nil; nextProbeTime = 0 }
+}
+
+struct NearbyPairingRetryBudget {
+    private var attempts = 0
+    private var nextAttempt: TimeInterval = 0
+    mutating func permit(at now: TimeInterval) -> Bool {
+        guard attempts < 24, now >= nextAttempt else { return false }
+        attempts += 1; nextAttempt = now + 5
+        return true
+    }
+}
+
 enum NearbyTransportFailure: Error { case frame, invalidOffer, unavailable, authentication, timeout, association, ownership, descriptor }
 
 /// Bluetooth bootstraps a separately verified Wi-Fi lease. Retirement remains
@@ -107,6 +193,11 @@ struct NearbyOfflineOffer {
 struct NearbyAssociationOwnership {
     private(set) var network: String?
     private var owners = Set<UUID>()
+    func permitsSharing(network: String, currentName: String?, currentBSSID: String?, ownedBSSID: String?) -> Bool {
+        guard !owners.isEmpty, !network.isEmpty, self.network == network, currentName == network,
+              let currentBSSID, let ownedBSSID, !ownedBSSID.isEmpty else { return false }
+        return currentBSSID == ownedBSSID
+    }
     mutating func acquire(owner: UUID, network: String) -> Bool {
         guard self.network == nil || self.network == network else { return false }
         self.network = network; owners.insert(owner); return true

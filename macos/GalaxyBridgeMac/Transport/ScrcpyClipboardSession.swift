@@ -49,9 +49,11 @@ final class ScrcpyClipboardSession {
     private var lastObservedContent: Data?
     private var pendingAgentMessage: ScrcpyClipboardAgentMessage?
     private(set) var usesClipboardOccurrences = false
+    private(set) var supportsClipboardAvailability = false
     private var injectedEchoes = ScrcpyInjectedClipboardEchoSuppressor(capacity: 16)
 
     var clipboardEventHandler: (@MainActor @Sendable (ScrcpyClipboardUpdate) -> Void)?
+    var clipboardUnavailableHandler: (@MainActor @Sendable () -> Void)?
 
     init(
         serial: String,
@@ -85,15 +87,20 @@ final class ScrcpyClipboardSession {
                     let lease = try await shellProvider.prepare(configuration: config, operation: .startClipboard)
                     guard generation == request, !Task.isCancelled else { try? await shellProvider.retire(lease); throw CancellationError() }
                     shellLease = lease
-                    guard let port = lease.port, let agentPort = lease.clipboardPort else { throw ShellCapabilityBridgeFailure.invalidResult }
+                    guard let port = lease.port else { throw ShellCapabilityBridgeFailure.invalidResult }
                     let socket = ScrcpyControlSocket(port: port, initialPreambleLength: 1,
                         readyHandler: { [weak self] in Task { @MainActor in self?.didBecomeReady(request: request) } },
                         messageHandler: { [weak self] message in Task { @MainActor in self?.receive(message, request: request) } },
                         failureHandler: { [weak self] error in Task { @MainActor in self?.fail(request: request, reason: String(describing: error)) } })
-                    let agent = ClipboardAgentSocket(port: agentPort, readyHandler: {},
-                        messageHandler: { [weak self] message in Task { @MainActor in self?.receiveAgent(message, request: request) } },
-                        failureHandler: { [weak self] error in Task { @MainActor in self?.fail(request: request, reason: String(describing: error)) } })
-                    controlSocket = socket; agentSocket = agent; agent.start(); socket.start(); return
+                    controlSocket = socket
+                    if let agentPort = lease.clipboardPort {
+                        let agent = ClipboardAgentSocket(port: agentPort,
+                            readyHandler: { [weak self] occurrences in Task { @MainActor in self?.didBecomeAgentReady(usesOccurrences: occurrences, request: request) } },
+                            messageHandler: { [weak self] message in Task { @MainActor in self?.receiveAgent(message, request: request) } },
+                            failureHandler: { [weak self] error in Task { @MainActor in self?.agentUnavailable(request: request, reason: String(describing: error)) } })
+                        agentSocket = agent; agent.start()
+                    }
+                    socket.start(); return
                 }
                 let serverURL = try ScrcpyServerLocator.locate()
                 try await Task.detached(priority: .utility) { [adb, serial] in
@@ -161,35 +168,43 @@ final class ScrcpyClipboardSession {
                 )
                 controlSocket = socket
 
-                let agentName = "galaxybridge_clipboard_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased())"
-                let agentPort = try await Task.detached(priority: .utility) { [adb, serial] in
-                    try adb.forwardAutomatically(serial: serial, socketName: agentName)
-                }.value
-                agentForwardedPort = agentPort
-                agentProcess = try adb.launch(serial: serial, arguments: [
-                    "shell",
-                    "CLASSPATH=\(ScrcpyLaunchConfiguration.remoteServerPath)",
-                    "app_process",
-                    "/",
-                    "com.genymobile.scrcpy.ClipboardAgent",
-                    agentName,
-                ])
-                try await Task.detached(priority: .utility) { [adb, serial] in
-                    try adb.waitForAbstractSocket(serial: serial, socketName: agentName)
-                }.value
-                guard generation == request, !Task.isCancelled else { throw CancellationError() }
-                let clipboardAgent = ClipboardAgentSocket(
-                    port: agentPort,
-                    readyHandler: {},
-                    messageHandler: { [weak self] message in
-                        Task { @MainActor in self?.receiveAgent(message, request: request) }
-                    },
-                    failureHandler: { [weak self] error in
-                        Task { @MainActor in self?.fail(request: request, reason: String(describing: error)) }
-                    }
-                )
-                agentSocket = clipboardAgent
-                clipboardAgent.start()
+                do {
+                    let agentName = "galaxybridge_clipboard_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased())"
+                    let agentPort = try await Task.detached(priority: .utility) { [adb, serial] in
+                        try adb.forwardAutomatically(serial: serial, socketName: agentName)
+                    }.value
+                    agentForwardedPort = agentPort
+                    agentProcess = try adb.launch(serial: serial, arguments: [
+                        "shell",
+                        "CLASSPATH=\(ScrcpyLaunchConfiguration.remoteServerPath)",
+                        "app_process",
+                        "/",
+                        "com.genymobile.scrcpy.ClipboardAgent",
+                        agentName,
+                    ])
+                    try await Task.detached(priority: .utility) { [adb, serial] in
+                        try adb.waitForAbstractSocket(serial: serial, socketName: agentName)
+                    }.value
+                    guard generation == request, !Task.isCancelled else { throw CancellationError() }
+                    let clipboardAgent = ClipboardAgentSocket(
+                        port: agentPort,
+                        readyHandler: { [weak self] occurrences in
+                            Task { @MainActor in self?.didBecomeAgentReady(usesOccurrences: occurrences, request: request) }
+                        },
+                        messageHandler: { [weak self] message in
+                            Task { @MainActor in self?.receiveAgent(message, request: request) }
+                        },
+                        failureHandler: { [weak self] error in
+                            Task { @MainActor in self?.agentUnavailable(request: request, reason: String(describing: error)) }
+                        }
+                    )
+                    agentSocket = clipboardAgent
+                    clipboardAgent.start()
+                } catch is CancellationError { throw CancellationError() }
+                catch {
+                    guard generation == request, !Task.isCancelled else { throw CancellationError() }
+                    agentUnavailable(request: request, reason: String(describing: error))
+                }
                 socket.start()
             } catch is CancellationError {
                 // Explicit retirement owns cleanup.
@@ -261,14 +276,41 @@ final class ScrcpyClipboardSession {
             self.pendingAgentMessage = nil
             receiveAgent(pendingAgentMessage, request: request)
         }
-        controlSocket?.send(ScrcpyControlMessage.getClipboard())
+        startLegacyClipboardPolling(request: request)
+    }
+
+    private func didBecomeAgentReady(usesOccurrences: Bool, request: UUID) {
+        guard generation == request, agentSocket != nil, state == .preparing || state == .ready else { return }
+        if usesOccurrences {
+            usesClipboardOccurrences = true
+            pollTask?.cancel()
+            pollTask = nil
+        }
+    }
+
+    private func startLegacyClipboardPolling(request: UUID) {
+        guard generation == request, state == .ready, !usesClipboardOccurrences, pollTask == nil else { return }
         pollTask = Task { [weak self] in
+            // Give the bounded agent preamble a chance before a content read.
+            // A missing/legacy agent retains the stock text fallback.
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500))
-                guard !Task.isCancelled, let self, self.generation == request, self.state == .ready else { return }
+                guard let self, self.generation == request, self.state == .ready,
+                      !self.usesClipboardOccurrences else { return }
                 self.controlSocket?.send(ScrcpyControlMessage.getClipboard())
+                do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
             }
         }
+    }
+
+    private func agentUnavailable(request: UUID, reason: String) {
+        guard generation == request else { return }
+        // Once GBC2 owns full text/image observation, reconnect it on failure.
+        // Before protocol negotiation the existing stock text fallback is usable.
+        if usesClipboardOccurrences { fail(request: request, reason: reason); return }
+        agentSocket?.cancel()
+        agentSocket = nil
+        if state == .ready { startLegacyClipboardPolling(request: request) }
     }
 
     private func receive(_ message: ScrcpyDeviceMessage, request: UUID) {
@@ -298,14 +340,21 @@ final class ScrcpyClipboardSession {
     }
 
     private func receiveAgent(_ message: ScrcpyClipboardAgentMessage, request: UUID) {
-        guard generation == request else { return }
+        guard generation == request, agentSocket != nil else { return }
         guard state == .ready else {
             if state == .preparing { pendingAgentMessage = message }
             return
         }
         if message.timestamp != nil {
-            usesClipboardOccurrences = true
+            didBecomeAgentReady(usesOccurrences: true, request: request)
         } else if message.content == lastObservedContent { return }
+        guard message.isAvailable else {
+            supportsClipboardAvailability = message.reportsAvailability
+            lastObservedContent = nil
+            clipboardUnavailableHandler?()
+            return
+        }
+        supportsClipboardAvailability = message.reportsAvailability
         lastObservedContent = message.content
         if message.timestamp == nil, message.kind == .text, !injectedEchoes.shouldForward(message.content) { return }
         let update = ScrcpyClipboardUpdate(
@@ -361,6 +410,7 @@ final class ScrcpyClipboardSession {
         lastObservedContent = nil
         pendingAgentMessage = nil
         usesClipboardOccurrences = false
+        supportsClipboardAvailability = false
         injectedEchoes = ScrcpyInjectedClipboardEchoSuppressor(capacity: 16)
         if scheduleRemoteCleanup, port != nil || agentPort != nil || scid != nil {
             let adb = adb

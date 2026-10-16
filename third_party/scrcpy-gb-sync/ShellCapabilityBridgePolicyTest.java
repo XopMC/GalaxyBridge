@@ -34,6 +34,7 @@ public final class ShellCapabilityBridgePolicyTest {
         }
         String lease = "69830b65-6352-4b3a-8a21-70bcda45787e";
         testVerifiedSourceCleanup();
+        testPanelStatusReadinessIsolation();
         testRegistrationAgainstStop();
         ShellCapabilityBridge.BinderAdmission admission = new ShellCapabilityBridge.BinderAdmission(10234);
         admission.enforceCallingUID(10234);
@@ -92,6 +93,23 @@ public final class ShellCapabilityBridgePolicyTest {
         } finally { parent.destroyForcibly(); java.nio.file.Files.deleteIfExists(state); java.nio.file.Files.delete(directory); }
         System.out.println("PASS actual shell bridge typed options, fixed argv, stream allowlist, bounds and injection rejection");
         System.out.println("PASS actual panel lifetime loop restores initial OFF and real parent SIGKILL restores synthetic ON via owned stdin EOF");
+    }
+
+    private static void testPanelStatusReadinessIsolation() throws Exception {
+        String unknown = ShellCapabilityBridge.readOnlyPanelStatus(() -> {
+            return new DisplayPowerController.Frame(DisplayPowerController.parsePhysical(
+                "Display 10\n connectionType=Internal\n powerMode=DOZE\n"), "10").state();
+        });
+        assert unknown.equals("panel_unknown") : "unsupported physical state must remain isolated from general broker readiness";
+        assert ShellCapabilityBridge.readOnlyPanelStatus(() -> { throw new java.io.IOException("read_failed"); }).equals("panel_unknown");
+        assert ShellCapabilityBridge.readOnlyPanelStatus(() -> { throw new AssertionError("hidden_API_unavailable"); }).equals("panel_unknown");
+        assert ShellCapabilityBridge.readOnlyPanelStatus(() -> { throw new AbstractMethodError("hidden_API_unavailable"); }).equals("panel_unknown");
+        for (String value : java.util.Arrays.asList("panel_on", "panel_off", "panel_multi_on", "panel_multi_off"))
+            assert ShellCapabilityBridge.readOnlyPanelStatus(() -> value).equals(value);
+        String lease = "69830b65-6352-4b3a-8a21-70bcda45787e";
+        assert ShellCapabilityBridge.Policy.parse(1, lease, options()).streams().contains(lease + "/video");
+        assert ShellCapabilityBridge.Policy.parse(2, lease, options()).streams().contains(lease + "/clipboard");
+        System.out.println("PASS read-only panel probe failure isolation; known multi-panel states and clipboard/app start policies remain available");
     }
 
     private static void testOrderedConnections() throws Exception {

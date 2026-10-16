@@ -291,4 +291,3 @@ public  final class TransferCancel extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

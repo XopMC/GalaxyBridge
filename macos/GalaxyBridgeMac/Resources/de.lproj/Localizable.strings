@@ -361,3 +361,31 @@
 "NOTIFICATION_MORE_ACTIONS" = "Weitere Aktionen";
 "NEARBY_WIFI_CONCURRENCY_HINT" = "Diese Kombination aus Telefon-WLAN und Direktverbindung ist nicht geprüft oder wird nicht unterstützt. Nutze USB oder ein gemeinsames lokales Netzwerk.";
 "INTERNET_OFF" = "Deaktiviert";
+
+"DISCOVERY_NEARBY_TITLE" = "Telefone in der Nähe";
+
+"DISCOVERY_UNTRUSTED_HINT" = "Scanne den Code in Galaxy Bridge Helper, um das Telefon zu bestätigen.";
+
+"DISCOVERY_GENERIC_PHONE" = "Android-Telefon";
+
+"DISCOVERY_ADD_PHONE" = "Telefon hinzufügen";
+
+"DEVICE_FEATURES_TITLE" = "Telefonfunktionen";
+
+"DEVICE_FEATURES_BODY" = "Wähle, was dieses Telefon mit dem Mac teilt. Kamera und Internet starten nur auf Anfrage.";
+
+"DEVICE_FEATURES_PENDING" = "Auf diesem Mac gespeichert. Wird bei der nächsten Verbindung übertragen.";
+
+"DEVICE_FEATURES_APPLYING" = "Einstellungen werden auf dem Telefon angewendet…";
+
+"DEVICE_FEATURES_APPLIED" = "Einstellungen auf diesem Telefon angewendet.";
+
+"DEVICE_FEATURES_UPDATE_PHONE" = "Mac-Steuerung aktiv. Aktualisiere die Telefon-App, um die Einstellungen auch dort anzuwenden.";
+
+"DEVICE_FEATURES_FAILED" = "Auf dem Mac gespeichert. Erneut verbinden, um die Einstellungen zu übertragen.";
+
+"FEATURE_INTERNET" = "Internetfreigabe";
+
+"FEATURE_DISABLED" = "Diese Funktion ist für dieses Telefon ausgeschaltet.";
+
+"NEARBY_LOCATION_PERMISSION_HINT" = "Erlaube Galaxy Bridge den Standortzugriff unter Systemeinstellungen → Datenschutz & Sicherheit → Ortungsdienste, um Telefone in der Nähe zu verbinden.";

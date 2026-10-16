@@ -55,7 +55,7 @@ class ForegroundClipboardMonitor(
     }
 
     private fun sample() {
-        if (!active) return
+        if (!active || !com.xopmc.galaxybridge.setup.DeviceFeaturePreferences(appContext).isEnabled("clipboard")) return
         // Every observation invalidates earlier image reads, even if this
         // clipboard is sensitive, unsupported, or empty. Cancellation alone
         // cannot stop a ContentProvider which ignores interruption.
@@ -77,7 +77,7 @@ class ForegroundClipboardMonitor(
                 ?: appContext.contentResolver.getType(uri)
             imageTask = executor.submit {
                 val png = ClipboardImageCodec.readAsBoundedPng(appContext.contentResolver, uri, mimeType) ?: return@submit
-                if (!active || Thread.currentThread().isInterrupted) return@submit
+                if (!active || Thread.currentThread().isInterrupted || !com.xopmc.galaxybridge.setup.DeviceFeaturePreferences(appContext).isEnabled("clipboard")) return@submit
                 sampleGate.publishIfCurrent(sample) {
                     ClipboardPayloadPolicy.png(
                         png,

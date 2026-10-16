@@ -11,6 +11,7 @@ internal enum class CompanionControlPayloadKind {
     SHELL_BRIDGE,
     DIRECT_LINK,
     INTERNET_SHARING,
+    FEATURE_CONFIGURATION,
     INPUT,
     CLIPBOARD,
     NOTIFICATION_ACTION,
@@ -30,6 +31,7 @@ internal object CompanionControlPayloadPolicy {
         Envelope.PayloadCase.SHELL_BRIDGE_REQUEST -> CompanionControlPayloadKind.SHELL_BRIDGE
         Envelope.PayloadCase.DIRECT_LINK_REQUEST -> CompanionControlPayloadKind.DIRECT_LINK
         Envelope.PayloadCase.INTERNET_SHARING_REQUEST -> CompanionControlPayloadKind.INTERNET_SHARING
+        Envelope.PayloadCase.FEATURE_CONFIGURATION_REQUEST -> CompanionControlPayloadKind.FEATURE_CONFIGURATION
         Envelope.PayloadCase.INPUT_EVENT -> CompanionControlPayloadKind.INPUT
         Envelope.PayloadCase.CLIPBOARD_UPDATE -> CompanionControlPayloadKind.CLIPBOARD
         Envelope.PayloadCase.NOTIFICATION_ACTION -> CompanionControlPayloadKind.NOTIFICATION_ACTION

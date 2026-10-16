@@ -31,7 +31,7 @@ public  final class Ping extends
    * @param value The monotonicTimeNs to set.
    */
   private void setMonotonicTimeNs(long value) {
-    
+
     monotonicTimeNs_ = value;
   }
   /**
@@ -240,4 +240,3 @@ public  final class Ping extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

@@ -75,7 +75,7 @@ public  final class InputEvent extends
    * @param value The displayId to set.
    */
   private void setDisplayId(int value) {
-    
+
     displayId_ = value;
   }
   /**
@@ -101,7 +101,7 @@ public  final class InputEvent extends
    * @param value The displayEpoch to set.
    */
   private void setDisplayEpoch(int value) {
-    
+
     displayEpoch_ = value;
   }
   /**
@@ -127,7 +127,7 @@ public  final class InputEvent extends
    * @param value The pointerId to set.
    */
   private void setPointerId(long value) {
-    
+
     pointerId_ = value;
   }
   /**
@@ -153,7 +153,7 @@ public  final class InputEvent extends
    * @param value The normalizedX to set.
    */
   private void setNormalizedX(float value) {
-    
+
     normalizedX_ = value;
   }
   /**
@@ -179,7 +179,7 @@ public  final class InputEvent extends
    * @param value The normalizedY to set.
    */
   private void setNormalizedY(float value) {
-    
+
     normalizedY_ = value;
   }
   /**
@@ -205,7 +205,7 @@ public  final class InputEvent extends
    * @param value The pressure to set.
    */
   private void setPressure(float value) {
-    
+
     pressure_ = value;
   }
   /**
@@ -231,7 +231,7 @@ public  final class InputEvent extends
    * @param value The scrollX to set.
    */
   private void setScrollX(float value) {
-    
+
     scrollX_ = value;
   }
   /**
@@ -257,7 +257,7 @@ public  final class InputEvent extends
    * @param value The scrollY to set.
    */
   private void setScrollY(float value) {
-    
+
     scrollY_ = value;
   }
   /**
@@ -283,7 +283,7 @@ public  final class InputEvent extends
    * @param value The buttons to set.
    */
   private void setButtons(int value) {
-    
+
     buttons_ = value;
   }
   /**
@@ -309,7 +309,7 @@ public  final class InputEvent extends
    * @param value The androidKeycode to set.
    */
   private void setAndroidKeycode(int value) {
-    
+
     androidKeycode_ = value;
   }
   /**
@@ -335,7 +335,7 @@ public  final class InputEvent extends
    * @param value The modifiers to set.
    */
   private void setModifiers(int value) {
-    
+
     modifiers_ = value;
   }
   /**
@@ -981,4 +981,3 @@ public  final class InputEvent extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

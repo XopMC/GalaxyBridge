@@ -20,6 +20,7 @@ enum UserFacingText {
     }
 
     static func unavailableReason(for code: String) -> String {
+        if code == "feature_disabled" { return String(localized: "FEATURE_DISABLED") }
 #if GALAXYBRIDGE_APP_STORE
         return resolver.unavailableReason(for: code)
 #else

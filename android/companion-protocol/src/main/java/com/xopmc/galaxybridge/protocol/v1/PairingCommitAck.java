@@ -35,7 +35,7 @@ public  final class PairingCommitAck extends
    * @param value The committed to set.
    */
   private void setCommitted(boolean value) {
-    
+
     committed_ = value;
   }
   /**
@@ -203,7 +203,7 @@ public  final class PairingCommitAck extends
    */
   private void setTranscriptSignature(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     transcriptSignature_ = value;
   }
   /**
@@ -592,4 +592,3 @@ public  final class PairingCommitAck extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

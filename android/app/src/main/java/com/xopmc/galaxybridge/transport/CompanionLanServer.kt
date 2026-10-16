@@ -139,6 +139,12 @@ class CompanionLanServer(private val context: Context) {
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var acceptJob: Job? = null
     private val activeSessions = CompanionSessionRegistry()
+    private val featurePreferences = com.xopmc.galaxybridge.setup.DeviceFeaturePreferences(context)
+    private val featureChannels = java.util.concurrent.ConcurrentHashMap<Socket, Set<String>>()
+    private val featureControlSessions = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Socket>>()
+    private data class FeatureShellLease(val hostID: String, val sessionID: String, val leaseID: String,
+        val bootGeneration: String, val features: Set<String>, val streamIDs: Set<String>)
+    private val featureShellLeases = java.util.concurrent.ConcurrentHashMap<String, FeatureShellLease>()
     private val transferReceiverStartup = CompanionReceiverStartup {
         SafTransferReceiver(context).also { it.cleanup() }
     }
@@ -276,10 +282,30 @@ class CompanionLanServer(private val context: Context) {
                 if (currentTrust.getString(PAIRED_HOST_ID, null) != envelope.deviceId ||
                     currentTrust.getString(PAIRED_MAC_KEY, null) != authenticatedKey ||
                     incoming.deviceId != envelope.deviceId || incoming.sessionId != envelope.sessionId) return
+                val previousChannelKind = channelRole.kind
                 if (!channelRole.admit(incoming)) return
-                when (CompanionControlPayloadPolicy.classify(incoming)) {
+                if (previousChannelKind == ChannelKind.CHANNEL_KIND_UNSPECIFIED && channelRole.ownsControlRetirement)
+                    featureControlSessions[envelope.deviceId] = envelope.sessionId to socket
+                val payloadKind = CompanionControlPayloadPolicy.classify(incoming)
+                if (!featurePayloadAllowed(incoming, payloadKind)) {
+                    writeEnvelope(output, featureDisabled(incoming)); continue
+                }
+                when (payloadKind) {
                     CompanionControlPayloadKind.OPEN_CHANNEL -> {
                       socket.soTimeout = if (channelRole.ownsControlRetirement) SOCKET_TIMEOUT_MS else 0
+                      val required = when (channelRole.kind) {
+                          ChannelKind.CHANNEL_KIND_VIDEO -> setOf("screen")
+                          ChannelKind.CHANNEL_KIND_AUDIO -> setOf("audio")
+                          ChannelKind.CHANNEL_KIND_CAMERA -> setOf("camera")
+                          ChannelKind.CHANNEL_KIND_FILES -> setOf("files")
+                          ChannelKind.CHANNEL_KIND_INTERNET_PROXY -> setOf("internet")
+                          ChannelKind.CHANNEL_KIND_ENHANCED_STREAM -> featureShellLeases.values.firstOrNull {
+                              it.hostID == envelope.deviceId && it.sessionID == envelope.sessionId && incoming.openChannel.streamId in it.streamIDs
+                          }?.features ?: emptySet()
+                          else -> emptySet()
+                      }
+                      if (required.any { !featurePreferences.isEnabled(it) }) { writeEnvelope(output, featureDisabled(incoming)); return }
+                      featureChannels[socket] = required
                       when (channelRole.kind) {
                         ChannelKind.CHANNEL_KIND_CONTROL -> Unit
                         ChannelKind.CHANNEL_KIND_VIDEO -> return streamVideo(socket, input, output)
@@ -341,8 +367,44 @@ class CompanionLanServer(private val context: Context) {
                                 .build(),
                         )
                     }
+                    CompanionControlPayloadKind.FEATURE_CONFIGURATION -> {
+                        if (featureControlSessions[envelope.deviceId] != (envelope.sessionId to socket)) return
+                        val request = incoming.featureConfigurationRequest
+                        val enabled = request.enabledFeatureIdsList.toSet()
+                        val requestPolicy = com.xopmc.galaxybridge.setup.DeviceFeatureRequest(envelope.deviceId, envelope.sessionId,
+                            request.targetDeviceId, request.requestId, request.revision, enabled)
+                        val previous = featurePreferences.enabledIDs()
+                        val error = if (request.enabledFeatureIdsCount != enabled.size || request.enabledFeatureIdsCount > 10)
+                            "invalid_feature_request" else featurePreferences.applyAuthenticated(requestPolicy, envelope.deviceId, envelope.sessionId, deviceId())
+                        if (error == null) {
+                            val disabled = previous - enabled
+                            featureChannels.entries.filter { (_, required) -> required.any { it in disabled } }
+                                .forEach { (channel, _) -> runCatching { channel.close() } }
+                            if ("camera" in disabled) context.stopService(Intent(context, CameraCaptureService::class.java))
+                            if ("screen" in disabled) context.stopService(Intent(context, com.xopmc.galaxybridge.service.MediaProjectionCaptureService::class.java))
+                            val shell = com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current?.shell
+                            featureShellLeases.values.filter { it.hostID == envelope.deviceId && it.sessionID == envelope.sessionId && it.features.any { feature -> feature in disabled } }
+                                .forEach { lease ->
+                                    shell?.executeAuthenticated(lease.hostID, lease.sessionID, com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.newBuilder()
+                                        .setRequestId(UUID.randomUUID().toString()).setLeaseId(lease.leaseID).setBootGeneration(lease.bootGeneration)
+                                        .setOperation(com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.STOP).build())
+                                    featureShellLeases.remove(lease.leaseID, lease)
+                                }
+                            if ("internet" in disabled) com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current?.internet?.revokeAuthenticated(envelope.deviceId, envelope.sessionId)
+                            if ("notifications" in disabled) NotificationEventBus.discardAll()
+                            GalaxyNotificationListenerService.refreshFeaturePolicy()
+                        }
+                        val result = com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult.newBuilder()
+                            .setRequestId(request.requestId.take(36)).setTargetDeviceId(deviceId()).setRevision(request.revision)
+                            .setAccepted(error == null).addAllEnabledFeatureIds(featurePreferences.enabledIDs().sorted()).setErrorCode(error.orEmpty())
+                        writeEnvelope(output, eventEnvelope(envelope.sessionId, incoming.messageId + 1).setFeatureConfigurationResult(result).build())
+                        writeEnvelope(output, capabilities(incoming))
+                    }
                     CompanionControlPayloadKind.SHELL_BRIDGE -> {
                         val bridge = com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current?.shell
+                        val shellRequest = if (!featurePreferences.isEnabled("audio") && incoming.shellBridgeRequest.hasOptions())
+                            incoming.shellBridgeRequest.toBuilder().setOptions(incoming.shellBridgeRequest.options.toBuilder().setAudio(false)).build()
+                            else incoming.shellBridgeRequest
                         val result = if (incoming.shellBridgeRequest.operation == com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.LIST_APPLICATIONS && BuildConfig.DISTRIBUTION != "play") {
                             runCatching {
                                 require(com.xopmc.galaxybridge.transport.shell.ShellBridgePolicy.uuid(incoming.shellBridgeRequest.requestId))
@@ -358,7 +420,26 @@ class CompanionLanServer(private val context: Context) {
                             com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult.newBuilder()
                                 .setRequestId(incoming.shellBridgeRequest.requestId).setAvailable(false).setState("failed")
                                 .setErrorCode("shell_bridge_not_activated").build()
-                        } else bridge.executeAuthenticated(envelope.deviceId, envelope.sessionId, incoming.shellBridgeRequest)
+                        } else bridge.executeAuthenticated(envelope.deviceId, envelope.sessionId, shellRequest)
+                        if (shellRequest.operation == com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.STOP) featureShellLeases.remove(shellRequest.leaseId)
+                        else if (result.available && result.errorCode.isEmpty() && result.streamIdsCount > 0) {
+                            val required = when (shellRequest.operation) {
+                                com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.START_CLIPBOARD -> setOf("clipboard")
+                                com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.START_PANEL -> emptySet()
+                                else -> setOf(if (shellRequest.options.packageName.isBlank()) "screen" else "applications") +
+                                    (if (shellRequest.options.audio) setOf("audio") else emptySet())
+                            }
+                            val lease = FeatureShellLease(envelope.deviceId, envelope.sessionId, result.leaseId, result.bootGeneration, required, result.streamIdsList.toSet())
+                            featureShellLeases[result.leaseId] = lease
+                            // A different CONTROL operation may have disabled this feature while the shell was starting.
+                            if (required.any { !featurePreferences.isEnabled(it) }) {
+                                bridge?.executeAuthenticated(envelope.deviceId, envelope.sessionId, com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.newBuilder()
+                                    .setRequestId(UUID.randomUUID().toString()).setLeaseId(result.leaseId).setBootGeneration(result.bootGeneration)
+                                    .setOperation(com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.STOP).build())
+                                featureShellLeases.remove(result.leaseId, lease)
+                                writeEnvelope(output, featureDisabled(incoming)); continue
+                            }
+                        }
                         writeEnvelope(output, Envelope.newBuilder().setProtocolMajor(1).setDeviceId(deviceId())
                             .setSessionId(envelope.sessionId).setMessageId(incoming.messageId + 1).setShellBridgeResult(result).build())
                     }
@@ -408,9 +489,39 @@ class CompanionLanServer(private val context: Context) {
                 com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current?.shell
                     ?.retireAuthenticated(envelope.deviceId, envelope.sessionId)
             }
+            if (channelRole.ownsControlRetirement) featureShellLeases.entries.removeIf { it.value.hostID == envelope.deviceId && it.value.sessionID == envelope.sessionId }
+            featureControlSessions.remove(envelope.deviceId, envelope.sessionId to socket)
+            featureChannels.remove(socket)
             activeSessions.unregister(envelope.deviceId, envelope.sessionId, socket)
         }
     }
+
+    private fun featurePayloadAllowed(envelope: Envelope, kind: CompanionControlPayloadKind): Boolean {
+        val feature = when (kind) {
+            CompanionControlPayloadKind.CLIPBOARD -> "clipboard"
+            CompanionControlPayloadKind.CALL -> "calls"
+            CompanionControlPayloadKind.NOTIFICATION_ACTION -> "notifications"
+            CompanionControlPayloadKind.INPUT -> if (!featurePreferences.isEnabled("screen") && !featurePreferences.isEnabled("applications")) "screen" else null
+            CompanionControlPayloadKind.CAMERA_CONFIGURATION -> if (envelope.cameraConfiguration.enabled) "camera" else null
+            CompanionControlPayloadKind.INTERNET_SHARING -> if (envelope.internetSharingRequest.enabled) "internet" else null
+            CompanionControlPayloadKind.TRANSFER_MANIFEST, CompanionControlPayloadKind.TRANSFER_CHUNK -> "files"
+            CompanionControlPayloadKind.SHELL_BRIDGE -> when (envelope.shellBridgeRequest.operation) {
+                com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.START_CLIPBOARD -> "clipboard"
+                com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.START_PANEL ->
+                    if (com.xopmc.galaxybridge.setup.DeviceFeaturePolicy.canUsePanel(featurePreferences.enabledIDs())) null else "screen"
+                com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.LIST_APPLICATIONS -> "applications"
+                com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.START_SCRCPY ->
+                    if (envelope.shellBridgeRequest.options.packageName.isNotBlank()) "applications" else "screen"
+                else -> null
+            }
+            else -> null
+        }
+        return feature == null || featurePreferences.isEnabled(feature)
+    }
+
+    private fun featureDisabled(request: Envelope): Envelope = eventEnvelope(request.sessionId, request.messageId + 1)
+        .setError(com.xopmc.galaxybridge.protocol.v1.ErrorEvent.newBuilder().setCode("feature_disabled")
+            .setSafeMessage("This feature is turned off for this phone.").setRetryable(false)).build()
 
     private fun internetSharing(request: Envelope, peerID: String, sessionID: String): Envelope {
         val sharing = request.internetSharingRequest
@@ -490,6 +601,7 @@ class CompanionLanServer(private val context: Context) {
             requestKeyFrame = EncodedVideoBus::requestKeyFrame,
         )
         fun write(frame: com.xopmc.galaxybridge.service.EncodedVideoFrame) {
+            if (!featurePreferences.isEnabled("screen")) return
             val flags = (if (frame.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) MEDIA_FLAG_CONFIGURATION else 0) or
                 (if (frame.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0) MEDIA_FLAG_KEY_FRAME else 0)
             synchronized(output) {
@@ -524,6 +636,7 @@ class CompanionLanServer(private val context: Context) {
             isConfiguration = { it.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0 },
         )
         fun write(frame: com.xopmc.galaxybridge.service.EncodedAudioFrame) {
+            if (!featurePreferences.isEnabled("audio")) return
             val flags = if (frame.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) MEDIA_FLAG_CONFIGURATION else 0
             synchronized(output) {
                 output.writeByte(flags)
@@ -551,6 +664,7 @@ class CompanionLanServer(private val context: Context) {
     ) {
         val configurationGate = CameraStreamConfigurationGate()
         fun write(frame: com.xopmc.galaxybridge.service.EncodedCameraFrame) {
+            if (!featurePreferences.isEnabled("camera")) return
             val flags = (if (frame.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) MEDIA_FLAG_CONFIGURATION else 0) or
                 (if (frame.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0) MEDIA_FLAG_KEY_FRAME else 0)
             synchronized(output) {
@@ -582,7 +696,7 @@ class CompanionLanServer(private val context: Context) {
         ClipboardBridge.outboundHub.subscribe().use { clipboardSubscription ->
             OutboundChannelLifecycle.run(input, socket::close) {
             val telephonyEnabled = DistributionFeatures.telephonyEnabled(BuildConfig.DISTRIBUTION)
-            if (telephonyEnabled) {
+            if (telephonyEnabled && featurePreferences.isEnabled("calls")) {
                 TelephonyBridge.recentCalls(context).forEach { call ->
                     writeEnvelope(
                         output,
@@ -666,7 +780,16 @@ class CompanionLanServer(private val context: Context) {
                         .setCameraStatus(CameraStatusMapper.toProtocol(status))
                         .build()
                 },
-            ).collect { event -> writeEnvelope(output, event) }
+            ).collect { event ->
+                val feature = when {
+                    event.hasNotificationEvent() || event.hasNotificationSnapshot() -> "notifications"
+                    event.hasClipboardUpdate() -> "clipboard"
+                    event.hasCallEvent() -> "calls"
+                    else -> null
+                }
+                if (feature == null) writeEnvelope(output, event)
+                else featurePreferences.withEnabled(feature) { writeEnvelope(output, event) }
+            }
             }
         }
     }
@@ -693,6 +816,8 @@ class CompanionLanServer(private val context: Context) {
         try {
         while (true) {
             val incoming = runCatching { readEnvelope(input) }.getOrNull() ?: return
+            if (incoming.sessionId != sessionId || incoming.deviceId != context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(PAIRED_HOST_ID, null)) return
+            if (!featurePreferences.isEnabled("files")) return
             when (CompanionControlPayloadPolicy.classify(incoming)) {
                 CompanionControlPayloadKind.TRANSFER_ACK -> outgoing?.acknowledge(incoming.transferAck)
                 CompanionControlPayloadKind.TRANSFER_MANIFEST -> writeTransferAck(

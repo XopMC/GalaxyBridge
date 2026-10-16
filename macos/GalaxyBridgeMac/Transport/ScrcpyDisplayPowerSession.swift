@@ -1,338 +1,228 @@
 #if !GALAXYBRIDGE_APP_STORE
 import Foundation
 import GalaxyBridgeCore
-import GalaxyBridgeEnhancedCore
 import OSLog
 
-/// Dedicated capture-free control owner. No clipboard polling, IME changes,
-/// encoders, UHID, brightness changes, wake keys, or keyguard operations.
+/// Capture-free, snapshot-owning UID2000 child. EOF and shutdown restore exact
+/// panel states; no stock all-ON scrcpy cleanup, brightness or keyguard changes.
 @MainActor
 final class ScrcpyDisplayPowerSession: PhoneDisplayPowerOwner {
     private static let logger = Logger(subsystem: "com.xopmc.GalaxyBridge", category: "phone-display-privacy")
     var failureHandler: ((String) -> Void)?
+    var panelPowerChangedHandler: ((PhonePanelPowerSnapshot) -> Void)?
     private var serial: String
     private let adb: ADBClient
     private var shellProvider: ShellCapabilityBridgeProvider?
     private let shellProviderResolver: ((String) -> ShellCapabilityBridgeProvider?)?
     private var shellLease: ShellCapabilityBridgeLease?
-    private var shellMonitor: Task<Void, Never>?
-    private var shellDesiredPower: Bool?
-    private var socket: ScrcpyControlSocket?
-    private var process: Process?
-    private var scid: UInt32?
-    private var port: UInt16?
-    private var forwardOwnerSerial: String?
-    private var forwardSocketName: String?
-    private var ready = false
-    private var failure: String?
-    private var generation = UUID()
+    private var controller: DisplayPowerControllerProcess?
+    private var acknowledgement: DisplayPowerControllerAcknowledgement?
+    private var startupFailureIdentity: DisplayPowerControllerIdentity?
     private var ownership: PhonePrivacyServerOwnership?
-    private var cleanupIdentity: PhonePrivacyCleanupIdentity?
-    private var cleanupEnabled = true
+    private var confirmedRestoredFailure = false
+    private var restored = false
+    private var deliveredInitialSnapshot = false
+    private var retriedInitialTransport = false
+    private var monitor: Task<Void, Never>?
+    private var generation = UUID()
+    private var commandRevision: UInt64 = 0
+    private var observed: PhonePanelPowerSnapshot?
+    private var routeSettlementPending = false
 
     init(serial: String, adb: ADBClient, shellProvider: ShellCapabilityBridgeProvider? = nil,
          shellProviderResolver: ((String) -> ShellCapabilityBridgeProvider?)? = nil) {
         self.serial = serial; self.adb = adb; self.shellProvider = shellProvider; self.shellProviderResolver = shellProviderResolver
     }
-
-    func useRoute(serial: String) async throws {
-        if let shellProviderResolver {
-            let next = shellProviderResolver(serial)
-            if (next != nil) != (shellProvider != nil) {
-                try await stop()
-                self.serial = serial; self.shellProvider = next; return
-            }
+    func useRoute(serial: String) async throws -> PhoneDisplayPowerRouteChange {
+        let next = shellProviderResolver?(serial)
+        if routeSettlementPending || serial != self.serial || (next != nil) != (shellProvider != nil) {
+            routeSettlementPending = true
+            // An alternate ADB serial is already verified as this same phone;
+            // use it for the old child's exact cleanup proof if USB disappeared.
+            if next == nil, shellProvider == nil { self.serial = serial }
+            try await stop()
+            self.serial = serial; shellProvider = next
+            routeSettlementPending = false
+            return .rebased
         }
-        // Repeating a route after failed retirement must retry settlement.
-        guard PhonePrivacyServerOwnership.requiresRouteSettlement(current: self.serial, requested: serial, controlReady: ready) else { return }
-        // The new route is already verified to belong to this logical phone.
-        // Retire and inspect old process identities through the reachable route.
-        self.serial = serial
-        try await stop()
+        return .preserved
     }
-
     func start() async throws {
         if let shellProvider {
-            let initial = try await shellProvider.panelPower()
-            guard initial != .unknown else { throw PowerError.panelNotConfirmed }
-            shellLease = try await shellProvider.setPanelPower(on: initial == .on, lease: shellLease)
-            ready = true; failure = nil; shellDesiredPower = initial == .on
-            startShellMonitor(); return
+            if shellLease == nil {
+                shellLease = try await shellProvider.beginPanelOwnership()
+                let state = try await shellProvider.panelPower()
+                guard state != .unknown else { throw PowerError.panelNotConfirmed }
+                shellLease = try await shellProvider.setPanelPower(on: state == .on, lease: shellLease)
+                observed = .remotelyOwned(hasActivePanel: state == .on)
+            }
+            startMonitor(); return
         }
-        if ready, failure == nil { return }
-        try await stop()
-        failure = nil
-        let request = UUID()
-        generation = request
-        var operation = "locate-server"
+        if controller != nil, acknowledgement != nil, !restored { return }
+        if controller != nil { try await stop() }
+        let owned = PhonePrivacyServerOwnership()
+        ownership = owned
         do {
             let server = try ScrcpyServerLocator.locate()
-            let ownership = PhonePrivacyServerOwnership()
-            self.ownership = ownership
-            operation = "stage-owned-jar"
             try await Task.detached(priority: .utility) { [adb, serial] in
-                try adb.push(serial: serial, localURL: server, remotePath: ownership.remoteJarPath)
+                try adb.push(serial: serial, localURL: server, remotePath: owned.remoteJarPath)
             }.value
-            let identifier = UInt32.random(in: 1 ... 0x7FFF_FFFF)
-            let configuration = ScrcpyLaunchConfiguration(
-                scid: identifier, videoEnabled: false, audioEnabled: false,
-                sendDeviceMeta: false, keepActive: false, hideDeviceIME: false,
-                uhidKeyboardEnabled: false, cleanup: cleanupEnabled
-            )
-            scid = identifier
-            operation = "forward-control"
-            port = try await Task.detached(priority: .utility) { [adb, serial] in
-                try adb.forwardAutomatically(serial: serial, socketName: configuration.socketName)
-            }.value
-            forwardOwnerSerial = serial
-            forwardSocketName = configuration.socketName
-            let arguments = try ownership.serverArguments(replacingSharedClasspath: configuration.serverArguments, cleanupEnabled: cleanupEnabled)
-            operation = "launch-server"
-            process = try adb.launch(serial: serial, arguments: arguments)
-            operation = "wait-server-socket"
-            try await Task.detached(priority: .utility) { [adb, serial] in
-                try adb.waitForAbstractSocket(serial: serial, socketName: configuration.socketName)
-            }.value
-            guard let port else { throw PowerError.notReady }
-            let socket = ScrcpyControlSocket(port: port, initialPreambleLength: 1,
-                readyHandler: { [weak self] in
-                    Task { @MainActor in
-                        guard let self, self.generation == request else { return }
-                        self.ready = true
-                    }
-                },
-                messageHandler: { _ in },
-                failureHandler: { [weak self] error in
-                    let message = String(describing: error)
-                    Task { @MainActor in
-                        guard let self, self.generation == request else { return }
-                        self.failure = message
-                        Self.logger.error("Display privacy owner failed: control-disconnected")
-                        self.failureHandler?(message)
-                    }
-                })
-            self.socket = socket
-            socket.start()
-            let deadline = ContinuousClock.now + .seconds(8)
-            operation = "wait-control-ready"
-            while !ready {
-                if let failure { throw PowerError.control(failure) }
-                guard ContinuousClock.now < deadline else { throw PowerError.notReady }
-                try await Task.sleep(for: .milliseconds(40))
-            }
-            // Do not issue OFF until the independently surviving cleanup child
-            // can be identified exactly and later awaited without blind kills.
-            if cleanupEnabled {
-                operation = "identify-owned-cleanup-child"
-                cleanupIdentity = try await identifyCleanupChild(scid: identifier, ownership: ownership)
-            }
+            let input = Pipe(), output = Pipe()
+            let process = try adb.launch(serial: serial, arguments: ["shell", "-T", "CLASSPATH=\(owned.remoteJarPath)",
+                "app_process", "/", "com.genymobile.scrcpy.DisplayPowerController"], inputPipe: input, outputPipe: output)
+            // Parent copies must not keep EOF from reaching the remote child.
+            try input.fileHandleForReading.close(); try output.fileHandleForWriting.close()
+            let controller = DisplayPowerControllerProcess(process: process, input: input.fileHandleForWriting, output: output.fileHandleForReading)
+            self.controller = controller
+            let header = try await controller.exchange(nil)
+            acknowledgement = header; observed = header.current; restored = false
+            guard try await identityIsCurrent(header.identity) else { throw PowerError.ownerIdentityUnavailable }
+            startMonitor()
         } catch {
-            let preparationError = error
-            Self.logFailure(preparationError, operation: operation)
+            if let startup = error as? DisplayPowerControllerAcknowledgement.StartupFailure { startupFailureIdentity = startup.identity }
+            Self.logger.error("Display privacy child preparation failed")
+            // EOF restores even when the header or an acknowledgement was lost.
             try await stop()
-            throw preparationError
+            if case DisplayPowerControllerProcess.ProcessError.controllerTimeout = error, !retriedInitialTransport {
+                // One bounded transport retry after both producer readiness
+                // signals. Physical-state/topology failures never auto retry.
+                retriedInitialTransport = true
+                try await start(); return
+            }
+            throw error
         }
     }
-
-    func panelPower() async throws -> PhonePanelPowerState {
-        if let shellProvider { return try await shellProvider.panelPower() }
-        let output = try await Task.detached(priority: .utility) { [adb, serial] in
-            try adb.run(arguments: ["-s", serial, "shell", "dumpsys", "SurfaceFlinger"])
-        }.value
-        return PhonePanelPowerParser.parse(output)
-    }
-
-    func setPanelPower(on: Bool) async throws {
+    func snapshot() async throws -> PhonePanelPowerSnapshot {
         if let shellProvider {
-            shellLease = try await shellProvider.setPanelPower(on: on, lease: shellLease)
-            ready = true; failure = nil; shellDesiredPower = on; startShellMonitor(); return
+            let state = try await shellProvider.panelPower()
+            guard state != .unknown else { throw PowerError.panelNotConfirmed }
+            return .remotelyOwned(hasActivePanel: state == .on)
         }
-        if !cleanupEnabled {
-            try await stop()
-            cleanupEnabled = true
-        }
-        if !ready || failure != nil { try await start() }
-        try await sendPanelPower(on: on)
-    }
-
-    func restorePanelPower(on: Bool) async throws {
-        if shellProvider != nil { try await setPanelPower(on: on); return }
-        if on { try await setPanelPower(on: true); return }
-        // Stock crash cleanup can only restore ON. Let that child settle
-        // first, then restore an originally-OFF panel using an owner with no
-        // crash cleanup, so a delayed child cannot undo the final OFF.
-        try await stop()
-        cleanupEnabled = false
         try await start()
-        try await sendPanelPower(on: false)
+        if !deliveredInitialSnapshot, let initial = acknowledgement?.initial {
+            deliveredInitialSnapshot = true; return initial
+        }
+        return try await command(3).current
     }
-
-    private func sendPanelPower(on: Bool) async throws {
-        guard ready, let socket else { throw PowerError.notReady }
-        socket.send(ScrcpyControlMessage.setDisplayPower(on: on))
-        let deadline = ContinuousClock.now + .seconds(4)
-        repeat {
-            if let failure { throw PowerError.control(failure) }
-            if try await panelPower() == (on ? .on : .off) { return }
-            try await Task.sleep(for: .milliseconds(100))
-        } while ContinuousClock.now < deadline
-        Self.logFailure(PowerError.panelNotConfirmed, operation: "verify-panel-power")
-        throw PowerError.panelNotConfirmed
-    }
-
-    func stop() async throws {
+    func panelPower() async throws -> PhonePanelPowerState { try await snapshot().hasActivePanel ? .on : .off }
+    func setPanelPower(on: Bool) async throws {
+        commandRevision &+= 1
         if let shellProvider {
-            generation = UUID(); ready = false; shellMonitor?.cancel(); shellMonitor = nil
-            if let shellLease { try await shellProvider.retire(shellLease); self.shellLease = nil }
-            shellDesiredPower = nil; return
+            if shellLease == nil { try await start() }
+            shellLease = try await shellProvider.setPanelPower(on: on, lease: shellLease)
+            let result = try await snapshot()
+            guard result.hasActivePanel == on else { throw PowerError.panelNotConfirmed }
+            observed = result
+        } else {
+            try await start()
+            let result = try await command(on ? 1 : 0)
+            guard result.current.hasActivePanel == on else { throw PowerError.panelNotConfirmed }
+            observed = result.current
         }
-        do { try await retireOwnedResources() }
-        catch { Self.logFailure(error, operation: "retire-owned-resources"); throw error }
+        startMonitor()
     }
-
-    private func retireOwnedResources() async throws {
-        generation = UUID()
-        ready = false
-        socket?.cancel(); socket = nil
-        if process?.isRunning == true { process?.terminate() }
-        process = nil
-        if let scid {
-            try await Task.detached(priority: .utility) { [adb, serial] in
-                try adb.retireScrcpyServer(serial: serial, scid: scid)
-            }.value
+    func restorePanelSnapshot(_ snapshot: PhonePanelPowerSnapshot) async throws {
+        monitor?.cancel(); monitor = nil; commandRevision &+= 1
+        if let shellProvider {
+            if let lease = shellLease { try await shellProvider.retire(lease); shellLease = nil }
+            // The trusted remote child restores its private per-panel snapshot.
+            observed = snapshot; return
         }
-        if let cleanupIdentity, let ownership {
-            let deadline = ContinuousClock.now + .seconds(5)
-            var settled = false
-            repeat {
-                let probe = try await probeCleanup(cleanupIdentity.pid, ownership: ownership)
-                if (try? probe.settled(expected: cleanupIdentity)) == true { settled = true; break }
-                try await Task.sleep(for: .milliseconds(100))
-            } while ContinuousClock.now < deadline
-            guard settled else { throw PowerError.cleanupNotSettled }
+        guard let initial = acknowledgement?.initial, initial == snapshot else { throw PowerError.initialSnapshotChanged }
+        if restored { try await finishControllerExit(); observed = initial; return }
+        do {
+            let response = try await command(2)
+            guard response.current == initial else { throw PowerError.panelNotConfirmed }
+        } catch {
+            // A timed-out stream can no longer correlate ACKs. The pinned
+            // child's independent EOF path exits zero only after exact restore.
+            try await finishControllerExit()
         }
-        if let port {
-            try await retireForward(port)
+        restored = true; observed = initial
+    }
+    func restorePanelPower(on: Bool) async throws {
+        guard let initial = acknowledgement?.initial else {
+            if shellProvider != nil { try await stop(); return }
+            throw PowerError.initialSnapshotChanged
+        }
+        // Scalar callers cannot override the initial physical mixture.
+        try await restorePanelSnapshot(initial)
+    }
+    func stop() async throws {
+        generation = UUID(); monitor?.cancel(); monitor = nil
+        if let shellProvider {
+            if let lease = shellLease { try await shellProvider.retire(lease); shellLease = nil }
+            observed = nil; return
+        }
+        if controller != nil {
+            if let initial = acknowledgement?.initial, !restored { try await restorePanelSnapshot(initial) }
+            try await finishControllerExit()
         }
         if let ownership {
-            // The child normally unlinks this at launch. A failed early launch
-            // can leave it behind; remove only the UUID-owned path.
             _ = try await shell("rm -f '\(ownership.remoteJarPath)'")
         }
-        scid = nil; port = nil; cleanupIdentity = nil; ownership = nil
-        forwardOwnerSerial = nil; forwardSocketName = nil
+        controller = nil; acknowledgement = nil; startupFailureIdentity = nil; ownership = nil; observed = nil; restored = false; deliveredInitialSnapshot = false; confirmedRestoredFailure = false
     }
-
-    private func retireForward(_ port: UInt16) async throws {
-        guard let ownerSerial = forwardOwnerSerial, let socketName = forwardSocketName else {
-            throw PowerError.forwardOwnershipUnavailable
-        }
-        let before = try await forwardState(port: port, ownerSerial: ownerSerial, socketName: socketName)
-        if before == .absent { return }
-        guard before == .owned else { throw PowerError.forwardOwnershipUnavailable }
-        do {
-            try await Task.detached(priority: .utility) { [adb] in
-                try adb.removeForward(serial: ownerSerial, port: port)
-            }.value
-        } catch {
-            // USB disconnect may already have removed the forward. Ignore a
-            // removal error only when the server's list proves it absent.
-            if try await forwardState(port: port, ownerSerial: ownerSerial, socketName: socketName) == .absent { return }
-            throw PowerError.forwardNotRetired
-        }
-        guard try await forwardState(port: port, ownerSerial: ownerSerial, socketName: socketName) == .absent else {
-            throw PowerError.forwardNotRetired
-        }
-    }
-
-    private func forwardState(port: UInt16, ownerSerial: String, socketName: String) async throws -> PhonePrivacyServerOwnership.ForwardState {
-        let listing = try await Task.detached(priority: .utility) { [adb] in
-            try adb.run(arguments: ["forward", "--list"])
-        }.value
-        return PhonePrivacyServerOwnership.forwardState(listing, serial: ownerSerial, port: port, socketName: socketName)
-    }
-
-    private func identifyCleanupChild(scid: UInt32, ownership: PhonePrivacyServerOwnership) async throws -> PhonePrivacyCleanupIdentity {
-        let deadline = ContinuousClock.now + .seconds(5)
-        repeat {
-            let processes = try await shell("ps -A -o PID,PPID,ARGS")
-            let parents = ADBScrcpyServerProcessParser.processIDs(processes, scid: scid)
-            if !parents.isEmpty {
-                let children = PhonePrivacyServerOwnership.cleanupChildren(processes, parentPIDs: parents)
-                var ownedChildren: [PhonePrivacyCleanupIdentity] = []
-                for child in children {
-                    if case let .process(identity, owned, zombie) = try await probeCleanup(child, ownership: ownership),
-                       owned, !zombie { ownedChildren.append(identity) }
-                }
-                if ownedChildren.count == 1 { return ownedChildren[0] }
+    private func finishControllerExit() async throws {
+        guard let controller else { return }
+        try await controller.closeAndWait(confirmedRestoredFailure: confirmedRestoredFailure)
+        if let identity = acknowledgement?.identity ?? startupFailureIdentity {
+            let deadline = ContinuousClock.now + .seconds(8)
+            while try await identityIsCurrent(identity) {
+                guard ContinuousClock.now < deadline else { throw PowerError.cleanupUnsettled }
+                try await Task.sleep(for: .milliseconds(100))
             }
-            try await Task.sleep(for: .milliseconds(100))
-        } while ContinuousClock.now < deadline
-        throw PowerError.cleanupIdentityUnavailable
+        }
     }
-
-    private func probeCleanup(_ pid: Int32, ownership: PhonePrivacyServerOwnership) async throws -> PhonePrivacyCleanupProbe {
-        let script = #"""
-        if [ ! -d /proc/\#(pid) ]; then printf 'GONE\n'; exit 0; fi
-        if tr '\000' '\n' </proc/\#(pid)/environ 2>/dev/null | grep -F -x 'CLASSPATH=\#(ownership.remoteJarPath)' >/dev/null; then printf 'OWNED\n'; else printf 'UNOWNED\n'; fi
-        tr '\000' ' ' </proc/\#(pid)/cmdline 2>/dev/null
-        printf '\n'
-        cat /proc/\#(pid)/stat 2>/dev/null
-        exit 0
-        """#
-        return PhonePrivacyCleanupProbe.parse(try await shell(script))
+    private func command(_ byte: UInt8) async throws -> DisplayPowerControllerAcknowledgement {
+        guard let controller, let previous = acknowledgement else { throw PowerError.ownerIdentityUnavailable }
+        do {
+            let response = try await controller.exchange(byte).validating(identity: previous.identity, initial: previous.initial)
+            acknowledgement = response
+            return response
+        } catch let rejection as DisplayPowerControllerAcknowledgement.Rejection {
+            let response = try rejection.acknowledgement.validating(identity: previous.identity, initial: previous.initial)
+            if rejection.code == "panel_operation_failed_restored", response.current == previous.initial {
+                restored = true; confirmedRestoredFailure = true; observed = previous.initial
+            }
+            throw rejection
+        }
     }
-
+    private func identityIsCurrent(_ identity: DisplayPowerControllerIdentity) async throws -> Bool {
+        let output = try await shell("if [ -r /proc/\(identity.pid)/stat ]; then cat /proc/\(identity.pid)/stat; else printf 'GONE\\n'; fi")
+        if output.trimmingCharacters(in: .whitespacesAndNewlines) == "GONE" { return false }
+        guard let current = PhonePrivacyCleanupIdentity.parseStat(output), current.pid == identity.pid else { throw PowerError.ownerIdentityUnavailable }
+        if String(current.startTime) != identity.startTime { return false }
+        guard let closing = output.lastIndex(of: ")"), let state = output[output.index(after: closing)...].split(whereSeparator: \.isWhitespace).first else { throw PowerError.ownerIdentityUnavailable }
+        return state != "Z"
+    }
     private func shell(_ script: String) async throws -> String {
-        let remote = ["sh", "-c", script].map {
-            "'" + $0.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
-        }.joined(separator: " ")
+        let remote = ["sh", "-c", script].map { "'" + $0.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }.joined(separator: " ")
         return try await Task.detached(priority: .utility) { [adb, serial] in
             try adb.run(arguments: ["-s", serial, "shell", remote], timeout: 6)
         }.value
     }
-
-    private enum PowerError: Error {
-        case notReady, panelNotConfirmed, cleanupNotSettled, cleanupIdentityUnavailable
-        case forwardOwnershipUnavailable, forwardNotRetired
-        case control(String)
-    }
-
-    private func startShellMonitor() {
-        guard shellMonitor == nil else { return }
-        let request = generation
-        shellMonitor = Task { [weak self] in
+    private func startMonitor() {
+        guard monitor == nil else { return }
+        let expectedGeneration = generation
+        monitor = Task { [weak self] in
             while !Task.isCancelled {
                 do {
-                    try await Task.sleep(for: .seconds(2))
-                    guard let self, self.generation == request, let desired = self.shellDesiredPower else { return }
-                    let power = try await self.panelPower()
-                    guard self.generation == request, !Task.isCancelled else { return }
-                    guard power == (desired ? .on : .off) else { throw PowerError.panelNotConfirmed }
+                    try await Task.sleep(for: .seconds(1))
+                    guard let self, self.generation == expectedGeneration else { return }
+                    let revision = self.commandRevision, previous = self.observed
+                    let current = try await self.snapshot()
+                    guard self.generation == expectedGeneration, self.commandRevision == revision, !Task.isCancelled else { continue }
+                    self.observed = current
+                    if let previous, current != previous { self.panelPowerChangedHandler?(current) }
                 } catch is CancellationError { return }
                 catch {
-                    guard let self, self.generation == request else { return }
-                    self.failure = "shell_panel_owner_unavailable"; self.ready = false
-                    self.shellMonitor = nil; self.failureHandler?("shell_panel_owner_unavailable"); return
+                    guard let self, self.generation == expectedGeneration else { return }
+                    self.monitor = nil; self.failureHandler?("panel_owner_unavailable"); return
                 }
             }
         }
     }
-
-    private static func logFailure(_ error: Error, operation: String) {
-        let code: String
-        switch error {
-        case PowerError.cleanupIdentityUnavailable: code = "cleanup-identity-unavailable"
-        case PowerError.cleanupNotSettled: code = "cleanup-not-settled"
-        case PowerError.panelNotConfirmed: code = "panel-power-unconfirmed"
-        case PowerError.notReady: code = "control-not-ready"
-        case PowerError.forwardOwnershipUnavailable: code = "forward-ownership-unavailable"
-        case PowerError.forwardNotRetired: code = "forward-not-retired"
-        case PowerError.control(_): code = "control-disconnected"
-        default: code = "adb-or-resource-failure"
-        }
-        // Do not log serials, remote paths, process output, or raw error text.
-        logger.error("Display privacy failure operation=\(operation, privacy: .public) code=\(code, privacy: .public)")
-    }
+    private enum PowerError: Error { case ownerIdentityUnavailable, initialSnapshotChanged, panelNotConfirmed, cleanupUnsettled }
 }
 #endif

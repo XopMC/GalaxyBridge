@@ -1,7 +1,7 @@
 import SwiftUI
 
+/// A phone's feature policy is usable without running the optional diagnostic tests.
 struct ClientSetupView: View {
-    private enum Step: Int, CaseIterable { case choose, connection, access, verify, finish }
     @ObservedObject var setup: ClientSetupModel
     let deviceID: String
     let deviceName: String
@@ -9,134 +9,73 @@ struct ClientSetupView: View {
     let pair: () -> Void
     let test: (ClientSetupFeature) -> Void
     let dismiss: () -> Void
-    @State private var step: Step = .choose
-    @State private var selected: Set<ClientSetupFeature> = []
+    var optionalFeatures: [ClientSetupFeature] = []
+    var onSelectionChanged: ((Set<ClientSetupFeature>) -> Void)? = nil
     @State private var saveFailed = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("CLIENT_SETUP_TITLE").font(.title2.bold())
-                Spacer()
-                Text(deviceName).foregroundStyle(.secondary).lineLimit(1)
-            }
-            ProgressView(value: Double(step.rawValue + 1), total: Double(Step.allCases.count))
-                .accessibilityLabel(Text(titleKey))
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(titleKey).font(.headline)
-                    switch step {
-                    case .choose:
-                        ForEach(ClientSetupFeature.allCases) { feature in
-                            Toggle(isOn: Binding(get: { selected.contains(feature) }, set: {
-                                if $0 { selected.insert(feature) } else { selected.remove(feature) }
-                            })) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Label(LocalizedStringKey(feature.titleKey), systemImage: feature.symbol)
-                                    if !feature.supportsLiveVerification {
-                                        Text("CLIENT_SETUP_VERIFICATION_UNAVAILABLE")
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                            // A saved unavailable choice can still be deselected.
-                            // New setup must not lead into an impossible test.
-                            .disabled(!feature.supportsLiveVerification && !selected.contains(feature))
-                        }
-                        if selected.isEmpty { Text("CLIENT_SETUP_CHOOSE_ONE").foregroundStyle(.secondary) }
-                        if !ClientSetupModel.isVerifiedDeviceID(deviceID) {
-                            Button("PAIR_DEVICE", action: pair).buttonStyle(.borderedProminent)
-                        }
-                    case .connection:
-                        Text("PAIRING_HINT").foregroundStyle(.secondary)
-                        if !connectionReady { Button("PAIR_DEVICE", action: pair) }
-                    case .access:
-                        Text("CLIENT_SETUP_ACCESS_BODY").foregroundStyle(.secondary)
-                        ForEach(selectedFeatures) { feature in
-                            Label(LocalizedStringKey(feature.titleKey), systemImage: feature.symbol)
-                        }
-                    case .verify:
-                        Text("CLIENT_SETUP_VERIFY_BODY").foregroundStyle(.secondary)
-                        Button("CLIENT_SETUP_CHOOSE") { step = .choose }
-                        ForEach(selectedFeatures) { feature in verificationRow(feature) }
-                    case .finish:
-                        ForEach(selectedFeatures) { feature in
-                            Label(LocalizedStringKey(feature.titleKey), systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                        }
-                        Text("CLIENT_SETUP_VERIFIED").foregroundStyle(.secondary)
-                    }
-                    if saveFailed { Text("CLIENT_SETUP_SAVE_FAILED").foregroundStyle(.red) }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
-            HStack {
-                Button("CLOSE", action: dismiss).keyboardShortcut(.cancelAction)
-                Spacer()
-                if step != .choose {
-                    Button("BACK") { step = Step(rawValue: step.rawValue - 1)! }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("DEVICE_FEATURES_TITLE").font(.title2.bold())
+                    Text(deviceName).foregroundStyle(.secondary).lineLimit(1)
                 }
-                Button(LocalizedStringKey(step == .finish ? "DONE" : "CLIENT_SETUP_CONTINUE"), action: advance)
-                    .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                    .disabled(!canAdvance)
+                Spacer()
+                Button("DONE", action: dismiss).keyboardShortcut(.defaultAction)
+            }
+            Text("DEVICE_FEATURES_BODY").font(.callout).foregroundStyle(.secondary)
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(features) { feature in
+                        HStack(spacing: 12) {
+                            Image(systemName: feature.symbol)
+                                .frame(width: 24)
+                                .foregroundStyle(.secondary)
+                            Text(LocalizedStringKey(feature.titleKey)).font(.body)
+                            Spacer(minLength: 12)
+                            Toggle(LocalizedStringKey(feature.titleKey), isOn: Binding(get: { setup.isEnabled(feature, deviceID: deviceID) }, set: { enabled in
+                            var selected = setup.selection(deviceID: deviceID)
+                            if enabled { selected.insert(feature) } else { selected.remove(feature) }
+                            if let onSelectionChanged { onSelectionChanged(selected) }
+                            else {
+                                do { try setup.saveSelection(deviceID: deviceID, features: selected); saveFailed = false }
+                                catch { saveFailed = true }
+                            }
+                            }))
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .disabled(!ClientSetupModel.isVerifiedDeviceID(deviceID))
+                        }
+                        .padding(.vertical, 9)
+                        if feature != features.last { Divider() }
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 5)
+                .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 20))
+            }
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: statusSymbol).foregroundStyle(.secondary)
+                Text(LocalizedStringKey(statusKey)).font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            if saveFailed { Text("CLIENT_SETUP_SAVE_FAILED").font(.caption).foregroundStyle(.red) }
+            if !ClientSetupModel.isVerifiedDeviceID(deviceID) {
+                Button("PAIR_DEVICE", action: pair).buttonStyle(.borderedProminent)
             }
         }
-        .padding(24).frame(width: 560, height: 570)
-        .onAppear {
-            selected = setup.selection(deviceID: deviceID)
-            if !selected.isEmpty { step = .verify }
-        }
-        .onChange(of: connectionReady) { _, ready in
-            if !ready { setup.invalidate(deviceID: deviceID); if step == .finish { step = .connection } }
-        }
-        .onChange(of: setup.allSelectedVerified(deviceID: deviceID)) { _, verified in
-            if !verified && step == .finish { step = .verify }
+        .padding(24).frame(width: 460, height: 600)
+    }
+    private var features: [ClientSetupFeature] { ClientSetupFeature.shippingFeatures + optionalFeatures.filter { !ClientSetupFeature.shippingFeatures.contains($0) && $0 == .calls } }
+    private var statusKey: String {
+        if !connectionReady { return "DEVICE_FEATURES_PENDING" }
+        switch setup.synchronization(deviceID: deviceID) {
+        case .pending: return "DEVICE_FEATURES_APPLYING"
+        case .acknowledged: return "DEVICE_FEATURES_APPLIED"
+        case .localOnly: return "DEVICE_FEATURES_UPDATE_PHONE"
+        case .failed: return "DEVICE_FEATURES_FAILED"
         }
     }
-    private var selectedFeatures: [ClientSetupFeature] {
-        ClientSetupFeature.allCases.filter { selected.contains($0) }
-    }
-    private var titleKey: LocalizedStringKey {
-        switch step {
-        case .choose: "CLIENT_SETUP_CHOOSE"
-        case .connection: "PAIR_DEVICE"
-        case .access: "CLIENT_SETUP_ACCESS"
-        case .verify: "CLIENT_SETUP_VERIFY"
-        case .finish: "DONE"
-        }
-    }
-    private var canAdvance: Bool {
-        switch step {
-        case .choose: !selected.isEmpty && ClientSetupModel.isVerifiedDeviceID(deviceID)
-        case .connection: connectionReady
-        case .access: true
-        case .verify: connectionReady && setup.allSelectedVerified(deviceID: deviceID)
-        case .finish: connectionReady && setup.allSelectedVerified(deviceID: deviceID)
-        }
-    }
-    private func advance() {
-        if step == .choose {
-            do { try setup.saveSelection(deviceID: deviceID, features: selected); saveFailed = false }
-            catch { saveFailed = true; return }
-        }
-        if step == .finish { dismiss() }
-        else { step = Step(rawValue: step.rawValue + 1)! }
-    }
-    private func verificationRow(_ feature: ClientSetupFeature) -> some View {
-        let state = setup.verification(deviceID: deviceID, feature: feature)
-        return HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Label(LocalizedStringKey(feature.titleKey), systemImage: feature.symbol)
-                Text(LocalizedStringKey(state == .unavailable ? "CLIENT_SETUP_VERIFICATION_UNAVAILABLE" : state == .verified ? "CLIENT_SETUP_VERIFIED" : state == .checking ? "CLIENT_SETUP_CHECKING" : "CLIENT_SETUP_PENDING"))
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            if state == .verified { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
-            else {
-                Button("CLIENT_SETUP_TEST") {
-                    guard setup.beginVerification(deviceID: deviceID, feature: feature) != nil else { return }
-                    test(feature)
-                }.disabled(!connectionReady || state == .unavailable)
-            }
-        }
+    private var statusSymbol: String {
+        setup.synchronization(deviceID: deviceID) == .acknowledged && connectionReady ? "checkmark.circle" : "info.circle"
     }
 }

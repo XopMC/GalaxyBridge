@@ -125,13 +125,13 @@ public enum InputAction
           }
         };
 
-  public static com.google.protobuf.Internal.EnumVerifier 
+  public static com.google.protobuf.Internal.EnumVerifier
       internalGetVerifier() {
     return InputActionVerifier.INSTANCE;
   }
 
-  private static final class InputActionVerifier implements 
-       com.google.protobuf.Internal.EnumVerifier { 
+  private static final class InputActionVerifier implements
+       com.google.protobuf.Internal.EnumVerifier {
           static final com.google.protobuf.Internal.EnumVerifier
               INSTANCE = new InputActionVerifier();
           @java.lang.Override
@@ -148,4 +148,3 @@ public enum InputAction
 
   // @@protoc_insertion_point(enum_scope:galaxybridge.v1.InputAction)
 }
-

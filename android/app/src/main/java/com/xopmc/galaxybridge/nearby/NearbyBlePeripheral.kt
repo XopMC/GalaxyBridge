@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
+import android.util.Base64
 import java.security.SecureRandom
 import java.util.UUID
 
@@ -36,8 +37,20 @@ class NearbyBlePeripheral(
     private var server: BluetoothGattServer? = null
     private var advertiseCallback: AdvertiseCallback? = null
     private var generation = 0L
+    private val preferences = this.context.getSharedPreferences("galaxybridge", Context.MODE_PRIVATE)
+    private fun discoveryMetadata(): ByteArray {
+        val encoded = preferences.getString("paired_mac_key", null)?.takeIf { it.length <= 128 }
+        val publicKey = encoded?.let { runCatching { Base64.decode(it, Base64.DEFAULT) }.getOrNull() }
+        return NearbyDiscoveryMetadata.encode(Build.MANUFACTURER, Build.MODEL, publicKey)
+    }
     private val peers = linkedMapOf<BluetoothDevice, Peer>()
-    private class Peer(val session: NearbyGattSession) {
+    private class Peer(val sessionFactory: () -> NearbyGattSession) {
+        var session: NearbyGattSession? = null
+        val authenticated: Boolean get() = session?.isAuthenticated == true
+        fun receive(frame: ByteArray): List<ByteArray> {
+            val active = session ?: sessionFactory().also { session = it }
+            return active.receive(frame)
+        }
         val decoder = NearbyFrameDecoder()
         val chunks = ArrayDeque<ByteArray>()
         var queuedBytes = 0
@@ -74,9 +87,9 @@ class NearbyBlePeripheral(
                         if (peers.size >= 2 || !isForegroundOwner()) { server?.cancelConnection(device); return@post }
                         try {
                             removePeer(device)
-                            val peer = Peer(sessionFactory(UUID.randomUUID().toString()))
+                            val peer = Peer { sessionFactory(UUID.randomUUID().toString()) }
                             peers[device] = peer
-                            peer.expiry = Runnable { if (peers[device] === peer && !peer.session.isAuthenticated) { server?.cancelConnection(device); removePeer(device) } }
+                            peer.expiry = Runnable { if (peers[device] === peer && !peer.authenticated) { server?.cancelConnection(device); removePeer(device) } }
                             handler.postDelayed(requireNotNull(peer.expiry), 120_000)
                         }
                         catch (_: Exception) { server?.cancelConnection(device); onError("ble_session_rejected") }
@@ -84,6 +97,16 @@ class NearbyBlePeripheral(
                 } }
                 override fun onMtuChanged(device: BluetoothDevice, mtu: Int) { handler.post {
                     if (token == generation) peers[device]?.chunkSize = (mtu - 3).coerceIn(20, 512)
+                } }
+                override fun onCharacteristicReadRequest(device: BluetoothDevice, requestId: Int,
+                    offset: Int, characteristic: BluetoothGattCharacteristic) { handler.post {
+                    if (token != generation) return@post
+                    // Offset reads support the default ATT MTU; public model+host-key digest stays <=134 bytes.
+                    val metadata = discoveryMetadata()
+                    val valid = isForegroundOwner() && peers.containsKey(device) && characteristic.uuid == METADATA_UUID && offset in 0..metadata.size
+                    server?.sendResponse(device, requestId,
+                        if (valid) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_FAILURE, offset,
+                        if (valid) metadata.copyOfRange(offset, metadata.size) else null)
                 } }
                 override fun onCharacteristicWriteRequest(device: BluetoothDevice, requestId: Int,
                     characteristic: BluetoothGattCharacteristic, preparedWrite: Boolean, responseNeeded: Boolean,
@@ -95,8 +118,8 @@ class NearbyBlePeripheral(
                         return@post
                     }
                     try {
-                        peer.decoder.feed(value).forEach { frame -> peer.session.receive(frame).forEach { enqueue(device, peer, it) } }
-                        if (peer.session.isAuthenticated) { peer.expiry?.let(handler::removeCallbacks); peer.expiry = null }
+                        peer.decoder.feed(value).forEach { frame -> peer.receive(frame).forEach { enqueue(device, peer, it) } }
+                        if (peer.authenticated) { peer.expiry?.let(handler::removeCallbacks); peer.expiry = null }
                         if (responseNeeded) server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
                     } catch (_: Exception) {
                         if (responseNeeded) server?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, 0, null)
@@ -131,6 +154,8 @@ class NearbyBlePeripheral(
             val tx = BluetoothGattCharacteristic(TX_UUID, BluetoothGattCharacteristic.PROPERTY_INDICATE, 0)
             tx.addDescriptor(BluetoothGattDescriptor(CCCD_UUID, BluetoothGattDescriptor.PERMISSION_WRITE))
             service.addCharacteristic(tx)
+            service.addCharacteristic(BluetoothGattCharacteristic(METADATA_UUID,
+                BluetoothGattCharacteristic.PROPERTY_READ, BluetoothGattCharacteristic.PERMISSION_READ))
             server = manager.openGattServer(context, callback)
             check(server?.addService(service) == true)
         } catch (_: Exception) { onError("ble_permission_or_start_failed"); stopInternal() }
@@ -174,7 +199,7 @@ class NearbyBlePeripheral(
         else { tx.value = chunk; current.notifyCharacteristicChanged(device, tx, true) }
         if (!accepted) { current.cancelConnection(device); removePeer(device); onError("ble_indication_failed") }
     }
-    private fun removePeer(device: BluetoothDevice) { peers.remove(device)?.let { peer -> peer.expiry?.let(handler::removeCallbacks); runCatching { peer.session.close() }; peer.chunks.clear() } }
+    private fun removePeer(device: BluetoothDevice) { peers.remove(device)?.let { peer -> peer.expiry?.let(handler::removeCallbacks); runCatching { peer.session?.close() }; peer.chunks.clear() } }
     private fun stopInternal() {
         lifecycle.stop()
         ++generation
@@ -192,6 +217,7 @@ class NearbyBlePeripheral(
         val SERVICE_UUID: UUID = UUID.fromString("6e5a0001-6b47-4b8f-8f41-54f4a681e602")
         val RX_UUID: UUID = UUID.fromString("6e5a0002-6b47-4b8f-8f41-54f4a681e602")
         val TX_UUID: UUID = UUID.fromString("6e5a0003-6b47-4b8f-8f41-54f4a681e602")
+        val METADATA_UUID: UUID = UUID.fromString("6e5a0004-6b47-4b8f-8f41-54f4a681e602")
         private val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 }

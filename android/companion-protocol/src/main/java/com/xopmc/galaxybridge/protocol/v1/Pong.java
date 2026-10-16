@@ -31,7 +31,7 @@ public  final class Pong extends
    * @param value The echoedMonotonicTimeNs to set.
    */
   private void setEchoedMonotonicTimeNs(long value) {
-    
+
     echoedMonotonicTimeNs_ = value;
   }
   /**
@@ -240,4 +240,3 @@ public  final class Pong extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

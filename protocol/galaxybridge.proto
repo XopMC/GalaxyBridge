@@ -49,6 +49,8 @@ message Envelope {
     DirectLinkStatus direct_link_status = 41;
     ShellBridgeRequest shell_bridge_request = 42;
     ShellBridgeResult shell_bridge_result = 43;
+    FeatureConfigurationRequest feature_configuration_request = 44;
+    FeatureConfigurationResult feature_configuration_result = 45;
   }
 }
 
@@ -138,6 +140,24 @@ enum Capability {
   CAPABILITY_NEARBY_LINK = 14;
   CAPABILITY_INTERNET_GATEWAY = 15;
   CAPABILITY_PRIVILEGED_BRIDGE = 16;
+  CAPABILITY_FEATURE_CONFIGURATION = 17;
+}
+
+// CONTROL only after signed session authentication. An empty enabled list means all off.
+// Camera/internet permit future explicit user actions; they never start capture or routing.
+message FeatureConfigurationRequest {
+  string request_id = 1; // lowercase UUID, maximum 36 bytes
+  string target_device_id = 2;
+  uint64 revision = 3; // strictly increasing per paired host, durable before acknowledgement
+  repeated string enabled_feature_ids = 4; // known shipping and optional calls IDs, at most 10, each at most 32 bytes
+}
+message FeatureConfigurationResult {
+  string request_id = 1;
+  string target_device_id = 2;
+  uint64 revision = 3;
+  bool accepted = 4;
+  repeated string enabled_feature_ids = 5;
+  string error_code = 6;
 }
 
 message CapabilityUpdate {

@@ -48,6 +48,29 @@ import Foundation
             precondition(gate.queued.isEmpty)
         }
         var failed = NearbyGroupAdmission()
+        var fivePhones = NearbyGroupAdmission()
+        let five = (0..<5).map { _ in UUID() }
+        precondition(fivePhones.request(five[0], sharedGroup: false, cleanupPending: false) == .create)
+        for phone in five.dropFirst() { precondition(fivePhones.request(phone, sharedGroup: false, cleanupPending: false) == .wait) }
+        precondition(fivePhones.queued.count == 4, "five phones need one creator and four bounded waiting leases")
+        _ = fivePhones.request(UUID(), sharedGroup: false, cleanupPending: false)
+        precondition(fivePhones.queued.count == 4, "a sixth request cannot grow the queue")
+        fivePhones.verified(five[0])
+        for phone in five.dropFirst() { precondition(fivePhones.request(phone, sharedGroup: true, cleanupPending: false) == .join) }
+        precondition(fivePhones.queued.isEmpty)
+        var cleanupWaiting = NearbyGroupAdmission()
+        let retiredCreator = UUID()
+        precondition(cleanupWaiting.request(retiredCreator, sharedGroup: false, cleanupPending: false) == .create)
+        cleanupWaiting.retiring(retiredCreator)
+        for phone in five { precondition(cleanupWaiting.request(phone, sharedGroup: false, cleanupPending: true) == .wait) }
+        precondition(cleanupWaiting.queued == five, "all five live sessions must remain queued behind a retired creator's cleanup fence")
+        _ = cleanupWaiting.request(UUID(), sharedGroup: false, cleanupPending: true)
+        precondition(cleanupWaiting.queued.count == 5)
+        cleanupWaiting.settled(retiredCreator)
+        precondition(cleanupWaiting.request(five[0], sharedGroup: false, cleanupPending: false) == .create)
+        cleanupWaiting.verified(five[0])
+        for phone in five.dropFirst() { precondition(cleanupWaiting.request(phone, sharedGroup: true, cleanupPending: false) == .join) }
+        precondition(cleanupWaiting.queued.isEmpty)
         let old = UUID(), queued = UUID(), stale = UUID()
         precondition(failed.request(old, sharedGroup: false, cleanupPending: false) == .create)
         precondition(failed.request(queued, sharedGroup: false, cleanupPending: false) == .wait)

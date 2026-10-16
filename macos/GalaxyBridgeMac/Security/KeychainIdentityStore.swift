@@ -56,6 +56,15 @@ struct KeychainIdentityStore {
         return Data(SHA256.hash(data: publicKey.x963Representation))
     }
 
+    /// Public discovery hints may be compared without creating a local key.
+    func existingFingerprint() throws -> Data? {
+        try Self.keyCreationLock.withLock {
+            guard let existing = try read() else { return nil }
+            let publicKey = try P256.Signing.PrivateKey(rawRepresentation: existing).publicKey
+            return Data(SHA256.hash(data: publicKey.x963Representation))
+        }
+    }
+
     func sign(nonce: Data) throws -> Data {
         Data(try privateKey().signature(for: nonce).derRepresentation)
     }

@@ -360,3 +360,31 @@
 "NOTIFICATION_MORE_ACTIONS" = "More actions";
 "NEARBY_WIFI_CONCURRENCY_HINT" = "This combination of phone Wi-Fi and direct connection is not verified or supported. Use USB or a shared local network.";
 "INTERNET_OFF" = "Off";
+
+"DISCOVERY_NEARBY_TITLE" = "Phones nearby";
+
+"DISCOVERY_UNTRUSTED_HINT" = "Scan the code in Galaxy Bridge Helper to confirm the phone.";
+
+"DISCOVERY_GENERIC_PHONE" = "Android phone";
+
+"DISCOVERY_ADD_PHONE" = "Add phone";
+
+"DEVICE_FEATURES_TITLE" = "Phone features";
+
+"DEVICE_FEATURES_BODY" = "Choose what this phone shares with your Mac. Camera and internet still start only when you ask.";
+
+"DEVICE_FEATURES_PENDING" = "Saved on this Mac. Settings will be sent when the phone connects.";
+
+"DEVICE_FEATURES_APPLYING" = "Applying settings to this phone…";
+
+"DEVICE_FEATURES_APPLIED" = "Settings applied on this phone.";
+
+"DEVICE_FEATURES_UPDATE_PHONE" = "Mac controls are active. Update the phone app to apply these settings on the phone too.";
+
+"DEVICE_FEATURES_FAILED" = "Saved on this Mac. Could not apply to the phone; reconnect to try again.";
+
+"FEATURE_INTERNET" = "Internet sharing";
+
+"FEATURE_DISABLED" = "This feature is turned off for this phone.";
+
+"NEARBY_LOCATION_PERMISSION_HINT" = "To connect to nearby phones, allow Galaxy Bridge to use Location in System Settings → Privacy & Security → Location Services.";

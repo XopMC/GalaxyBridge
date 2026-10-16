@@ -41,12 +41,16 @@ public struct ScrcpyClipboardAgentMessage: Equatable, Sendable {
     public let content: Data
     public let timestamp: UInt64?
     public let originChangeID: String?
+    public let isAvailable: Bool
+    public let reportsAvailability: Bool
 
-    public init(kind: ScrcpyClipboardContentKind, content: Data, timestamp: UInt64? = nil, originChangeID: String? = nil) {
+    public init(kind: ScrcpyClipboardContentKind, content: Data, timestamp: UInt64? = nil, originChangeID: String? = nil, isAvailable: Bool = true, reportsAvailability: Bool = false) {
         self.kind = kind
         self.content = content
         self.timestamp = timestamp
         self.originChangeID = originChangeID
+        self.isAvailable = isAvailable
+        self.reportsAvailability = reportsAvailability
     }
 
     /// Commands on the already-owned local socket use the same bounded GBC2
@@ -71,20 +75,30 @@ public struct ScrcpyClipboardAgentDecoder: Sendable {
 
     public init() {}
 
+    /// Known only after a complete validated preamble, including an empty clipboard.
+    public var supportsOccurrences: Bool? { version.map { $0 >= 0x32 } }
+
     public mutating func append<S: DataProtocol>(_ bytes: S) throws -> [ScrcpyClipboardAgentMessage] {
         buffer.append(contentsOf: bytes)
         if version == nil {
             guard buffer.count >= 4 else { return [] }
             let prefix = Data(buffer.prefix(4))
-            guard prefix == Data("GBC1".utf8) || prefix == Data("GBC2".utf8) else {
+            guard prefix == Data("GBC1".utf8) || prefix == Data("GBC2".utf8) || prefix == Data("GBC3".utf8) else {
                 throw ScrcpyClipboardAgentError.invalidPreamble
             }
             version = prefix.last
             buffer.removeFirst(4)
         }
         var messages: [ScrcpyClipboardAgentMessage] = []
-        let headerLength = version == 0x32 ? 15 : 5
+        let headerLength = version == 0x31 ? 5 : 15
         while buffer.count >= headerLength {
+            if version == 0x33, buffer[buffer.startIndex] == 0 {
+                guard readWord(at: 1, count: 8) == 0, readWord(at: 9, count: 2) == 0,
+                      readWord(at: 11, count: 4) == 0 else { throw ScrcpyClipboardAgentError.invalidLength(0) }
+                messages.append(.init(kind: .text, content: Data(), timestamp: 0, isAvailable: false, reportsAvailability: true))
+                buffer.removeFirst(headerLength)
+                continue
+            }
             guard let kind = ScrcpyClipboardContentKind(rawValue: buffer[buffer.startIndex]) else {
                 throw ScrcpyClipboardAgentError.unknownKind(buffer[buffer.startIndex])
             }
@@ -107,7 +121,7 @@ public struct ScrcpyClipboardAgentDecoder: Sendable {
             } else { origin = nil }
             messages.append(.init(kind: kind, content: Data(buffer[start ..< end]),
                 timestamp: headerLength == 15 ? readWord(at: 1, count: 8) : nil,
-                originChangeID: origin))
+                originChangeID: origin, reportsAvailability: version == 0x33))
             buffer.removeFirst(headerLength + originLength + length)
         }
         return messages

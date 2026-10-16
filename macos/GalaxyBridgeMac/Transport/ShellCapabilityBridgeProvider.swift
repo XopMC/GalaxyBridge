@@ -95,7 +95,11 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
     func panelPower() async throws -> PhonePanelPowerState {
         let response = try await perform(operation: .status, lease: "", generation: "", context: context())
         guard response.available, response.errorCode.isEmpty else { throw ShellCapabilityBridgeFailure.unavailable }
-        switch response.state { case "panel_on": return .on; case "panel_off": return .off; default: return .unknown }
+        switch response.state {
+        case "panel_on", "panel_multi_on": return .on
+        case "panel_off", "panel_multi_off": return .off
+        default: return .unknown
+        }
     }
 
     func fetchApplicationCatalog() async throws -> [ApplicationCatalogItem] {
@@ -169,24 +173,37 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
         } catch { relays.forEach { $0.cancel() }; throw error }
     }
 
+    func beginPanelOwnership() async throws -> ShellCapabilityBridgeLease {
+        guard leases.count < 8 else { throw ShellCapabilityBridgeFailure.capacity }
+        if bootGeneration == nil { guard await refresh() else { throw ShellCapabilityBridgeFailure.unavailable } }
+        guard let generation = bootGeneration else { throw ShellCapabilityBridgeFailure.unavailable }
+        let owner = ShellCapabilityBridgeLease(id: UUID().uuidString.lowercased(), generation: generation, context: try context(),
+            relays: [], port: nil, clipboardPort: nil, log: nil, observer: nil)
+        // Reserve before sending a mutating request. Unknown outcomes retain an
+        // exact retirement handle instead of losing an unacknowledged child.
+        leases[owner.id] = owner
+        return owner
+    }
+
     func setPanelPower(on: Bool, lease: ShellCapabilityBridgeLease?) async throws -> ShellCapabilityBridgeLease {
         if bootGeneration == nil { guard await refresh() else { throw ShellCapabilityBridgeFailure.unavailable } }
         guard let generation = bootGeneration else { throw ShellCapabilityBridgeFailure.unavailable }
         let context = try context()
-        var existing = lease
-        if let lease, lease.generation != generation || lease.context.sessionID != context.sessionID {
-            try await retire(lease); existing = nil
+        guard let existing = lease, leases[existing.id] === existing,
+              existing.generation == generation, existing.context.sessionID == context.sessionID else {
+            // Replacing a panel context must settle its exact preceding owner
+            // first; never create an unreturned mutating lease after reconnect.
+            throw ShellCapabilityBridgeFailure.sessionChanged
         }
-        let id = existing?.id ?? UUID().uuidString.lowercased()
+        let id = existing.id
         var options = GBShellCaptureOptions(); options.scid = UInt32.random(in: 1...0x7fff_ffff); options.codec = "h264"; options.control = true
         let response = try await perform(operation: .startPanel, lease: id, generation: generation, context: context,
             options: options, powerOn: on)
-        guard response.available, response.errorCode.isEmpty, response.state == (on ? "panel_on" : "panel_off"), response.streamIds.isEmpty else {
+        guard response.available, response.errorCode.isEmpty, [on ? "panel_on" : "panel_off", on ? "panel_multi_on" : "panel_multi_off"].contains(response.state), response.streamIds.isEmpty else {
             _ = try? await perform(operation: .stop, lease: id, generation: generation, context: context)
             throw ShellCapabilityBridgeFailure.operationFailed
         }
-        let owner = existing ?? ShellCapabilityBridgeLease(id: id, generation: generation, context: context, relays: [], port: nil, clipboardPort: nil, log: nil, observer: nil)
-        leases[id] = owner; return owner
+        return existing
     }
 
     func retire(_ lease: ShellCapabilityBridgeLease) async throws {
@@ -199,8 +216,13 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
             guard proof.available, proof.errorCode.isEmpty, proof.state == "stopped" else { throw ShellCapabilityBridgeFailure.sessionChanged }
             leases.removeValue(forKey: lease.id); return
         }
-        let response = try await perform(operation: .stop, lease: lease.id, generation: lease.generation, context: lease.context)
-        guard response.available, response.errorCode.isEmpty, response.state == "stopped" else { throw ShellCapabilityBridgeFailure.operationFailed }
+        do {
+            let response = try await perform(operation: .stop, lease: lease.id, generation: lease.generation, context: lease.context)
+            guard response.available, response.errorCode.isEmpty, response.state == "stopped" else { throw ShellCapabilityBridgeFailure.operationFailed }
+        } catch {
+            let proof = try await perform(operation: .status, lease: lease.id, generation: "", context: lease.context)
+            guard proof.available, proof.errorCode.isEmpty, proof.state == "stopped" else { throw ShellCapabilityBridgeFailure.operationFailed }
+        }
         leases.removeValue(forKey: lease.id)
     }
 

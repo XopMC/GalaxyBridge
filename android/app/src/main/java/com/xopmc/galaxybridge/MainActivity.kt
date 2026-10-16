@@ -30,7 +30,6 @@ import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -55,12 +54,12 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -75,7 +74,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -108,6 +106,10 @@ import com.xopmc.galaxybridge.service.ForegroundClipboardMonitor
 import com.xopmc.galaxybridge.service.GalaxyNotificationListenerService
 import com.xopmc.galaxybridge.service.MediaProjectionCaptureService
 import com.xopmc.galaxybridge.setup.SetupAction
+import com.xopmc.galaxybridge.setup.AutomaticPermissionSetup
+import com.xopmc.galaxybridge.setup.AutomaticSetupStep
+import com.xopmc.galaxybridge.setup.DeviceFeaturePreferences
+import com.xopmc.galaxybridge.setup.DistributionFeatures
 import com.xopmc.galaxybridge.setup.SetupCard
 import com.xopmc.galaxybridge.setup.SetupKind
 import com.xopmc.galaxybridge.setup.RuntimePermissionRequestGate
@@ -120,7 +122,6 @@ import com.xopmc.galaxybridge.setup.SetupState
 import com.xopmc.galaxybridge.setup.SetupConnectionPath
 import com.xopmc.galaxybridge.setup.SetupSnapshot
 import com.xopmc.galaxybridge.setup.SetupStateResolver
-import com.xopmc.galaxybridge.setup.DistributionFeatures
 import com.xopmc.galaxybridge.setup.SafInitialLocation
 import com.xopmc.galaxybridge.storage.EncryptedContentCache
 import com.xopmc.galaxybridge.transport.AdbBindingResponseBus
@@ -132,30 +133,48 @@ class MainActivity : ComponentActivity() {
     private var refreshToken by mutableIntStateOf(0)
     private var runtimePermissionGate = RuntimePermissionRequestGate()
     private var setupActionError by mutableStateOf<String?>(null)
+    private var automaticSetup = AutomaticPermissionSetup()
+    private var showNotificationAccessGuide by mutableStateOf(false)
+    private var resumedForSetup = false
     private val pendingNearbyEnable by lazy { ViewModelProvider(this)[NearbyEnableViewModel::class.java].pending }
     private val nearbyPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        if (com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.hasNearbyPermissions(this)) enableNearbyAndDeliverOffer()
-        else setupActionError = getString(R.string.nearby_permission_required)
+        completeRuntimePermission()
+        if (com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.hasNearbyPermissions(this)) {
+            enableNearbyAndDeliverOffer()
+        } else if (pendingNearbyEnable.requested) {
+            setupActionError = getString(R.string.nearby_permission_required)
+        }
+        startBridgeServiceIfAllowed()
         refreshToken++
     }
     private lateinit var foregroundClipboardMonitor: ForegroundClipboardMonitor
     private val singlePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (granted) startBridgeServiceIfAllowed()
+    ) {
         completeRuntimePermission()
+        startBridgeServiceIfAllowed()
         refreshToken++
     }
+
     private val callPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
         completeRuntimePermission()
+        startBridgeServiceIfAllowed()
         refreshToken++
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         foregroundClipboardMonitor = ForegroundClipboardMonitor(this)
+        initializeAvailabilityDefaults()
+        val preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
+        automaticSetup = AutomaticPermissionSetup.restore(
+            preferences.getStringSet(AUTO_SETUP_ATTEMPTS, emptySet()).orEmpty(),
+            preferences.getBoolean(AUTO_SETUP_GUIDE_OFFERED, false),
+            preferences.getBoolean(AUTO_SETUP_COMPLETED, false),
+        )
+        showNotificationAccessGuide = savedInstanceState?.getBoolean(STATE_NOTIFICATION_GUIDE) == true
         runtimePermissionGate = RuntimePermissionRequestGate(
             inFlight = savedInstanceState
                 ?.getString(STATE_RUNTIME_PERMISSION_IN_FLIGHT)
@@ -181,7 +200,19 @@ class MainActivity : ComponentActivity() {
         runtimePermissionGate.inFlight?.let {
             outState.putString(STATE_RUNTIME_PERMISSION_IN_FLIGHT, it.name)
         }
+        outState.putBoolean(STATE_NOTIFICATION_GUIDE, showNotificationAccessGuide)
         super.onSaveInstanceState(outState)
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        resumedForSetup = true
+        advanceAutomaticSetup()
+    }
+
+    override fun onPause() {
+        resumedForSetup = false
+        super.onPause()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -191,7 +222,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Settings grants/revocations are read again; returning never opens a prompt.
+        // Settings grants/revocations are read again. Completed or denied requests never repeat automatically.
         startBridgeServiceIfAllowed()
         continueNearbyEnable(explicitRequest = false)
         refreshToken++
@@ -340,8 +371,13 @@ class MainActivity : ComponentActivity() {
                                 .onFailure { setupActionError = getString(R.string.setup_action_unavailable) }
                         }
                     }
-                    SetupAction.NotificationListenerSettings ->
-                        settingsLauncher.launch(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    SetupAction.NotificationListenerSettings -> {
+                        val detail = Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+                            .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+                                ComponentName(this@MainActivity, GalaxyNotificationListenerService::class.java).flattenToString())
+                        runCatching { settingsLauncher.launch(detail) }
+                            .onFailure { settingsLauncher.launch(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+                    }
                     SetupAction.StorageAccessFolder -> launchFolderPicker()
                     SetupAction.PairMac -> {
                         qrStatus = null
@@ -364,9 +400,6 @@ class MainActivity : ComponentActivity() {
                 snapshot = snapshot,
                 setupState = setupState,
                 actionError = setupActionError,
-                onFeatureChoice = { feature, selected -> saveSetupSelection(setupSelection().selecting(feature, selected)) },
-                onConfirmChoices = { saveSetupSelection(setupSelection().confirm()) },
-                onEditChoices = { saveSetupSelection(setupSelection().copy(confirmed = false)) },
                 onSetupAction = ::openSettings,
                 permissionNeedsSettings = ::permissionNeedsSettings,
                 onScanPairing = {
@@ -375,8 +408,8 @@ class MainActivity : ComponentActivity() {
                 },
                 onRevoke = { showRevokeConfirmation = true },
                 onOpenAbout = { screen = HomeScreen.About },
-                nearbyEnabled = getSharedPreferences(PREFERENCES, MODE_PRIVATE).getBoolean("nearby_enabled", false),
-                internetAllowed = getSharedPreferences(PREFERENCES, MODE_PRIVATE).getBoolean("internet_sharing_allowed", false),
+                nearbyEnabled = getSharedPreferences(PREFERENCES, MODE_PRIVATE).getBoolean("nearby_enabled", true),
+                internetAllowed = getSharedPreferences(PREFERENCES, MODE_PRIVATE).getBoolean("internet_sharing_allowed", true),
                 onToggleNearby = ::toggleNearby,
                 nearbyStatus = nearbyStatus,
                 nearbyNeedsSettings = nearbyPermissionRoute() == PermissionRoute.Settings,
@@ -409,6 +442,29 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        if (showNotificationAccessGuide) {
+            AlertDialog(
+                onDismissRequest = {
+                    showNotificationAccessGuide = false
+                    advanceAutomaticSetup()
+                },
+                title = { Text(stringResource(R.string.setup_notification_access_title)) },
+                text = { Text(stringResource(R.string.setup_notification_access_body)) },
+                confirmButton = {
+                    Button(onClick = {
+                        showNotificationAccessGuide = false
+                        openSettings(SetupAction.NotificationListenerSettings)
+                        advanceAutomaticSetup()
+                    }) { Text(stringResource(R.string.action_continue)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showNotificationAccessGuide = false
+                        advanceAutomaticSetup()
+                    }) { Text(stringResource(R.string.action_not_now)) }
+                },
+            )
+        }
         if (showAccessibilityDisclosure) {
             AlertDialog(
                 onDismissRequest = { showAccessibilityDisclosure = false },
@@ -453,9 +509,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun setupSnapshot(): SetupSnapshot {
-        val roleManager = getSystemService(RoleManager::class.java)
         val telephonyEnabled = DistributionFeatures.telephonyEnabled(BuildConfig.DISTRIBUTION)
-        val dialerRoleHeld = telephonyEnabled && roleManager.isRoleHeld(RoleManager.ROLE_DIALER)
+        val dialerRoleHeld = telephonyEnabled && getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_DIALER)
         return SetupSnapshot(
             apiLevel = Build.VERSION.SDK_INT,
             distribution = BuildConfig.DISTRIBUTION,
@@ -472,7 +527,11 @@ class MainActivity : ComponentActivity() {
             callRuntimePermissionsGranted = telephonyEnabled && CALL_PERMISSIONS.all {
                 ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
             },
-            selection = setupSelection(),
+            nearbyDevicesGranted = nearbyDevicePermissions().all {
+                ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+            },
+            nearbyEnabled = getSharedPreferences(PREFERENCES, MODE_PRIVATE).getBoolean("nearby_enabled", true),
+            selection = setupSelection(dialerRoleHeld),
             // This chooses the normal product setup path, not proof of a live link.
             connectionPath = SetupConnectionPath.FullMac,
         )
@@ -488,7 +547,6 @@ class MainActivity : ComponentActivity() {
             remove("paired_mac_key")
             remove("paired_host_id")
             remove("paired_at")
-            remove("internet_sharing_allowed")
         }
         AdbBindingResponseBus.clear()
         startBridgeServiceIfAllowed(GalaxyBridgeForegroundService.ACTION_TRUST_REVOKED)
@@ -516,26 +574,66 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun setupSelection(): SetupSelection {
-        val preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
-        return SetupSelection.restore(
-            preferences.getStringSet(SETUP_FEATURES, null),
-            preferences.getBoolean(SETUP_CHOICES_CONFIRMED, false),
-        )
+    private fun setupSelection(dialerRoleHeld: Boolean): SetupSelection {
+        val features = DeviceFeaturePreferences(this)
+        val enabled = features.enabledIDs()
+        return SetupSelection(buildSet {
+            if ("screen" in enabled || "applications" in enabled || "recording" in enabled) add(SetupFeature.ScreenAndApps)
+            if ("audio" in enabled) add(SetupFeature.PhoneAudio)
+            if ("clipboard" in enabled) add(SetupFeature.Clipboard)
+            if ("notifications" in enabled) add(SetupFeature.Notifications)
+            if ("files" in enabled) add(SetupFeature.Files)
+            if ("camera" in enabled) add(SetupFeature.Camera)
+            // Preserve optional call support already authorized on this phone without requesting the role.
+            if (dialerRoleHeld && features.isEnabled("calls")) add(SetupFeature.Calls)
+        }, confirmed = true)
     }
 
-    private fun saveSetupSelection(selection: SetupSelection) {
+    private fun initializeAvailabilityDefaults() {
         val preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
-        val saved = preferences.edit()
-            .putStringSet(SETUP_FEATURES, selection.savedIDs)
-            .putBoolean(SETUP_CHOICES_CONFIRMED, selection.confirmed)
-            .commit()
-        setupActionError = if (saved) null else getString(R.string.setup_save_failed)
-        if (!saved) preferences.edit { putBoolean(SETUP_CHOICES_CONFIRMED, false) }
-        refreshToken++
+        preferences.edit {
+            if (!preferences.contains("nearby_enabled")) putBoolean("nearby_enabled", true)
+            if (!preferences.contains("internet_sharing_allowed")) putBoolean("internet_sharing_allowed", true)
+        }
+    }
+
+    private fun saveAutomaticSetup() {
+        getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit(commit = true) {
+            putStringSet(AUTO_SETUP_ATTEMPTS, automaticSetup.savedAttempts)
+            putBoolean(AUTO_SETUP_GUIDE_OFFERED, automaticSetup.notificationGuideOffered)
+            putBoolean(AUTO_SETUP_COMPLETED, automaticSetup.completed)
+        }
+    }
+
+    private fun advanceAutomaticSetup() {
+        while (true) {
+            when (val step = automaticSetup.next(SetupStateResolver.resolve(setupSnapshot()), resumedForSetup, runtimePermissionGate.inFlight)) {
+                AutomaticSetupStep.Wait -> return
+                is AutomaticSetupStep.Request -> {
+                    // Persist before opening Android UI so process recreation cannot restart a denied request.
+                    automaticSetup = automaticSetup.attempted(step.action)
+                    saveAutomaticSetup()
+                    if (permissionNeedsSettings(step.action)) continue
+                    requestRuntimePermission(step.action)
+                    if (runtimePermissionGate.inFlight != null) return
+                }
+                AutomaticSetupStep.NotificationGuide -> {
+                    automaticSetup = automaticSetup.copy(notificationGuideOffered = true)
+                    saveAutomaticSetup()
+                    showNotificationAccessGuide = true
+                    return
+                }
+                AutomaticSetupStep.Finish -> {
+                    automaticSetup = automaticSetup.copy(completed = true)
+                    saveAutomaticSetup()
+                    return
+                }
+            }
+        }
     }
 
     private fun permissionsFor(action: SetupAction): List<String> = when (action) {
+        SetupAction.NearbyDevicesPermission -> nearbyDevicePermissions()
         SetupAction.LocalNetworkPermission -> if (Build.VERSION.SDK_INT >= 37) listOf(Manifest.permission.ACCESS_LOCAL_NETWORK) else emptyList()
         SetupAction.PostNotificationsPermission -> if (Build.VERSION.SDK_INT >= 33) listOf(Manifest.permission.POST_NOTIFICATIONS) else emptyList()
         SetupAction.CameraPermission -> listOf(Manifest.permission.CAMERA)
@@ -546,10 +644,10 @@ class MainActivity : ComponentActivity() {
 
     private fun permissionNeedsSettings(action: SetupAction): Boolean {
         val preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
-        val previouslyRequested = preferences.getBoolean("setup_requested_${action.name}", false) ||
-            preferences.getBoolean("auto_requested_${action.name}", false)
-        return previouslyRequested && permissionsFor(action).any {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED &&
+        return permissionsFor(action).any {
+            val previouslyRequested = preferences.getBoolean("setup_requested_${action.name}", false) ||
+                preferences.getBoolean("auto_requested_${action.name}", false) || preferences.getBoolean("nearby_requested_$it", false)
+            previouslyRequested && ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED &&
                 !shouldShowRequestPermissionRationale(it)
         }
     }
@@ -566,6 +664,8 @@ class MainActivity : ComponentActivity() {
             }.onFailure { setupActionError = getString(R.string.setup_action_unavailable) }
             return
         }
+        automaticSetup = automaticSetup.attempted(action)
+        saveAutomaticSetup()
         runtimePermissionGate = runtimePermissionGate.begin(action)
         val launched = runCatching { launchRuntimePermission(action) }
             .onFailure { setupActionError = getString(R.string.setup_action_unavailable) }
@@ -581,10 +681,17 @@ class MainActivity : ComponentActivity() {
 
     private fun completeRuntimePermission() {
         runtimePermissionGate = runtimePermissionGate.complete()
-        // A result, denial, settings return, or relaunch never starts another dialog.
+        // Continue only this finite first-launch journey. Completed requests remain explicit retries.
+        window.decorView.post { advanceAutomaticSetup() }
     }
 
     private fun launchRuntimePermission(action: SetupAction): Boolean = when (action) {
+        SetupAction.NearbyDevicesPermission -> {
+            nearbyPermissionLauncher.launch(nearbyDevicePermissions().filter {
+                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            }.toTypedArray())
+            true
+        }
         SetupAction.LocalNetworkPermission -> if (Build.VERSION.SDK_INT >= 37) {
             singlePermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
             true
@@ -627,7 +734,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun continueNearbyEnable(explicitRequest: Boolean) {
-        if (!pendingNearbyEnable.requested) return
+        if (!pendingNearbyEnable.requested || runtimePermissionGate.inFlight != null) return
         when (nearbyPermissionRoute(explicitRequest)) {
             PermissionRoute.None -> if (com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.hasNearbyPermissions(this)) {
                 enableNearbyAndDeliverOffer()
@@ -639,27 +746,39 @@ class MainActivity : ComponentActivity() {
                 val permissions = nearbyPermissions().filter {
                     ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
                 }
+                automaticSetup = automaticSetup.attempted(SetupAction.NearbyDevicesPermission)
+                if (Manifest.permission.ACCESS_LOCAL_NETWORK in permissions) {
+                    automaticSetup = automaticSetup.attempted(SetupAction.LocalNetworkPermission)
+                }
+                saveAutomaticSetup()
+                runtimePermissionGate = runtimePermissionGate.begin(SetupAction.NearbyDevicesPermission)
                 nearbyPermissionLauncher.launch(permissions.toTypedArray())
                 getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit {
                     permissions.forEach { putBoolean("nearby_requested_$it", true) }
                 }
-            }.onFailure { setupActionError = getString(R.string.setup_action_unavailable) }
+            }.onFailure {
+                runtimePermissionGate = runtimePermissionGate.complete()
+                setupActionError = getString(R.string.setup_action_unavailable)
+            }
         }
     }
 
-    private fun nearbyPermissions(): List<String> {
-        val permissions = mutableListOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE)
-        permissions += if (Build.VERSION.SDK_INT >= 33) Manifest.permission.NEARBY_WIFI_DEVICES else Manifest.permission.ACCESS_FINE_LOCATION
-        if (Build.VERSION.SDK_INT >= 37) permissions += Manifest.permission.ACCESS_LOCAL_NETWORK
-        return permissions
-    }
+    private fun nearbyDevicePermissions(): List<String> = listOf(
+        Manifest.permission.BLUETOOTH_CONNECT,
+        Manifest.permission.BLUETOOTH_ADVERTISE,
+        if (Build.VERSION.SDK_INT >= 33) Manifest.permission.NEARBY_WIFI_DEVICES else Manifest.permission.ACCESS_FINE_LOCATION,
+    )
+
+    private fun nearbyPermissions(): List<String> = nearbyDevicePermissions() +
+        if (Build.VERSION.SDK_INT >= 37) listOf(Manifest.permission.ACCESS_LOCAL_NETWORK) else emptyList()
 
     private fun nearbyPermissionRoute(explicitRequest: Boolean = true): PermissionRoute {
         val preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
         return ExplicitPermissionPolicy.route(nearbyPermissions().map {
             PermissionAccess(
                 granted = ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED,
-                previouslyRequested = preferences.getBoolean("nearby_requested_$it", false),
+                previouslyRequested = preferences.getBoolean("nearby_requested_$it", false) || preferences.getBoolean(
+                    "setup_requested_${if (it == Manifest.permission.ACCESS_LOCAL_NETWORK) SetupAction.LocalNetworkPermission.name else SetupAction.NearbyDevicesPermission.name}", false),
                 showRationale = shouldShowRequestPermissionRationale(it),
             )
         }, explicitRequest = explicitRequest)
@@ -683,7 +802,7 @@ class MainActivity : ComponentActivity() {
 
     private fun toggleNearby() {
         val preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
-        if (!preferences.getBoolean("nearby_enabled", false)) requestNearbyEnable()
+        if (!preferences.getBoolean("nearby_enabled", true)) requestNearbyEnable()
         else {
             pendingNearbyEnable.cancel()
             preferences.edit { putBoolean("nearby_enabled", false) }
@@ -694,7 +813,7 @@ class MainActivity : ComponentActivity() {
 
     private fun toggleInternetSharing() {
         val preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
-        preferences.edit { putBoolean("internet_sharing_allowed", !preferences.getBoolean("internet_sharing_allowed", false)) }
+        preferences.edit { putBoolean("internet_sharing_allowed", !preferences.getBoolean("internet_sharing_allowed", true)) }
         startBridgeServiceIfAllowed()
         refreshToken++
     }
@@ -720,8 +839,10 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val PREFERENCES = "galaxybridge"
-        private const val SETUP_FEATURES = "setup_selected_features_v1"
-        private const val SETUP_CHOICES_CONFIRMED = "setup_choices_confirmed_v1"
+        private const val AUTO_SETUP_ATTEMPTS = "automatic_setup_attempts_v1"
+        private const val AUTO_SETUP_GUIDE_OFFERED = "automatic_setup_guide_offered_v1"
+        private const val AUTO_SETUP_COMPLETED = "automatic_setup_completed_v1"
+        private const val STATE_NOTIFICATION_GUIDE = "notification_access_guide"
         private const val STATE_RUNTIME_PERMISSION_IN_FLIGHT = "runtime_permission_in_flight"
         private const val SAF_RW_FLAGS = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         private val CALL_PERMISSIONS = arrayOf(
@@ -755,9 +876,6 @@ private fun HomeContent(
     snapshot: SetupSnapshot,
     setupState: SetupState,
     actionError: String?,
-    onFeatureChoice: (SetupFeature, Boolean) -> Unit,
-    onConfirmChoices: () -> Unit,
-    onEditChoices: () -> Unit,
     onSetupAction: (SetupAction) -> Unit,
     permissionNeedsSettings: (SetupAction) -> Boolean,
     onScanPairing: () -> Unit,
@@ -771,6 +889,7 @@ private fun HomeContent(
     onRetryNearby: () -> Unit,
     onToggleInternet: () -> Unit,
 ) {
+    var showConnectionOptions by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -779,65 +898,81 @@ private fun HomeContent(
             .verticalScroll(rememberScrollState())
             .padding(
                 start = dimensionResource(R.dimen.one_ui_content_horizontal),
-                top = dimensionResource(R.dimen.one_ui_content_top),
+                top = 12.dp,
                 end = dimensionResource(R.dimen.one_ui_content_horizontal),
                 bottom = dimensionResource(R.dimen.one_ui_content_bottom),
             ),
-        verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.one_ui_section_spacing)),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Header()
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.nearby_connection), style = MaterialTheme.typography.titleMedium)
-                OneUiOutlinedButton(onClick = onToggleNearby) {
-                    Text(stringResource(if (nearbyEnabled) R.string.nearby_disable else R.string.nearby_enable))
-                }
-                if (nearbyNeedsSettings) {
-                    Text(stringResource(R.string.nearby_permission_required), style = MaterialTheme.typography.bodyMedium)
-                } else if (nearbyEnabled) {
-                    Text(stringResource(when (nearbyStatus) {
-                        NearbyDiscoveryStatus.Starting -> R.string.nearby_starting
-                        NearbyDiscoveryStatus.Available -> R.string.nearby_discovery_ready
-                        else -> R.string.nearby_unavailable
-                    }), style = MaterialTheme.typography.bodyMedium)
-                }
-                if (nearbyNeedsSettings || (nearbyEnabled && nearbyStatus == NearbyDiscoveryStatus.Unavailable)) {
-                    OneUiOutlinedButton(onClick = onRetryNearby) {
-                        Text(stringResource(if (nearbyNeedsSettings) R.string.action_open_settings else R.string.clipboard_share_retry))
-                    }
-                }
-                Text(stringResource(R.string.internet_sharing), style = MaterialTheme.typography.titleMedium)
-                OneUiOutlinedButton(onClick = onToggleInternet) {
-                    Text(stringResource(if (internetAllowed) R.string.internet_disable else R.string.internet_enable))
-                }
-            }
-        }
-        FeatureChoicesPanel(snapshot, onFeatureChoice, onConfirmChoices, onEditChoices)
+        IdentityPanel(snapshot.paired, onScanPairing, onRevoke)
         if (actionError != null) {
             Text(actionError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
         }
-        if (snapshot.selection.confirmed) {
-            IdentityPanel(
-                paired = snapshot.paired,
-                onScanPairing = onScanPairing,
-                onRevoke = onRevoke,
+        val missing = setupState.cards.filter { it.action != SetupAction.PairMac }
+        if (missing.isNotEmpty()) {
+            MissingSetupPanel(missing, onSetupAction, permissionNeedsSettings)
+        } else {
+            Text(
+                stringResource(R.string.setup_phone_ready),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            MissingSetupPanel(
-                setupCards = setupState.cards.filter { it.action != SetupAction.PairMac },
-                onSetupAction = onSetupAction,
-                permissionNeedsSettings = permissionNeedsSettings,
-            )
-            MacVerificationPanel(snapshot, setupState)
-            if (SetupFeature.Files in snapshot.selection.features && snapshot.paired) {
-                OutgoingFilesPanel()
-            }
-            if (SetupFeature.Notifications in snapshot.selection.features) {
-                SmsNotificationOnlyPanel(notificationListenerEnabled = snapshot.notificationListenerEnabled)
+        }
+        Text(
+            stringResource(R.string.setup_manage_on_mac),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (SetupFeature.Files in snapshot.selection.features && snapshot.paired) OutgoingFilesPanel()
+        TextButton(onClick = { showConnectionOptions = !showConnectionOptions }, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(if (showConnectionOptions) R.string.connection_options_hide else R.string.connection_options))
+        }
+        if (showConnectionOptions) {
+            LayeredCard {
+                ConnectionOption(
+                    title = stringResource(R.string.nearby_connection),
+                    description = stringResource(R.string.nearby_availability_description),
+                    enabled = nearbyEnabled,
+                    onToggle = onToggleNearby,
+                )
+                if (nearbyEnabled) {
+                    Text(stringResource(when {
+                        nearbyNeedsSettings -> R.string.nearby_permission_required
+                        nearbyStatus == NearbyDiscoveryStatus.Starting -> R.string.nearby_starting
+                        nearbyStatus == NearbyDiscoveryStatus.Available -> R.string.nearby_discovery_ready
+                        else -> R.string.nearby_unavailable
+                    }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (nearbyNeedsSettings || nearbyStatus == NearbyDiscoveryStatus.Unavailable) {
+                        OneUiOutlinedButton(onClick = onRetryNearby) {
+                            Text(stringResource(if (nearbyNeedsSettings) R.string.action_open_settings else R.string.clipboard_share_retry))
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                ConnectionOption(
+                    title = stringResource(R.string.internet_sharing),
+                    description = stringResource(R.string.internet_availability_description),
+                    enabled = internetAllowed,
+                    onToggle = onToggleInternet,
+                )
             }
         }
-        OneUiOutlinedButton(onClick = onOpenAbout) {
+        TextButton(onClick = onOpenAbout, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.about_entry))
         }
+    }
+}
+
+@Composable
+private fun ConnectionOption(title: String, description: String, enabled: Boolean, onToggle: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = enabled, onCheckedChange = { onToggle() })
     }
 }
 
@@ -908,13 +1043,13 @@ private fun Header() {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = stringResource(R.string.home_title),
-            style = MaterialTheme.typography.displaySmall,
+            style = MaterialTheme.typography.headlineLarge,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
         )
         Text(
             text = stringResource(R.string.home_subtitle),
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -955,99 +1090,6 @@ private fun IdentityPanel(
         }
     }
 }
-
-@Composable
-private fun FeatureChoicesPanel(
-    snapshot: SetupSnapshot,
-    onChoice: (SetupFeature, Boolean) -> Unit,
-    onConfirm: () -> Unit,
-    onEdit: () -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(stringResource(R.string.setup_features_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-        Text(stringResource(R.string.setup_features_body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (snapshot.selection.confirmed) {
-            LayeredCard {
-                SetupFeature.entries.filter { it in snapshot.selection.features }.forEach {
-                    Text(featureTitle(it), style = MaterialTheme.typography.bodyLarge)
-                }
-                Spacer(Modifier.height(12.dp))
-                OneUiOutlinedButton(onClick = onEdit) { Text(stringResource(R.string.setup_edit_choices)) }
-            }
-        } else {
-            SetupStateResolver.availableFeatures(snapshot).forEach { feature ->
-                val selected = feature in snapshot.selection.features
-                LayeredCard {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().toggleable(
-                            value = selected,
-                            role = Role.Checkbox,
-                            onValueChange = { onChoice(feature, it) },
-                        ).padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(featureTitle(feature), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text(featureDescription(feature), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Checkbox(checked = selected, onCheckedChange = null)
-                    }
-                }
-            }
-            if (snapshot.selection.features.isEmpty()) {
-                Text(stringResource(R.string.setup_choose_one), style = MaterialTheme.typography.bodyMedium)
-            }
-            OneUiPrimaryButton(onClick = onConfirm, enabled = snapshot.selection.features.isNotEmpty()) {
-                Text(stringResource(R.string.setup_save_choices))
-            }
-        }
-    }
-}
-
-@Composable
-private fun MacVerificationPanel(snapshot: SetupSnapshot, state: SetupState) {
-    LayeredCard {
-        Text(stringResource(R.string.setup_waiting_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Text(stringResource(R.string.setup_waiting_body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(10.dp))
-        SetupFeature.entries.filter { it in snapshot.selection.features }.forEach { feature ->
-            val missing = SetupStateResolver.requirements(feature, snapshot)
-            val label = when {
-                feature in state.unavailableFeatures -> R.string.setup_feature_unavailable
-                missing.any { it != SetupAction.PairMac } -> R.string.status_action_required
-                !snapshot.paired -> R.string.status_not_paired
-                else -> R.string.setup_test_pending
-            }
-            Column(modifier = Modifier.padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(featureTitle(feature), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                Text(stringResource(label), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
-}
-
-@Composable
-private fun featureTitle(feature: SetupFeature): String = stringResource(when (feature) {
-    SetupFeature.ScreenAndApps -> R.string.setup_screen_feature_title
-    SetupFeature.PhoneAudio -> R.string.microphone_title
-    SetupFeature.Clipboard -> R.string.setup_clipboard_feature_title
-    SetupFeature.Notifications -> R.string.notifications_title
-    SetupFeature.Files -> R.string.files_title
-    SetupFeature.Camera -> R.string.camera_title
-    SetupFeature.Calls -> R.string.calls_permissions_title
-})
-
-@Composable
-private fun featureDescription(feature: SetupFeature): String = stringResource(when (feature) {
-    SetupFeature.ScreenAndApps -> R.string.setup_screen_feature_body
-    SetupFeature.PhoneAudio -> R.string.setup_audio_feature_body
-    SetupFeature.Clipboard -> R.string.setup_clipboard_feature_body
-    SetupFeature.Notifications -> R.string.notifications_description
-    SetupFeature.Files -> R.string.files_description
-    SetupFeature.Camera -> R.string.camera_description
-    SetupFeature.Calls -> R.string.calls_permissions_description
-})
 
 @Composable
 private fun MissingSetupPanel(
@@ -1097,28 +1139,6 @@ private fun SetupActionCard(card: SetupCard, opensAppSettings: Boolean, onAction
         OneUiPrimaryButton(onClick = onAction) {
             Text(if (opensAppSettings) stringResource(R.string.action_open_settings) else actionButtonLabel(card))
         }
-    }
-}
-
-@Composable
-private fun SmsNotificationOnlyPanel(notificationListenerEnabled: Boolean) {
-    LayeredCard {
-        Text(
-            stringResource(R.string.sms_notification_only_title),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            stringResource(R.string.sms_notification_only_description),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(10.dp))
-        StatusPill(
-            if (notificationListenerEnabled) R.string.setup_permission_allowed else R.string.status_action_required,
-            notificationListenerEnabled,
-        )
     }
 }
 
@@ -1206,6 +1226,7 @@ private fun StatusPill(label: Int, positive: Boolean) {
 @Composable
 private fun actionTitle(action: SetupAction): String = stringResource(
     when (action) {
+        SetupAction.NearbyDevicesPermission -> R.string.nearby_permission_title
         SetupAction.LocalNetworkPermission -> R.string.local_network_title
         SetupAction.PostNotificationsPermission -> R.string.post_notifications_title
         SetupAction.CameraPermission -> R.string.camera_title
@@ -1221,8 +1242,9 @@ private fun actionTitle(action: SetupAction): String = stringResource(
 @Composable
 private fun actionDescription(action: SetupAction): String = stringResource(
     when (action) {
+        SetupAction.NearbyDevicesPermission -> R.string.nearby_permission_description
         SetupAction.LocalNetworkPermission -> R.string.local_network_description
-        SetupAction.PostNotificationsPermission -> R.string.setup_camera_notifications_description
+        SetupAction.PostNotificationsPermission -> R.string.post_notifications_description
         SetupAction.CameraPermission -> R.string.camera_description
         SetupAction.RecordAudioPermission -> R.string.microphone_description
         SetupAction.AccessibilitySettings -> R.string.input_description

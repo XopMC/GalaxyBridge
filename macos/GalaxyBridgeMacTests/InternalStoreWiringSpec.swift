@@ -56,11 +56,17 @@ enum InternalStoreWiringSpec {
         )
 
         let identityService = "test.identity"
+        let absentFingerprint = try KeychainIdentityStore(backend: backend, service: identityService).existingFingerprint()
+        precondition(absentFingerprint == nil, "passive discovery cannot create an identity")
+        let absentAccounts = try backend.accounts(service: identityService)
+        precondition(absentAccounts.isEmpty)
         let fingerprint = try KeychainIdentityStore(
             backend: backend,
             service: identityService
         ).fingerprint()
         precondition(fingerprint.count == 32)
+        let discoveryFingerprint = try KeychainIdentityStore(backend: backend, service: identityService).existingFingerprint()
+        precondition(discoveryFingerprint == fingerprint)
         let reopenedFingerprint = try KeychainIdentityStore(
             backend: backend,
             service: identityService

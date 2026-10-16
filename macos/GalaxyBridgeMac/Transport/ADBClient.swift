@@ -707,7 +707,9 @@ struct ADBClient: Sendable {
     func launch(
         serial: String,
         arguments: [String],
-        outputObserver: ScrcpyOwnedProcessOutputObserver? = nil
+        outputObserver: ScrcpyOwnedProcessOutputObserver? = nil,
+        inputPipe: Pipe? = nil,
+        outputPipe: Pipe? = nil
     ) throws -> Process {
         let process = Process()
         let configuration = try ownedRuntime?.acquire()
@@ -718,7 +720,10 @@ struct ADBClient: Sendable {
         process.arguments = (configuration?.argumentPrefix ?? []) + selectedArguments
         // The session observes server errors through its sockets. Never leave
         // an unread pipe that can freeze a long-running server when it fills.
-        if let outputObserver {
+        if let outputPipe {
+            guard outputObserver == nil else { throw ADBClientError.commandFailed(code: 1, message: "conflicting process output owner") }
+            process.standardOutput = outputPipe
+        } else if let outputObserver {
             do {
                 try outputObserver.attach(to: process)
             } catch {
@@ -729,7 +734,8 @@ struct ADBClient: Sendable {
             process.standardOutput = FileHandle.nullDevice
         }
         process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
+        if let inputPipe { process.standardInput = inputPipe }
+        else { process.standardInput = FileHandle.nullDevice }
         do {
             if let configuration {
                 let token = try configuration.processes.start(process)

@@ -363,3 +363,31 @@
 "NOTIFICATION_MORE_ACTIONS" = "المزيد من الإجراءات";
 "NEARBY_WIFI_CONCURRENCY_HINT" = "الجمع بين Wi-Fi الهاتف والاتصال المباشر غير متحقق منه أو غير مدعوم. استخدم USB أو شبكة محلية مشتركة.";
 "INTERNET_OFF" = "متوقف";
+
+"DISCOVERY_NEARBY_TITLE" = "الهواتف القريبة";
+
+"DISCOVERY_UNTRUSTED_HINT" = "امسح الرمز في Galaxy Bridge Helper لتأكيد الهاتف.";
+
+"DISCOVERY_GENERIC_PHONE" = "هاتف Android";
+
+"DISCOVERY_ADD_PHONE" = "إضافة هاتف";
+
+"DEVICE_FEATURES_TITLE" = "ميزات الهاتف";
+
+"DEVICE_FEATURES_BODY" = "اختر ما يشاركه هذا الهاتف مع Mac. لا تبدأ الكاميرا ومشاركة الإنترنت إلا عند طلبك.";
+
+"DEVICE_FEATURES_PENDING" = "تم الحفظ على هذا Mac. ستُرسل الإعدادات عند اتصال الهاتف.";
+
+"DEVICE_FEATURES_APPLYING" = "جارٍ تطبيق الإعدادات على الهاتف…";
+
+"DEVICE_FEATURES_APPLIED" = "تم تطبيق الإعدادات على هذا الهاتف.";
+
+"DEVICE_FEATURES_UPDATE_PHONE" = "إعدادات Mac مفعّلة. حدّث تطبيق الهاتف لتطبيق الإعدادات عليه أيضًا.";
+
+"DEVICE_FEATURES_FAILED" = "تم الحفظ على Mac. أعد توصيل الهاتف للمحاولة مجددًا.";
+
+"FEATURE_INTERNET" = "مشاركة الإنترنت";
+
+"FEATURE_DISABLED" = "هذه الميزة متوقفة لهذا الهاتف.";
+
+"NEARBY_LOCATION_PERMISSION_HINT" = "للاتصال بالهواتف القريبة، اسمح لـ Galaxy Bridge باستخدام الموقع في إعدادات النظام ← الخصوصية والأمان ← خدمات الموقع.";

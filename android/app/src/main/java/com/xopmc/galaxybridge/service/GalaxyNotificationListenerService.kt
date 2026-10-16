@@ -144,6 +144,15 @@ object NotificationEventBus {
         }
     }
 
+    internal fun discardAll() {
+        synchronized(activeNotifications) {
+            activeNotifications.clear()
+            // Drop retained PHI and already-queued rows immediately while preserving
+            // the authenticated event channel for capability and policy changes.
+            subscriptions.values.forEach { subscription -> while (subscription.channel.tryReceive().isSuccess) { } }
+        }
+    }
+
     internal fun replaceActiveNotifications(notifications: List<BridgeNotification>) {
         synchronized(activeNotifications) {
             val currentKeys = notifications.filterNot { it.removed }.mapTo(hashSetOf()) { it.key }
@@ -162,8 +171,17 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
             previous.appIconPng.contentEquals(row.appIconPng)
     }
 
+    private fun notificationsEnabled(): Boolean = com.xopmc.galaxybridge.setup.DeviceFeaturePreferences(this).isEnabled("notifications")
+    private fun clearFeatureSnapshot() {
+        rawNotifications.clear(); pendingRemovals.clear(); presentation.clear(); NotificationEventBus.discardAll()
+    }
+    private fun applyFeaturePolicy() {
+        if (!notificationsEnabled()) clearFeatureSnapshot() else onListenerConnected()
+    }
+
     override fun onListenerConnected() {
         active.set(this)
+        if (!notificationsEnabled()) { clearFeatureSnapshot(); return }
         // A listener may have missed removals while Android had it disconnected.
         // Failed OS reads must not be mistaken for an authoritative empty list.
         val current = runCatching { activeNotifications.toList() }.getOrNull() ?: return
@@ -184,6 +202,7 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        if (!notificationsEnabled()) { clearFeatureSnapshot(); return }
         refreshNotifications()
         pendingRemovals.remove(sbn.key)
         rawNotifications[sbn.key] = sbn
@@ -192,12 +211,14 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationRankingUpdate(rankingMap: RankingMap) {
+        if (!notificationsEnabled()) { clearFeatureSnapshot(); return }
         // Android may change overrideGroupKey while regrouping existing children.
         refreshNotifications()
         reconcilePresentation()
     }
 
     private fun refreshNotifications() {
+        if (!notificationsEnabled()) { clearFeatureSnapshot(); return }
         val current = runCatching { activeNotifications.toList() }.getOrNull() ?: return
         val keys = current.mapTo(hashSetOf()) { it.key }
         pendingRemovals.retainAll(keys)
@@ -207,6 +228,7 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
 
     @Suppress("DEPRECATION")
     private fun reconcilePresentation(authoritative: Boolean = false, invalidated: Set<String> = emptySet()) {
+        if (!notificationsEnabled()) { clearFeatureSnapshot(); return }
         val converted = presentation.payloads(rawNotifications.keys, invalidated) { key ->
             toBridgeNotification(rawNotifications.getValue(key))
         }
@@ -298,6 +320,7 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        if (!notificationsEnabled()) { clearFeatureSnapshot(); return }
         refreshNotifications()
         pendingRemovals.add(sbn.key)
         rawNotifications.remove(sbn.key)
@@ -345,6 +368,7 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
     }
 
     private fun cache(notification: BridgeNotification) {
+        if (!notificationsEnabled()) return
         val payload = JSONObject()
             .put("package", notification.packageName)
             .put("appLabel", notification.appLabel)
@@ -381,6 +405,12 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
         private val active = AtomicReference<GalaxyNotificationListenerService?>()
 
         fun isActive(): Boolean = active.get() != null
+        fun refreshFeaturePolicy() {
+            val listener = active.get() ?: return
+            // Clear the shared backlog synchronously before sending the policy receipt.
+            if (!listener.notificationsEnabled()) NotificationEventBus.discardAll()
+            android.os.Handler(android.os.Looper.getMainLooper()).post { listener.applyFeaturePolicy() }
+        }
 
         fun dismissActive(key: String): Boolean = active.get()?.let {
             it.dismiss(key)
@@ -392,6 +422,7 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
 
         internal fun performActiveResult(key: String, actionId: String, reply: String?, dismiss: Boolean): NotificationActionExecution {
             val listener = active.get() ?: return NotificationActionExecution(false, "listener_unavailable")
+            if (!listener.notificationsEnabled()) return NotificationActionExecution(false, "feature_disabled")
             return try {
                 if (dismiss) listener.dismissResult(key) else listener.invokeActionResult(
                     key, actionId.toIntOrNull() ?: return NotificationActionExecution(false, "action_missing"), reply,

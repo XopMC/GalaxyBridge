@@ -12,7 +12,10 @@ struct NearbyGroupAdmission {
             if sharedGroup { return .join }
             creator = session; return .create
         }
-        if !queued.contains(session), queued.count < 2 { queued.append(session) }
+        // A retired creator can outlive its physical session until remote TTL
+        // proves cleanup. All five new live sessions must retain a queue slot.
+        let waitingLimit = creatorRetiring || cleanupPending ? 5 : 4
+        if !queued.contains(session), queued.count < waitingLimit { queued.append(session) }
         return .wait
     }
     mutating func verified(_ session: UUID) {

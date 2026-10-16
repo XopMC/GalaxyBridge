@@ -363,3 +363,31 @@
 "NOTIFICATION_MORE_ACTIONS" = "更多動作";
 "NEARBY_WIFI_CONCURRENCY_HINT" = "手機Wi-Fi與直接連線同時使用尚未驗證或不受支援。請使用USB或共同的區域網路。";
 "INTERNET_OFF" = "已關閉";
+
+"DISCOVERY_NEARBY_TITLE" = "附近的手機";
+
+"DISCOVERY_UNTRUSTED_HINT" = "在 Galaxy Bridge Helper 中掃描 QR 碼以確認手機。";
+
+"DISCOVERY_GENERIC_PHONE" = "Android 手機";
+
+"DISCOVERY_ADD_PHONE" = "加入手機";
+
+"DEVICE_FEATURES_TITLE" = "手機功能";
+
+"DEVICE_FEATURES_BODY" = "選擇此手機與 Mac 共享的功能。相機和網路共享僅在您操作時啟動。";
+
+"DEVICE_FEATURES_PENDING" = "已儲存在此 Mac 上。手機連線後將傳送設定。";
+
+"DEVICE_FEATURES_APPLYING" = "正在將設定套用至手機…";
+
+"DEVICE_FEATURES_APPLIED" = "已在此手機上套用設定。";
+
+"DEVICE_FEATURES_UPDATE_PHONE" = "Mac 上的控制已生效。請更新手機 App，以便在手機上套用這些設定。";
+
+"DEVICE_FEATURES_FAILED" = "已儲存在 Mac 上。請重新連線手機以重試。";
+
+"FEATURE_INTERNET" = "網路共享";
+
+"FEATURE_DISABLED" = "此手機已關閉此功能。";
+
+"NEARBY_LOCATION_PERMISSION_HINT" = "若要連接附近的手機，請前往「系統設定 → 隱私權與安全性 → 定位服務」，允許 Galaxy Bridge 使用定位資訊。";

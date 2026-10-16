@@ -24,6 +24,7 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
     private var records: [String: Record] = [:]
 
     func present(application: ApplicationCatalogItem, device: DeviceRow, model: AppModel) {
+        guard model.featureEnabled(.applications, deviceID: device.id) else { return }
         model.registerApplicationWindowCoordinator(self)
         let key = "\(device.id)\u{0}\(application.packageName)"
         if let record = records[key] {
@@ -68,6 +69,9 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
                         sourceIdentity: clipboardIdentity
                     )
                 },
+                clipboardEnabled: { [weak model] in
+                    model?.featureEnabled(.clipboard, deviceID: device.id) == true
+                },
                 freshFramePresentationReceipt: { [weak model] in
                     model?.clientSetupEvidenceReceipt(deviceID: device.id, feature: .applications)
                 },
@@ -101,8 +105,8 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
             window.center()
             let privacyLease = UUID()
             var privacySubscriptions = Set<AnyCancellable>()
-            session.nativeSession.$screenInterlockPresentation.sink { [weak model] presentation in
-                if presentation == .mirroring {
+            session.nativeSession.$phoneDisplayPrivacyReady.sink { [weak model] ready in
+                if ready {
                     model?.phoneDisplaySessionReady(deviceID: device.id, serial: serial, leaseID: privacyLease)
                 }
             }.store(in: &privacySubscriptions)
@@ -146,6 +150,12 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
         entry.value.session.close()
         entry.value.release()
         records.removeValue(forKey: entry.key)
+    }
+
+    func closeForFeaturePolicy(deviceID: String) {
+        let selected = records.filter { $0.key.hasPrefix(deviceID + "\u{0}") }
+        // Delegate close removes each exact owned session and starts its existing cleanup.
+        for record in selected.values { record.window.close() }
     }
 
     func suspendForRouteChange(deviceID: String) async -> RouteSuspension {

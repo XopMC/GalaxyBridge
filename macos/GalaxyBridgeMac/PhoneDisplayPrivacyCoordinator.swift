@@ -2,9 +2,14 @@
 import Foundation
 import GalaxyBridgeCore
 
+enum PhoneDisplayPowerRouteChange { case preserved, rebased }
+
 @MainActor
 protocol PhoneDisplayPowerOwner: AnyObject {
     var failureHandler: ((String) -> Void)? { get set }
+    var panelPowerChangedHandler: ((PhonePanelPowerSnapshot) -> Void)? { get set }
+    func snapshot() async throws -> PhonePanelPowerSnapshot
+    func restorePanelSnapshot(_ snapshot: PhonePanelPowerSnapshot) async throws
     func start() async throws
     func panelPower() async throws -> PhonePanelPowerState
     /// Returns only after physical panel state has been verified.
@@ -12,11 +17,25 @@ protocol PhoneDisplayPowerOwner: AnyObject {
     func restorePanelPower(on: Bool) async throws
     func stop() async throws
     /// Called only for another verified ADB route of the same logical phone.
-    func useRoute(serial: String) async throws
+    func useRoute(serial: String) async throws -> PhoneDisplayPowerRouteChange
 }
 
 extension PhoneDisplayPowerOwner {
-    func useRoute(serial: String) async throws {}
+    var panelPowerChangedHandler: ((PhonePanelPowerSnapshot) -> Void)? { get { nil } set {} }
+    func snapshot() async throws -> PhonePanelPowerSnapshot {
+        let state = try await panelPower()
+        guard state != .unknown else { throw PhonePanelPowerSnapshot.SnapshotError.unknownPhysicalState }
+        return try .init(validating: [.init(id: "0", on: state == .on)])
+    }
+    func restorePanelSnapshot(_ snapshot: PhonePanelPowerSnapshot) async throws {
+        // Compatibility for scalar owners/fixtures only. Real multi-panel owners
+        // override this operation and restore their exact owned snapshot.
+        guard case let .physical(panels) = snapshot, panels.count == 1 else {
+            throw PhonePanelPowerSnapshot.SnapshotError.invalidPhysicalInventory
+        }
+        try await restorePanelPower(on: panels[0].on)
+    }
+    func useRoute(serial: String) async throws -> PhoneDisplayPowerRouteChange { .preserved }
     func restorePanelPower(on: Bool) async throws { try await setPanelPower(on: on) }
 }
 
@@ -38,7 +57,7 @@ final class PhoneDisplayPrivacyCoordinator {
         var owner: (any PhoneDisplayPowerOwner)?
         var ownerSerial: String?
         var changedPanel = false
-        var initialPanel: PhonePanelPowerState?
+        var initialPanel: PhonePanelPowerSnapshot?
         var appliedPower: Bool?
         var manualPower: Bool?
         var task: Task<Void, Never>?
@@ -49,6 +68,7 @@ final class PhoneDisplayPrivacyCoordinator {
     private var devices: [String: Device] = [:]
     private let makeOwner: (String) throws -> any PhoneDisplayPowerOwner
     var statusHandler: ((String, PhoneDisplayPrivacyStatus) -> Void)?
+    var observedPowerHandler: ((String, Bool) -> Void)?
 
     init(makeOwner: @escaping (String) throws -> any PhoneDisplayPowerOwner) {
         self.makeOwner = makeOwner
@@ -150,16 +170,27 @@ final class PhoneDisplayPrivacyCoordinator {
     private func reconcile(_ id: String, _ device: Device) async {
         let wanted = device.ownerFailure == nil && (device.enabled || device.manualPower != nil) && !device.leases.isEmpty && device.serial != nil
         if let owner = device.owner, let serial = device.serial, device.ownerSerial != serial {
-            do { try await owner.useRoute(serial: serial) }
+            // Retire callbacks before awaiting route settlement. A callback from
+            // the old backend may otherwise fail a newly captured owner.
+            detachFailureHandler(owner, device)
+            do {
+                let change = try await owner.useRoute(serial: serial)
+                device.ownerSerial = serial
+                if case .rebased = change {
+                    // The owner attests its preceding child really restored and
+                    // stopped. The next backend must capture its own snapshot.
+                    device.initialPanel = nil; device.appliedPower = nil; device.changedPanel = false
+                    device.ownerNeedsRetirement = false
+                } else { installFailureHandler(owner, id, device) }
+            }
             catch { publish(.failed(String(describing: error)), id, device); return }
-            device.ownerSerial = serial
         }
         if let owner = device.owner, !wanted || device.ownerNeedsRetirement {
             detachFailureHandler(owner, device)
             device.ownerNeedsRetirement = true
             if device.changedPanel {
                 if device.ownerFailure == nil { publish(.restoring, id, device) }
-                do { try await owner.restorePanelPower(on: device.initialPanel == .on); device.changedPanel = false }
+                do { try await restoreInitialPanel(owner, device); device.changedPanel = false }
                 catch { publish(.failed(String(describing: error)), id, device); return }
             }
             do { try await owner.stop() }
@@ -172,7 +203,7 @@ final class PhoneDisplayPrivacyCoordinator {
         guard !device.leases.isEmpty, let serial = device.serial else {
             publish(.waitingForSession, id, device); return
         }
-        let isNew = device.owner == nil
+        let isNew = device.owner == nil || device.initialPanel == nil
         let owner: any PhoneDisplayPowerOwner
         do { owner = try device.owner ?? makeOwner(serial) }
         catch { publish(.failed(String(describing: error)), id, device); return }
@@ -181,26 +212,28 @@ final class PhoneDisplayPrivacyCoordinator {
         if isNew { installFailureHandler(owner, id, device) }
         do {
             if isNew {
-                let initial = try await owner.panelPower()
-                guard initial != .unknown else { throw PrivacyError.unknownPanelState }
+                let initial = try await owner.snapshot()
+                guard initial.isValid else { throw PrivacyError.unknownPanelState }
                 device.initialPanel = initial
-                device.appliedPower = initial == .on
+                device.appliedPower = initial.hasActivePanel
                 try await owner.start()
             }
             guard device.ownerFailure == nil, device.enabled || device.manualPower != nil, !device.leases.isEmpty, device.serial == serial else { return }
             let desiredOn = device.manualPower ?? false
             if !isNew {
-                let observed = try await owner.panelPower()
-                guard observed != .unknown else { throw PrivacyError.unknownPanelState }
-                device.appliedPower = observed == .on
+                let observed = try await owner.snapshot()
+                guard observed.isValid else { throw PrivacyError.unknownPanelState }
+                device.appliedPower = observed.hasActivePanel
             }
             if device.appliedPower != desiredOn {
                 // Record ownership BEFORE writing: an error may arrive after
                 // Android applied OFF and therefore still requires restoration.
                 device.changedPanel = true
                 try await owner.setPanelPower(on: desiredOn)
-                device.appliedPower = desiredOn
-                device.changedPanel = desiredOn != (device.initialPanel == .on)
+                let observed = try await owner.snapshot()
+                guard observed.isValid, observed.hasActivePanel == desiredOn else { throw PrivacyError.unknownPanelState }
+                device.appliedPower = observed.hasActivePanel
+                device.changedPanel = observed != device.initialPanel
             }
             guard device.ownerFailure == nil else { return }
             publish(desiredOn ? .visible : .hidden, id, device)
@@ -208,7 +241,7 @@ final class PhoneDisplayPrivacyCoordinator {
             detachFailureHandler(owner, device)
             device.ownerNeedsRetirement = true
             if device.changedPanel {
-                do { try await owner.restorePanelPower(on: device.initialPanel == .on); device.changedPanel = false }
+                do { try await restoreInitialPanel(owner, device); device.changedPanel = false }
                 catch { publish(.failed(String(describing: error)), id, device); return }
             }
             do { try await owner.stop() }
@@ -219,9 +252,25 @@ final class PhoneDisplayPrivacyCoordinator {
         }
     }
 
+    private func restoreInitialPanel(_ owner: any PhoneDisplayPowerOwner, _ device: Device) async throws {
+        guard let initial = device.initialPanel else { throw PrivacyError.unknownPanelState }
+        try await owner.restorePanelSnapshot(initial)
+    }
+
     private func installFailureHandler(_ owner: any PhoneDisplayPowerOwner, _ id: String, _ device: Device) {
         let generation = UUID()
         device.ownerGeneration = generation
+        owner.panelPowerChangedHandler = { [weak self, weak device] snapshot in
+            guard let self, let device, self.devices[id] === device,
+                  device.ownerGeneration == generation, device.owner != nil, device.ownerFailure == nil, snapshot.isValid else { return }
+            // Observe a hardware/user wake without fighting it with another OFF.
+            // A later physical OFF releases that temporary visible override.
+            device.appliedPower = snapshot.hasActivePanel
+            device.manualPower = snapshot.hasActivePanel ? true : nil
+            device.changedPanel = snapshot != device.initialPanel
+            self.observedPowerHandler?(id, snapshot.hasActivePanel)
+            self.publish(snapshot.hasActivePanel ? .visible : .hidden, id, device)
+        }
         owner.failureHandler = { [weak self, weak device] message in
             guard let self, let device, self.devices[id] === device,
                   device.ownerGeneration == generation, device.owner != nil else { return }
@@ -235,6 +284,7 @@ final class PhoneDisplayPrivacyCoordinator {
     private func detachFailureHandler(_ owner: any PhoneDisplayPowerOwner, _ device: Device) {
         device.ownerGeneration = UUID()
         owner.failureHandler = nil
+        owner.panelPowerChangedHandler = nil
     }
 
     private enum PrivacyError: Error { case unknownPanelState }

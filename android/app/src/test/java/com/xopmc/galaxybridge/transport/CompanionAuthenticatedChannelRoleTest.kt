@@ -11,6 +11,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CompanionAuthenticatedChannelRoleTest {
+    @Test fun featurePolicyCanOnlyUseTheAuthenticatedControlRole() {
+        val request = Envelope.newBuilder().setFeatureConfigurationRequest(
+            com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest.getDefaultInstance()).build()
+        val control = CompanionAuthenticatedChannelRole()
+        assertTrue(control.admit(open(ChannelKind.CHANNEL_KIND_CONTROL)))
+        assertTrue(control.admit(request))
+        for (kind in listOf(ChannelKind.CHANNEL_KIND_EVENTS, ChannelKind.CHANNEL_KIND_FILES, ChannelKind.CHANNEL_KIND_ENHANCED_STREAM)) {
+            val auxiliary = CompanionAuthenticatedChannelRole()
+            assertTrue(auxiliary.admit(open(kind)))
+            assertFalse(auxiliary.admit(request))
+            assertFalse(auxiliary.ownsControlRetirement)
+        }
+    }
+
     private fun open(kind: ChannelKind) = Envelope.newBuilder()
         .setOpenChannel(OpenChannel.newBuilder().setKind(kind)).build()
 

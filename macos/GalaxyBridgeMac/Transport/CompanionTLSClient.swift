@@ -49,6 +49,7 @@ final class CompanionTLSClient: @unchecked Sendable {
     private let messageIDLock = NSLock()
     private let notificationActionCapabilityLock = NSLock()
     private var notificationActionResultsSupported = false
+    private var featureConfigurationSupported = false
     private var connectivityCapabilitiesState = CompanionConnectivityCapabilities()
     private let rawStreamID: String?
     private let rawCodec: String?
@@ -66,6 +67,11 @@ final class CompanionTLSClient: @unchecked Sendable {
     var connectivityCapabilities: CompanionConnectivityCapabilities {
         notificationActionCapabilityLock.lock(); defer { notificationActionCapabilityLock.unlock() }
         return connectivityCapabilitiesState
+    }
+
+    var supportsFeatureConfiguration: Bool {
+        notificationActionCapabilityLock.lock(); defer { notificationActionCapabilityLock.unlock() }
+        return featureConfigurationSupported
     }
 
     var supportsNotificationActionResults: Bool {
@@ -203,6 +209,11 @@ final class CompanionTLSClient: @unchecked Sendable {
         var envelope = baseEnvelope()
         envelope.inputEvent = input
         try send(envelope)
+    }
+
+    func sendFeatureConfiguration(_ request: GBFeatureConfigurationRequest) throws {
+        guard channelKind == .control, supportsFeatureConfiguration else { throw CocoaError(.featureUnsupported) }
+        var envelope = baseEnvelope(); envelope.featureConfigurationRequest = request; try send(envelope)
     }
 
     func sendInternetSharing(_ request: GBInternetSharingRequest) throws {
@@ -413,6 +424,7 @@ final class CompanionTLSClient: @unchecked Sendable {
         if case let .capabilityUpdate(update)? = envelope.payload, channelKind == .control {
             notificationActionCapabilityLock.lock()
             notificationActionResultsSupported = update.available.contains(.notificationActionResults)
+            featureConfigurationSupported = update.available.contains(.featureConfiguration)
             connectivityCapabilitiesState = CompanionConnectivityCapabilities(negotiated: true,
                 nearbyLink: update.available.contains(.nearbyLink), internetGateway: update.available.contains(.internetGateway),
                 privilegedBridge: update.available.contains(.privilegedBridge), unavailableReasons: update.unavailableReasons)

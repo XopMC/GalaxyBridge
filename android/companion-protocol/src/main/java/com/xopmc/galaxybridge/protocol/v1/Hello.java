@@ -82,7 +82,7 @@ public  final class Hello extends
    */
   private void setPublicKeyFingerprint(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     publicKeyFingerprint_ = value;
   }
   /**
@@ -597,4 +597,3 @@ public  final class Hello extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

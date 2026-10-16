@@ -16,6 +16,10 @@ struct NearbyPairingSheet: View {
             Text(LocalizedStringKey(coordinator.nearbyPairingURI == nil ? "NEARBY_PAIR_EXPIRED" : "NEARBY_PAIR_HINT"))
                 .foregroundStyle(.secondary).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+            if let key = coordinator.locationPermissionHintKey {
+                Text(LocalizedStringKey(key)).font(.caption).foregroundStyle(.orange)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Button("NEARBY_NEW_CODE") { coordinator.beginOfflinePairing() }
                 Button("CLOSE", action: dismiss).keyboardShortcut(.cancelAction)
@@ -89,7 +93,10 @@ struct NearbyInternetControls: View {
                 get: { model.nearbyAutoConnect(deviceID: device.id) },
                 set: { model.setNearbyAutoConnect($0, deviceID: device.id) }))
                 .font(.caption).disabled(status != .connected && !model.nearbyAutoConnect(deviceID: device.id))
-            if let hint = model.nearbyConnectionHint(deviceID: device.id) {
+            if let key = model.nearbyConnection.locationPermissionHintKey {
+                Text(LocalizedStringKey(key)).font(.caption).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let hint = model.nearbyConnectionHint(deviceID: device.id) {
                 Text(LocalizedStringKey(hint)).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else if case let .failed(code) = status {

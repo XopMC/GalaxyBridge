@@ -41,7 +41,7 @@ struct ContentView: View {
                     .toolbar {
                         ToolbarItemGroup {
                             Button { setupDevice = device } label: {
-                                Label("CLIENT_SETUP_TITLE", systemImage: "checklist")
+                                Label("DEVICE_FEATURES_TITLE", systemImage: "slider.horizontal.3")
                             }
                             Button(action: model.beginPairing) {
                                 Label("PAIR_DEVICE", systemImage: "qrcode")
@@ -51,7 +51,7 @@ struct ContentView: View {
                             } label: {
                                 Label("DETACH", systemImage: "macwindow.on.rectangle")
                             }
-                            .disabled(!device.isReady)
+                            .disabled(!device.isReady || !model.featureEnabled(.screen, deviceID: device.id))
                             Button(action: model.refresh) {
                                 Label("REFRESH", systemImage: "arrow.clockwise")
                             }
@@ -88,7 +88,10 @@ struct ContentView: View {
                         setupAction = (device.id, feature)
                         setupDevice = nil
                     }
-                }, dismiss: { setupDevice = nil })
+                }, dismiss: { setupDevice = nil },
+                optionalFeatures: (model.availableCapabilitiesByDevice[device.id]?.contains("CAPABILITY_CALLS") == true ||
+                    model.capabilityReasonsByDevice[device.id]?["CAPABILITY_CALLS"] == "feature_disabled") ? [.calls] : [],
+                onSelectionChanged: { model.setFeatureSelection(deviceID: device.id, features: $0) })
                 .applicationLanguageLayout()
         }
         .fileImporter(isPresented: $isSetupFileImporterPresented, allowedContentTypes: [.data]) { result in
@@ -216,6 +219,13 @@ struct ContentView: View {
         }
         // Only device rows participate in selection. Informational text and
         // setup actions must not clear the currently selected phone.
+#if !GALAXYBRIDGE_APP_STORE
+        .safeAreaInset(edge: .top, spacing: 0) {
+            NearbyDiscoveryView(suggestions: model.nearbyConnection.discoverySuggestions) {
+                model.beginNearbyPairing(candidateID: $0.id)
+            }
+        }
+#endif
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 if let error = model.lastError {
@@ -223,7 +233,10 @@ struct ContentView: View {
                         .textSelection(.enabled)
                 }
                 if let deviceID = model.selectedDeviceID,
-                   case let reasons = model.effectiveCapabilities(deviceID: deviceID).unavailableReasons,
+                   case let reasons = model.effectiveCapabilities(deviceID: deviceID).unavailableReasons.filter({
+                       !["CAPABILITY_NEARBY_LINK", "CAPABILITY_PRIVILEGED_BRIDGE", "CAPABILITY_INTERNET_GATEWAY",
+                         "CAPABILITY_FEATURE_CONFIGURATION"].contains($0.key)
+                   }),
                    !reasons.isEmpty {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 8) {
@@ -249,7 +262,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if let device = model.row(id: model.selectedDeviceID) {
                         Button { setupDevice = device } label: {
-                            Label("CLIENT_SETUP_TITLE", systemImage: "checklist")
+                            Label("DEVICE_FEATURES_TITLE", systemImage: "slider.horizontal.3")
                         }
                     }
 #if !GALAXYBRIDGE_APP_STORE
@@ -401,7 +414,7 @@ struct DeviceWorkspace: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(!device.isReady)
+                .disabled(!device.isReady || !model.featureEnabled(.screen, deviceID: device.id))
             }
             .padding(24)
             .background(.regularMaterial)
@@ -441,12 +454,25 @@ struct DeviceWorkspace: View {
 
     @ViewBuilder
     private var panelContent: some View {
+        if let feature = selectedPanelFeature, !model.featureEnabled(feature, deviceID: device.id) {
+            ContentUnavailableView("FEATURE_DISABLED", systemImage: "slider.horizontal.3")
+        } else {
         switch selectedPanel {
         case .applications: ApplicationCatalogPanel(device: device)
         case .files: FilesPanel(deviceID: device.id)
         case .notifications: NotificationsPanel(deviceID: device.id)
         case .sms: SMSPanel(deviceID: device.id)
         case .camera: CameraPanel(deviceID: device.id)
+        }
+        }
+    }
+    private var selectedPanelFeature: ClientSetupFeature? {
+        switch selectedPanel {
+        case .applications: .applications
+        case .files: .files
+        case .notifications: .notifications
+        case .camera: .camera
+        case .sms: nil
         }
     }
 }

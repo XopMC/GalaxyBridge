@@ -134,13 +134,13 @@ public enum ChannelKind
           }
         };
 
-  public static com.google.protobuf.Internal.EnumVerifier 
+  public static com.google.protobuf.Internal.EnumVerifier
       internalGetVerifier() {
     return ChannelKindVerifier.INSTANCE;
   }
 
-  private static final class ChannelKindVerifier implements 
-       com.google.protobuf.Internal.EnumVerifier { 
+  private static final class ChannelKindVerifier implements
+       com.google.protobuf.Internal.EnumVerifier {
           static final com.google.protobuf.Internal.EnumVerifier
               INSTANCE = new ChannelKindVerifier();
           @java.lang.Override
@@ -157,4 +157,3 @@ public enum ChannelKind
 
   // @@protoc_insertion_point(enum_scope:galaxybridge.v1.ChannelKind)
 }
-

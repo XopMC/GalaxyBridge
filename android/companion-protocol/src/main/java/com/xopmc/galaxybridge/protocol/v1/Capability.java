@@ -83,6 +83,10 @@ public enum Capability
    * <code>CAPABILITY_PRIVILEGED_BRIDGE = 16;</code>
    */
   CAPABILITY_PRIVILEGED_BRIDGE(16),
+  /**
+   * <code>CAPABILITY_FEATURE_CONFIGURATION = 17;</code>
+   */
+  CAPABILITY_FEATURE_CONFIGURATION(17),
   UNRECOGNIZED(-1),
   ;
 
@@ -158,6 +162,10 @@ public enum Capability
    * <code>CAPABILITY_PRIVILEGED_BRIDGE = 16;</code>
    */
   public static final int CAPABILITY_PRIVILEGED_BRIDGE_VALUE = 16;
+  /**
+   * <code>CAPABILITY_FEATURE_CONFIGURATION = 17;</code>
+   */
+  public static final int CAPABILITY_FEATURE_CONFIGURATION_VALUE = 17;
 
 
   @java.lang.Override
@@ -197,6 +205,7 @@ public enum Capability
       case 14: return CAPABILITY_NEARBY_LINK;
       case 15: return CAPABILITY_INTERNET_GATEWAY;
       case 16: return CAPABILITY_PRIVILEGED_BRIDGE;
+      case 17: return CAPABILITY_FEATURE_CONFIGURATION;
       default: return null;
     }
   }
@@ -214,13 +223,13 @@ public enum Capability
           }
         };
 
-  public static com.google.protobuf.Internal.EnumVerifier 
+  public static com.google.protobuf.Internal.EnumVerifier
       internalGetVerifier() {
     return CapabilityVerifier.INSTANCE;
   }
 
-  private static final class CapabilityVerifier implements 
-       com.google.protobuf.Internal.EnumVerifier { 
+  private static final class CapabilityVerifier implements
+       com.google.protobuf.Internal.EnumVerifier {
           static final com.google.protobuf.Internal.EnumVerifier
               INSTANCE = new CapabilityVerifier();
           @java.lang.Override
@@ -237,4 +246,3 @@ public enum Capability
 
   // @@protoc_insertion_point(enum_scope:galaxybridge.v1.Capability)
 }
-

@@ -363,3 +363,31 @@
 "NOTIFICATION_MORE_ACTIONS" = "추가 동작";
 "NEARBY_WIFI_CONCURRENCY_HINT" = "휴대전화 Wi-Fi와 직접 연결의 동시 사용이 검증되지 않았거나 지원되지 않습니다. USB 또는 공통 로컬 네트워크를 사용하세요.";
 "INTERNET_OFF" = "꺼짐";
+
+"DISCOVERY_NEARBY_TITLE" = "주변 휴대전화";
+
+"DISCOVERY_UNTRUSTED_HINT" = "Galaxy Bridge Helper에서 코드를 스캔하여 휴대전화를 확인하세요.";
+
+"DISCOVERY_GENERIC_PHONE" = "Android 휴대전화";
+
+"DISCOVERY_ADD_PHONE" = "휴대전화 추가";
+
+"DEVICE_FEATURES_TITLE" = "휴대전화 기능";
+
+"DEVICE_FEATURES_BODY" = "이 휴대전화가 Mac과 공유할 기능을 선택하세요. 카메라와 인터넷 공유는 요청할 때만 시작됩니다.";
+
+"DEVICE_FEATURES_PENDING" = "이 Mac에 저장되었습니다. 휴대전화가 연결되면 설정을 전송합니다.";
+
+"DEVICE_FEATURES_APPLYING" = "휴대전화에 설정 적용 중…";
+
+"DEVICE_FEATURES_APPLIED" = "이 휴대전화에 설정이 적용되었습니다.";
+
+"DEVICE_FEATURES_UPDATE_PHONE" = "Mac 설정이 적용되었습니다. 휴대전화에도 적용하려면 휴대전화 앱을 업데이트하세요.";
+
+"DEVICE_FEATURES_FAILED" = "Mac에 저장되었습니다. 휴대전화를 다시 연결하여 적용을 재시도하세요.";
+
+"FEATURE_INTERNET" = "인터넷 공유";
+
+"FEATURE_DISABLED" = "이 휴대전화에서 이 기능이 꺼져 있습니다.";
+
+"NEARBY_LOCATION_PERMISSION_HINT" = "주변 휴대전화에 연결하려면 시스템 설정 → 개인정보 보호 및 보안 → 위치 서비스에서 Galaxy Bridge의 위치 정보 사용을 허용하세요.";

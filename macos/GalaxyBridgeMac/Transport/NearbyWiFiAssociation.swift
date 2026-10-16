@@ -30,6 +30,17 @@ final class NearbyWiFiAssociation: @unchecked Sendable {
             queue.async { [self] in continuation.resume(returning: unassociatedOnQueue()) }
         }
     }
+    func isOwnedAssociation(name: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in continuation.resume(returning: ownedAssociationOnQueue(name: name)) }
+        }
+    }
+    private func ownedAssociationOnQueue(name: String) -> Bool {
+        guard CLLocationManager().authorizationStatus == .authorizedAlways,
+              let lease, lease.name == name, lease.interface.powerOn() else { return false }
+        return lease.ownership.permitsSharing(network: name, currentName: lease.interface.ssid(),
+            currentBSSID: lease.interface.bssid(), ownedBSSID: lease.ownedBSSID)
+    }
     private func unassociatedOnQueue() -> Bool {
         guard lease == nil, let interface = CWWiFiClient.shared().interface() else { return false }
         return positivelyUnassociated(interface)
@@ -43,13 +54,14 @@ final class NearbyWiFiAssociation: @unchecked Sendable {
         return !active
     }
 
-    func join(name: String, password: String, owner: UUID, automatic: Bool = false) async throws {
+    func join(name: String, password: String, owner: UUID, automatic: Bool = false, sharingOwnedAssociation: Bool = false) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             queue.async { [self] in
                 do {
                     guard !isCancelled(owner), (1...32).contains(name.utf8.count), (8...63).contains(password.utf8.count)
                     else { throw NearbyTransportFailure.association }
-                    guard !automatic || unassociatedOnQueue() else { throw NearbyTransportFailure.ownership }
+                    guard !automatic || (sharingOwnedAssociation ? ownedAssociationOnQueue(name: name) : unassociatedOnQueue())
+                    else { throw NearbyTransportFailure.ownership }
                     if let lease {
                         guard lease.name == name, lease.interface.ssid() == name,
                               lease.ownedBSSID == lease.interface.bssid() else { throw NearbyTransportFailure.ownership }

@@ -14,6 +14,18 @@ private final class PrivacyPowerFixture: PhoneDisplayPowerOwner {
     var routes: [String] = []
     var restorations: [Bool] = []
     var failureHandler: ((String) -> Void)?
+    var detailed: PhonePanelPowerSnapshot?
+    var originalDetailed: PhonePanelPowerSnapshot?
+    var restoredDetailed: [PhonePanelPowerSnapshot] = []
+    func snapshot() async throws -> PhonePanelPowerSnapshot {
+        if let detailed { return detailed }
+        guard panel != .unknown else { throw NSError(domain: "unknown-panel", code: 1) }
+        return try .init(validating: [.init(id: "0", on: panel == .on)])
+    }
+    func restorePanelSnapshot(_ snapshot: PhonePanelPowerSnapshot) async throws {
+        if detailed != nil { restoredDetailed.append(snapshot); detailed = snapshot }
+        else { try await restorePanelPower(on: snapshot.hasActivePanel) }
+    }
     var beforeStop: (() -> Void)?
     func start() async throws { starts += 1 }
     func panelPower() async throws -> PhonePanelPowerState { panel }
@@ -21,6 +33,11 @@ private final class PrivacyPowerFixture: PhoneDisplayPowerOwner {
         writes.append(on)
         if !on { await beforeOff?() }
         panel = on ? .on : .off
+        if case let .physical(panels)? = detailed {
+            if on, case let .physical(original)? = originalDetailed {
+                detailed = try .init(validating: panels.map { panel in .init(id: panel.id, on: original.first(where: { $0.id == panel.id })?.on == true) })
+            } else { detailed = try .init(validating: panels.map { .init(id: $0.id, on: on) }) }
+        }
         if !on, failOff { throw NSError(domain: "failure after applied OFF", code: 1) }
         if on, failOn { throw NSError(domain: "failure restoring panel", code: 1) }
     }
@@ -30,7 +47,34 @@ private final class PrivacyPowerFixture: PhoneDisplayPowerOwner {
         beforeStop?()
         if failStop { throw NSError(domain: "cleanup child not settled", code: 1) }
     }
-    func useRoute(serial: String) async { routes.append(serial) }
+    func useRoute(serial: String) async -> PhoneDisplayPowerRouteChange { routes.append(serial); return .preserved }
+}
+
+@MainActor
+private final class BackendChangingPrivacyFixture: PhoneDisplayPowerOwner {
+    var failureHandler: ((String) -> Void)?
+    let physicalInitial = try! PhonePanelPowerSnapshot(validating: [.init(id: "17", on: false), .init(id: "22", on: true)])
+    var initial: PhonePanelPowerSnapshot = .remotelyOwned(hasActivePanel: true)
+    var current: PhonePanelPowerSnapshot = .remotelyOwned(hasActivePanel: true)
+    var restorations: [PhonePanelPowerSnapshot] = []
+    var oldGenerationFailure: ((String) -> Void)?
+    func snapshot() async throws -> PhonePanelPowerSnapshot { current }
+    func panelPower() async throws -> PhonePanelPowerState { current.hasActivePanel ? .on : .off }
+    func start() async throws { }
+    func setPanelPower(on: Bool) async throws {
+        if case .physical = current { current = try .init(validating: [.init(id: "17", on: false), .init(id: "22", on: on)]) }
+        else { oldGenerationFailure = failureHandler; current = .remotelyOwned(hasActivePanel: on) }
+    }
+    func restorePanelSnapshot(_ snapshot: PhonePanelPowerSnapshot) async throws {
+        guard snapshot == initial else { throw NSError(domain: "wrong-backend-initial-snapshot", code: 1) }
+        restorations.append(snapshot); current = snapshot
+    }
+    func stop() async throws { current = initial }
+    func useRoute(serial: String) async throws -> PhoneDisplayPowerRouteChange {
+        try await restorePanelSnapshot(initial); try await stop()
+        initial = physicalInitial; current = initial
+        return .rebased
+    }
 }
 
 @main
@@ -45,6 +89,36 @@ private enum PhoneDisplayPrivacySpec {
         try expect(PhonePanelPowerParser.parse("Display 1 (HWC display 0): inventory only\nVirtual Display 2: inventory\nDisplays (2 entries)\nDisplay 1\n connectionType=Internal\n powerMode=OFF\nVirtual Display 2\n name=\"scrcpy\"\n powerMode=ON") == .off, "HWC inventory and actual state merge by display ID")
         try expect(PhonePanelPowerParser.parse("Display 1 (HWC display 0): inventory only\nDisplay 3\n connectionType=Internal\n powerMode=ON") == .unknown, "identified physical display without state stays unknown")
         try expect(PhonePanelPowerParser.parse("Display 1\n connectionType=Internal\n powerMode=ON\nDisplay 2\n connectionType=Internal\n powerMode=OFF") == .unknown, "mixed physical panels require per-panel restoration")
+        let folded = PrivacyPowerFixture(); folded.panel = .unknown
+        let mixedPanels = try PhonePanelPowerSnapshot(validating: [.init(id: "17", on: false), .init(id: "22", on: true)])
+        folded.detailed = mixedPanels; folded.originalDetailed = mixedPanels
+        let foldedPrivacy = PhoneDisplayPrivacyCoordinator(makeOwner: { _ in folded })
+        let foldedLease = UUID()
+        foldedPrivacy.acquireLease(deviceID: "fold", leaseID: foldedLease)
+        foldedPrivacy.setEnabled(true, deviceID: "fold", serial: "fold-usb")
+        await foldedPrivacy.waitForSettlement(deviceID: "fold")
+        try expect(folded.writes == [false] && folded.detailed?.isAllOff == true, "mixed folded panels must hide without declaring the snapshot unknown")
+        foldedPrivacy.releaseLease(deviceID: "fold", leaseID: foldedLease)
+        await foldedPrivacy.waitForSettlement(deviceID: "fold")
+        try expect(folded.restoredDetailed == [mixedPanels] && folded.detailed == mixedPanels && folded.stops == 1,
+            "Fold cleanup must restore the exact initial OFF/ON mixture, never both ON")
+        let changing = BackendChangingPrivacyFixture()
+        let routePrivacy = PhoneDisplayPrivacyCoordinator(makeOwner: { _ in changing }), routeLease = UUID()
+        routePrivacy.acquireLease(deviceID: "route", leaseID: routeLease)
+        routePrivacy.setEnabled(true, deviceID: "route", serial: "shell")
+        await routePrivacy.waitForSettlement(deviceID: "route")
+        routePrivacy.setManualPower(on: true, deviceID: "route", serial: "adb")
+        await routePrivacy.waitForSettlement(deviceID: "route")
+        try expect(routePrivacy.status(deviceID: "route") == .visible, "A settled backend change lost the manual visible override")
+        changing.oldGenerationFailure?("retired shell owner callback")
+        try expect(routePrivacy.status(deviceID: "route") == .visible, "Retired route failure contaminated the fresh owner generation")
+        routePrivacy.setEnabled(true, deviceID: "route", serial: "adb")
+        await routePrivacy.waitForSettlement(deviceID: "route")
+        routePrivacy.releaseLease(deviceID: "route", leaseID: routeLease)
+        await routePrivacy.waitForSettlement(deviceID: "route")
+        try expect(changing.restorations == [.remotelyOwned(hasActivePanel: true), changing.physicalInitial],
+            "Route rebase restored the obsolete shell summary into a physical snapshot owner")
+        try expect(routePrivacy.status(deviceID: "route") == .waitingForSession, "Settled route rebase left restoration permanently failed")
         let fixture = PrivacyPowerFixture()
         let coordinator = PhoneDisplayPrivacyCoordinator(makeOwner: { _ in fixture })
         try expect(coordinator.status(deviceID: "phone") == .waitingForSession, "default enabled waits for a media session")

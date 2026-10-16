@@ -170,7 +170,7 @@ public  final class CameraStatus extends
    * @param value The retryable to set.
    */
   private void setRetryable(boolean value) {
-    
+
     retryable_ = value;
   }
   /**
@@ -528,4 +528,3 @@ public  final class CameraStatus extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

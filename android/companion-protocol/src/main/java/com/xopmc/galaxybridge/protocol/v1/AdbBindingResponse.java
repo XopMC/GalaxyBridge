@@ -83,7 +83,7 @@ public  final class AdbBindingResponse extends
    */
   private void setNonce(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     nonce_ = value;
   }
   /**
@@ -110,7 +110,7 @@ public  final class AdbBindingResponse extends
    */
   private void setIdentityPublicKey(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     identityPublicKey_ = value;
   }
   /**
@@ -137,7 +137,7 @@ public  final class AdbBindingResponse extends
    */
   private void setSignature(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     signature_ = value;
   }
   /**
@@ -455,4 +455,3 @@ public  final class AdbBindingResponse extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

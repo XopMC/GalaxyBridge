@@ -270,6 +270,11 @@ final class DeviceInputNSView: NSView, @preconcurrency NSTextInputClient {
             return
         }
 
+        // A fallback release belongs only to the last phase-less event.
+        // Fresh phased input must not inherit its pending UP.
+        trackpadReleaseWorkItem?.cancel()
+        trackpadReleaseWorkItem = nil
+
         if event.momentumPhase != [] {
             if trackpadSequenceActive { finishTrackpadGesture(cancelled: false) }
             return

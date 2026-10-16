@@ -176,7 +176,7 @@ public  final class NotificationAction extends
    * @param value The dismiss to set.
    */
   private void setDismiss(boolean value) {
-    
+
     dismiss_ = value;
   }
   /**
@@ -673,4 +673,3 @@ public  final class NotificationAction extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

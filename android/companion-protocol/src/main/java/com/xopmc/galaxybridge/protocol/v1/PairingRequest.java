@@ -37,7 +37,7 @@ public  final class PairingRequest extends
    */
   private void setOneTimeToken(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     oneTimeToken_ = value;
   }
   /**
@@ -64,7 +64,7 @@ public  final class PairingRequest extends
    */
   private void setIdentityPublicKey(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     identityPublicKey_ = value;
   }
   /**
@@ -138,7 +138,7 @@ public  final class PairingRequest extends
    */
   private void setClientNonce(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     clientNonce_ = value;
   }
   /**
@@ -165,7 +165,7 @@ public  final class PairingRequest extends
    */
   private void setTranscriptSignature(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     transcriptSignature_ = value;
   }
   /**
@@ -512,4 +512,3 @@ public  final class PairingRequest extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

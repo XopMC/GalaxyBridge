@@ -362,3 +362,31 @@
 "NOTIFICATION_MORE_ACTIONS" = "Más acciones";
 "NEARBY_WIFI_CONCURRENCY_HINT" = "Esta combinación de Wi-Fi del teléfono y conexión directa no está verificada o no es compatible. Usa USB o una red local compartida.";
 "INTERNET_OFF" = "Desactivado";
+
+"DISCOVERY_NEARBY_TITLE" = "Teléfonos cercanos";
+
+"DISCOVERY_UNTRUSTED_HINT" = "Escanea el código en Galaxy Bridge Helper para confirmar el teléfono.";
+
+"DISCOVERY_GENERIC_PHONE" = "Teléfono Android";
+
+"DISCOVERY_ADD_PHONE" = "Añadir teléfono";
+
+"DEVICE_FEATURES_TITLE" = "Funciones del teléfono";
+
+"DEVICE_FEATURES_BODY" = "Elige qué comparte este teléfono con el Mac. La cámara e internet solo se activan cuando lo pidas.";
+
+"DEVICE_FEATURES_PENDING" = "Guardado en este Mac. Se enviará cuando el teléfono se conecte.";
+
+"DEVICE_FEATURES_APPLYING" = "Aplicando ajustes en este teléfono…";
+
+"DEVICE_FEATURES_APPLIED" = "Ajustes aplicados en este teléfono.";
+
+"DEVICE_FEATURES_UPDATE_PHONE" = "Los controles del Mac están activos. Actualiza la app del teléfono para aplicar los ajustes también allí.";
+
+"DEVICE_FEATURES_FAILED" = "Guardado en el Mac. Vuelve a conectar para aplicar los ajustes al teléfono.";
+
+"FEATURE_INTERNET" = "Compartir internet";
+
+"FEATURE_DISABLED" = "Esta función está desactivada para este teléfono.";
+
+"NEARBY_LOCATION_PERMISSION_HINT" = "Para conectar teléfonos cercanos, permite que Galaxy Bridge use la ubicación en Ajustes del Sistema → Privacidad y seguridad → Localización.";

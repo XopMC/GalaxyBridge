@@ -12,6 +12,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CompanionControlPayloadPolicyTest {
+    @Test fun featurePolicyIsAnAdditiveControlPayloadWithAnExplicitAllOffList() {
+        val request = Envelope.newBuilder().setFeatureConfigurationRequest(
+            com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest.newBuilder()
+                .setRequestId("c6ae882b-f502-46f0-a40d-44b8e207e022").setTargetDeviceId("phone").setRevision(9),
+        ).build()
+        val decoded = Envelope.parseFrom(request.toByteArray())
+        assertEquals(44, decoded.payloadCase.number)
+        assertTrue(decoded.featureConfigurationRequest.enabledFeatureIdsList.isEmpty())
+        assertEquals(CompanionControlPayloadKind.FEATURE_CONFIGURATION, CompanionControlPayloadPolicy.classify(decoded))
+        val receipt = Envelope.newBuilder().setFeatureConfigurationResult(
+            com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult.newBuilder().setAccepted(true).setRevision(9),
+        ).build()
+        assertEquals(45, Envelope.parseFrom(receipt.toByteArray()).payloadCase.number)
+        assertEquals(17, com.xopmc.galaxybridge.protocol.v1.Capability.CAPABILITY_FEATURE_CONFIGURATION.number)
+    }
+
     @Test
     fun transferCancelUsesAdditiveWireTagAndRoutesToFileReceiver() {
         val request = Envelope.newBuilder().setTransferCancel(

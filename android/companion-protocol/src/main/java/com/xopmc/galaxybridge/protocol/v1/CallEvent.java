@@ -218,7 +218,7 @@ public  final class CallEvent extends
    * @param value The incoming to set.
    */
   private void setIncoming(boolean value) {
-    
+
     incoming_ = value;
   }
   /**
@@ -244,7 +244,7 @@ public  final class CallEvent extends
    * @param value The timestampUnixMs to set.
    */
   private void setTimestampUnixMs(long value) {
-    
+
     timestampUnixMs_ = value;
   }
   /**
@@ -270,7 +270,7 @@ public  final class CallEvent extends
    * @param value The durationSeconds to set.
    */
   private void setDurationSeconds(int value) {
-    
+
     durationSeconds_ = value;
   }
   /**
@@ -296,7 +296,7 @@ public  final class CallEvent extends
    * @param value The history to set.
    */
   private void setHistory(boolean value) {
-    
+
     history_ = value;
   }
   /**
@@ -791,4 +791,3 @@ public  final class CallEvent extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

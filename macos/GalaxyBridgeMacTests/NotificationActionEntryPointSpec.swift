@@ -2,7 +2,22 @@ import Foundation
 
 @main
 enum NotificationActionEntryPointSpec {
-    @MainActor static func main() {
+    @MainActor static func main() throws {
+        let featureRoot = FileManager.default.temporaryDirectory.appendingPathComponent("gb-notification-policy-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: featureRoot) }
+        let policy = AppModel(featureStorageURL: featureRoot.appendingPathComponent("choices.json"))
+        let first = "device:" + UUID().uuidString.lowercased(), second = "device:" + UUID().uuidString.lowercased()
+        try policy.clientSetup.saveSelection(deviceID: first, features: Set(ClientSetupFeature.shippingFeatures).subtracting([.notifications]))
+        policy.control = CompanionTLSClient()
+        precondition(!policy.canSendNotificationAction(deviceID: first))
+        precondition(!policy.performNotificationAction(deviceID: first, notificationID: "off", actionID: "0", reply: "must not retain"))
+        precondition(policy.notificationActions.entries.isEmpty && policy.notificationActions.pending.isEmpty && policy.control?.sent.isEmpty == true,
+            "Notifications OFF must reject native reply storage and transport before either admission")
+        precondition(policy.canSendNotificationAction(deviceID: second))
+        precondition(policy.performNotificationAction(deviceID: second, notificationID: "on", actionID: "0", reply: "second phone retained"))
+        precondition(policy.notificationActionEntry(deviceID: second, notificationID: "on", actionID: "0").draft == "second phone retained")
+        precondition(policy.notificationActions.pending.count == 1 && policy.control?.sent.count == 1,
+            "Another phone's notification policy must remain independent")
         let model = AppModel()
         let text = "Synthetic native reply — ответ42"
         // Native Notification Center never called setNotificationReply first.
@@ -56,6 +71,6 @@ enum NotificationActionEntryPointSpec {
         precondition(!full.performNotificationAction(deviceID: "phone", notificationID: "overflow", actionID: "0", reply: text, composeID: "native-overflow"))
         precondition(full.notificationActions.entries.count == 512 && full.notificationActions.pending.isEmpty)
         precondition(full.notificationActions.entries.values.allSatisfy { $0.draft == "preserved" }, "Full admission cannot evict unsent input")
-        print("PASS actual notification submission: offline/generationless native input, visible retained editor, independent native/in-app ABA drafts, busy admission, native acceptance isolation, bounded capacity")
+        print("PASS actual notification submission: real per-phone feature policy blocks disabled draft storage/send, independent second phone, offline/generationless native input, visible retained editor, independent native/in-app ABA drafts, busy admission, native acceptance isolation, bounded capacity")
     }
 }

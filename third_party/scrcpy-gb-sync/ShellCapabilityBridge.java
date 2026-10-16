@@ -12,7 +12,6 @@ import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.system.Os;
 import android.system.OsConstants;
-import com.genymobile.scrcpy.device.Device;
 import com.genymobile.scrcpy.wrappers.ClipboardContentResolver;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -335,7 +334,8 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             int operation = (int) operationValue;
             if (operation == 0) {
                 if (!leaseID.isEmpty() && !canonicalUUID(leaseID)) throw new IllegalArgumentException();
-                response = result(id, leaseID, !leaseID.isEmpty() && !leases.containsKey(leaseID) ? "stopped" : panelState(), "", Collections.emptyList());
+                response = result(id, leaseID, !leaseID.isEmpty() && !leases.containsKey(leaseID) ? "stopped" :
+                    readOnlyPanelStatus(() -> panelState()), "", Collections.emptyList());
             } else if (operation == 4) {
                 if (!canonicalUUID(leaseID)) throw new IllegalArgumentException();
                 Lease lease = leases.get(leaseID);
@@ -355,7 +355,7 @@ public final class ShellCapabilityBridge implements AutoCloseable {
                     try { lease.start(); } catch (Exception failure) { lease.retire(); leases.remove(leaseID); throw failure; }
                 } else if (lease.stopped.get() || !lease.policy.equivalent(policy)) throw new IllegalArgumentException();
                 if (operation == 3) lease.power(request.optBoolean("power_on"));
-                response = result(id, leaseID, operation == 3 ? panelState() : "ready", "", policy.streams());
+                response = result(id, leaseID, operation == 3 ? lease.panelCurrentState : "ready", "", policy.streams());
             }
         } catch (Exception failure) { response = result(id, leaseID, "failed", "shell_operation_failed", Collections.emptyList()); }
         if (receipts.size() >= 512) receipts.remove(receipts.keySet().iterator().next());
@@ -407,7 +407,13 @@ public final class ShellCapabilityBridge implements AutoCloseable {
         final AtomicBoolean stopped = new AtomicBoolean();
         final StreamOrder streamOrder;
         Process panel;
-        String initialPanel;
+        final ArrayBlockingQueue<String> panelReplies = new ArrayBlockingQueue<>(4);
+        volatile boolean panelReplyOverflow;
+        Map<String, Boolean> initialPanels;
+        int panelPID;
+        String panelStartTime;
+        String panelCurrentState;
+        boolean panelFailureRestored;
         Lease(Policy policy) {
             this.policy = policy;
             streamOrder = new StreamOrder(policy.operation == 2 ? Collections.singletonList("control") :
@@ -417,9 +423,8 @@ public final class ShellCapabilityBridge implements AutoCloseable {
         String clipboardName() { return String.format(Locale.ROOT, "gb_clip_%08x", policy.scid); }
         void start() throws Exception {
             if (policy.operation == 3) {
-                String initial = panelState(); initialPanel = initial;
-                if (initial.equals("panel_unknown")) throw new IOException("panel_unknown");
-                panel = spawn("panel", new String[] { initial.equals("panel_on") ? "true" : "false" });
+                panel = spawn("panel", new String[0]);
+                panelReply(); // The child owns the exact mixed physical snapshot.
             } else {
                 spawn("scrcpy", policy.serverArguments());
                 if (policy.operation == 2) spawn("clipboard", new String[] { clipboardName() });
@@ -446,9 +451,10 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             List<String> args = new ArrayList<>(Arrays.asList("/system/bin/app_process", "/", "com.genymobile.scrcpy.ShellCapabilityBridge$ChildMain", mode));
             args.addAll(Arrays.asList(arguments));
             ProcessBuilder builder = new ProcessBuilder(args); builder.environment().put("CLASSPATH", owned.getPath());
-            builder.redirectErrorStream(true);
+            if (mode.equals("panel")) builder.redirectError(new File("/dev/null"));
+            else builder.redirectErrorStream(true);
             Process child = builder.start(); children.add(child);
-            Thread drain = new Thread(() -> drainAnnouncements(child), "gb-shell-owned-output"); drain.setDaemon(true); drain.start();
+            Thread drain = new Thread(() -> drainAnnouncements(child, mode.equals("panel")), "gb-shell-owned-output"); drain.setDaemon(true); drain.start();
             timer.schedule(() -> { if (opened.isEmpty() && !stopped.get() && policy.operation != 3) {
                 synchronized (ShellCapabilityBridge.this) { try { retire(); leases.remove(policy.lease); } catch (Exception ignored) {} }
             } }, 15, TimeUnit.SECONDS);
@@ -457,24 +463,59 @@ public final class ShellCapabilityBridge implements AutoCloseable {
         void power(boolean on) throws Exception {
             if (panel == null || !panel.isAlive()) throw new IOException("panel_owner_gone");
             panel.getOutputStream().write(on ? 1 : 0); panel.getOutputStream().flush();
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
-            while (System.nanoTime() < deadline) {
-                if (panelState().equals(on ? "panel_on" : "panel_off")) return;
-                Thread.sleep(50);
-            }
-            throw new IOException("panel_unconfirmed");
+            panelReply();
+            if (!(on ? Arrays.asList("panel_on", "panel_multi_on") : Arrays.asList("panel_off", "panel_multi_off")).contains(panelCurrentState))
+                throw new IOException("panel_unconfirmed");
         }
-        void drainAnnouncements(Process child) {
+        Map<String, Boolean> panelStates(JSONArray array) throws Exception {
+            if (array.length() < 1 || array.length() > DisplayPowerController.MAX_PANELS) throw new IOException("panel_reply_invalid");
+            Map<String, Boolean> states = new LinkedHashMap<>();
+            for (int index = 0; index < array.length(); ++index) {
+                JSONObject value = array.getJSONObject(index);
+                if (value.length() != 2 || !(value.get("id") instanceof String) || !(value.get("on") instanceof Boolean))
+                    throw new IOException("panel_reply_invalid");
+                String id = value.getString("id");
+                if (!DisplayPowerController.validID(id) || states.put(id, value.getBoolean("on")) != null) throw new IOException("panel_reply_invalid");
+            }
+            return states;
+        }
+        void panelReply() throws Exception {
+            String line = panelReplies.poll(8, TimeUnit.SECONDS);
+            if (line == null || panelReplyOverflow) throw new IOException("panel_reply_unavailable");
+            JSONObject reply = new JSONObject(line);
+            Object version = reply.get("version");
+            if (reply.length() != 7 || !(version instanceof Integer || version instanceof Long) || ((Number) version).longValue() != 1 || !(reply.get("ok") instanceof Boolean) ||
+                !(reply.get("startTime") instanceof String) || !(reply.get("error") instanceof String)) throw new IOException("panel_reply_invalid");
+            Object rawPID = reply.get("pid");
+            if (!(rawPID instanceof Integer || rawPID instanceof Long) || ((Number) rawPID).longValue() < 1 ||
+                ((Number) rawPID).longValue() > Integer.MAX_VALUE) throw new IOException("panel_reply_invalid");
+            int pid = ((Number) rawPID).intValue(); String start = reply.getString("startTime"), error = reply.getString("error");
+            if (!start.matches("[1-9][0-9]{0,19}") || !error.matches("[a-z_]{0,64}")) throw new IOException("panel_reply_invalid");
+            if (panelPID != 0 && (panelPID != pid || !panelStartTime.equals(start))) throw new IOException("panel_identity_changed");
+            if (!reply.getBoolean("ok") && initialPanels == null) throw new IOException(error.isEmpty() ? "panel_unavailable" : error);
+            Map<String, Boolean> initial = panelStates(reply.getJSONArray("initial")), current = panelStates(reply.getJSONArray("current"));
+            if (!initial.keySet().equals(current.keySet()) || (initialPanels != null && !initialPanels.equals(initial))) throw new IOException("panel_snapshot_changed");
+            if (initialPanels == null) {
+                if (!initial.equals(current)) throw new IOException("panel_snapshot_changed");
+                initialPanels = initial; panelPID = pid; panelStartTime = start;
+            }
+            panelCurrentState = new DisplayPowerController.Frame(current, current.keySet().iterator().next()).state();
+            panelFailureRestored = !reply.getBoolean("ok") && error.equals("panel_operation_failed_restored") && current.equals(initialPanels);
+            if (!reply.getBoolean("ok") || !error.isEmpty()) throw new IOException(error.isEmpty() ? "panel_unconfirmed" : error);
+        }
+        void drainAnnouncements(Process child, boolean panelChild) {
             try (InputStream input = child.getInputStream()) {
                 ByteArrayOutputStream line = new ByteArrayOutputStream(); boolean overflow = false;
                 int b;
                 while ((b = input.read()) != -1) {
                     if (b == '\n') {
                         String value = new String(line.toByteArray(), StandardCharsets.UTF_8);
-                        if (!overflow && value.matches("\\[server\\] INFO: New display: [0-9]+x[0-9]+/[0-9]+ \\(id=[0-9]+\\)"))
+                        if (panelChild) {
+                            if (overflow || !panelReplies.offer(value)) panelReplyOverflow = true;
+                        } else if (!overflow && value.matches("\\[server\\] INFO: New display: [0-9]+x[0-9]+/[0-9]+ \\(id=[0-9]+\\)"))
                             announcements.offer((value + "\n").getBytes(StandardCharsets.UTF_8));
                         line.reset(); overflow = false;
-                    } else if (line.size() < 1024) line.write(b); else overflow = true;
+                    } else if (line.size() < (panelChild ? DisplayPowerController.MAX_REPLY_BYTES : 1024)) line.write(b); else overflow = true;
                 }
             } catch (IOException ignored) {}
         }
@@ -499,10 +540,10 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             // CleanUp is independently surviving: exact unique CLASSPATH plus
             // class + PID/start identity must disappear before allowing reuse.
             for (File owned : jars) awaitCleanup(owned, deadline);
-            if (policy.operation == 3 && !panelState().equals(initialPanel)) {
-                if (!Device.setDisplayPower(0, initialPanel.equals("panel_on")) || !panelState().equals(initialPanel))
-                    throw new IOException("panel_restore_unconfirmed");
-            }
+            // The child exits0 only after confirmed exact per-panel restoration.
+            // An operation error can also prove rollback explicitly in its ack.
+            if (policy.operation == 3 && panel != null && initialPanels != null && panel.exitValue() != 0 && !panelFailureRestored)
+                throw new IOException("panel_restore_unconfirmed");
             for (File owned : jars) owned.delete();
         }
     }
@@ -529,9 +570,8 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             detachSession();
             String mode = args[0]; String[] values = Arrays.copyOfRange(args, 1, args.length);
             if (mode.equals("panel")) {
-                if (values.length != 1 || !(values[0].equals("true") || values[0].equals("false"))) return;
-                if (Looper.myLooper() == null) Looper.prepare(); Workarounds.apply();
-                panelLifetime(System.in, Boolean.parseBoolean(values[0]), on -> Device.setDisplayPower(0, on));
+                if (values.length != 0) return;
+                DisplayPowerController.main(values);
             } else if (mode.equals("scrcpy") || mode.equals("clipboard")) {
                 Thread lifetime = new Thread(() -> { try { while (System.in.read() != -1) {} } catch (IOException ignored) {}
                     System.exit(0); }, "gb-shell-parent-lifetime"); lifetime.setDaemon(true); lifetime.start();
@@ -674,22 +714,17 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             return Integer.parseInt(line.substring(line.lastIndexOf(':') + 1));
         return -1;
     }
+    interface PanelStatusProbe { String read() throws Exception; }
+    static String readOnlyPanelStatus(PanelStatusProbe probe) {
+        // General STATUS attests the broker, not physical-power support. A
+        // private-API/DOZE/read failure must not disable clipboard/app capture.
+        try {
+            String state = probe.read();
+            return Arrays.asList("panel_on", "panel_off", "panel_multi_on", "panel_multi_off").contains(state) ? state : "panel_unknown";
+        } catch (Exception | LinkageError | AssertionError unavailable) { return "panel_unknown"; }
+    }
     private static String panelState() throws Exception {
-        String output = fixedRead("/system/bin/dumpsys", "SurfaceFlinger");
-        Map<String, String> states = new HashMap<>(); Set<String> physical = new HashSet<>(); String current = null; boolean virtual = false;
-        for (String raw : output.split("\n")) {
-            String line = raw.trim();
-            if (line.matches("(?:Virtual )?Display [0-9]+\\b.*")) {
-                virtual = line.startsWith("Virtual "); String[] fields = line.split("\\s+");
-                current = fields[virtual ? 2 : 1].replaceAll("[^0-9].*$", "");
-                if (!virtual && line.contains("HWC display")) physical.add(current);
-            } else if (current != null && !virtual && line.equals("connectionType=Internal")) physical.add(current);
-            else if (current != null && !virtual && line.startsWith("powerMode=")) states.put(current, line.substring(10).trim());
-        }
-        if (physical.isEmpty()) return "panel_unknown";
-        boolean on = true, off = true;
-        for (String id : physical) { on &= "ON".equals(states.get(id)); off &= "OFF".equals(states.get(id)); }
-        return on ? "panel_on" : off ? "panel_off" : "panel_unknown";
+        return DisplayPowerController.runtimeFrame().state();
     }
     private static void awaitCleanup(File jar, long deadline) throws Exception {
         while (true) {

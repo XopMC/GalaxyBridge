@@ -170,7 +170,7 @@ public  final class OpenChannel extends
    * @param value The displayId to set.
    */
   private void setDisplayId(int value) {
-    
+
     displayId_ = value;
   }
   /**
@@ -196,7 +196,7 @@ public  final class OpenChannel extends
    * @param value The epoch to set.
    */
   private void setEpoch(int value) {
-    
+
     epoch_ = value;
   }
   /**
@@ -583,4 +583,3 @@ public  final class OpenChannel extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

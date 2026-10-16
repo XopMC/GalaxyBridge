@@ -79,7 +79,7 @@ public interface NotificationEventOrBuilder extends
   /**
    * <code>repeated .galaxybridge.v1.NotificationActionDescriptor actions = 7;</code>
    */
-  java.util.List<com.xopmc.galaxybridge.protocol.v1.NotificationActionDescriptor> 
+  java.util.List<com.xopmc.galaxybridge.protocol.v1.NotificationActionDescriptor>
       getActionsList();
   /**
    * <code>repeated .galaxybridge.v1.NotificationActionDescriptor actions = 7;</code>

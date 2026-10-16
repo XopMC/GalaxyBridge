@@ -18,7 +18,8 @@ bridge_platform="$bridge_sdk/platforms/${GB_ANDROID_PLATFORM:-android-37.0}/andr
 bridge_lambda="$bridge_sdk/build-tools/${GB_ANDROID_BUILD_TOOLS:-37.0.0}/core-lambda-stubs.jar"
 # Compile the real runtime against Android's bootclasspath, not JDK-only APIs.
 "$bridge_jdk/bin/javac" -source 8 -target 8 -Xlint:-options -bootclasspath "$bridge_platform" \
-  -cp "$bridge_classes:$bridge_lambda" -d "$bridge_tmp" "$bridge_root/third_party/scrcpy-gb-sync/ShellCapabilityBridge.java"
+  -cp "$bridge_classes:$bridge_lambda" -d "$bridge_tmp" "$bridge_root/third_party/scrcpy-gb-sync/DisplayPowerController.java" \
+  "$bridge_root/third_party/scrcpy-gb-sync/ShellCapabilityBridge.java"
 "$bridge_jdk/bin/javac" -source 8 -target 8 -Xlint:-options \
   -cp "$bridge_tmp:$bridge_platform:$bridge_classes" -d "$bridge_tmp" \
   "$bridge_root/third_party/scrcpy-gb-sync/ShellCapabilityBridgePolicyTest.java"

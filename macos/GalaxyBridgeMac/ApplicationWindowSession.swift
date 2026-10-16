@@ -19,6 +19,7 @@ final class ApplicationWindowSession: ObservableObject {
     private let target: ScrcpyApplicationTarget
     private let companionTextHandler: @MainActor (String) -> Bool
     private let companionKeyHandler: @MainActor (Bool, UInt32, UInt32, UInt32) -> Bool
+    private let clipboardEnabled: @MainActor () -> Bool
     private let companionClipboardHandler: @MainActor (EnhancedClipboardOperation) -> Bool
     private var reconnectBackoff = ReconnectBackoff()
     private var reconnectTask: Task<Void, Never>?
@@ -36,6 +37,7 @@ final class ApplicationWindowSession: ObservableObject {
         companionKeyHandler: @escaping @MainActor (Bool, UInt32, UInt32, UInt32) -> Bool,
         companionClipboardHandler: @escaping @MainActor (EnhancedClipboardOperation) -> Bool,
         clipboardEventHandler: @escaping @MainActor @Sendable (ScrcpyClipboardUpdate) -> Void,
+        clipboardEnabled: @escaping @MainActor () -> Bool = { true },
         freshFramePresentationReceipt: (@MainActor () -> (@MainActor @Sendable () -> Void)?)? = nil,
         shellProvider: ShellCapabilityBridgeProvider? = nil
     ) throws {
@@ -43,11 +45,13 @@ final class ApplicationWindowSession: ObservableObject {
         self.companionTextHandler = companionTextHandler
         self.companionKeyHandler = companionKeyHandler
         self.companionClipboardHandler = companionClipboardHandler
+        self.clipboardEnabled = clipboardEnabled
         target = try ScrcpyApplicationTarget(packageName: application.packageName)
         scrcpy = ScrcpySession(
             serial: serial,
             adb: adb,
             physicalDisplayPolicy: .leaveUnchanged,
+            clipboardPollingEnabled: false,
             quicSelection: quicSelection,
             shellProvider: shellProvider
         )
@@ -261,6 +265,7 @@ final class ApplicationWindowSession: ObservableObject {
 
     @discardableResult
     func requestRemoteClipboard(_ command: RemoteClipboardCommand) -> Bool {
+        guard clipboardEnabled() else { return false }
         let operation: EnhancedClipboardOperation = command == .cut ? .cut : .copy
         EnhancedClipboardRequestDispatcher.request(
             operation,

@@ -56,6 +56,8 @@ public  final class Envelope extends
     DIRECT_LINK_STATUS(41),
     SHELL_BRIDGE_REQUEST(42),
     SHELL_BRIDGE_RESULT(43),
+    FEATURE_CONFIGURATION_REQUEST(44),
+    FEATURE_CONFIGURATION_RESULT(45),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -105,6 +107,8 @@ public  final class Envelope extends
         case 41: return DIRECT_LINK_STATUS;
         case 42: return SHELL_BRIDGE_REQUEST;
         case 43: return SHELL_BRIDGE_RESULT;
+        case 44: return FEATURE_CONFIGURATION_REQUEST;
+        case 45: return FEATURE_CONFIGURATION_RESULT;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -141,7 +145,7 @@ public  final class Envelope extends
    * @param value The protocolMajor to set.
    */
   private void setProtocolMajor(int value) {
-    
+
     protocolMajor_ = value;
   }
   /**
@@ -167,7 +171,7 @@ public  final class Envelope extends
    * @param value The protocolMinor to set.
    */
   private void setProtocolMinor(int value) {
-    
+
     protocolMinor_ = value;
   }
   /**
@@ -287,7 +291,7 @@ public  final class Envelope extends
    * @param value The messageId to set.
    */
   private void setMessageId(long value) {
-    
+
     messageId_ = value;
   }
   /**
@@ -1993,6 +1997,106 @@ public  final class Envelope extends
    */
   private void clearShellBridgeResult() {
     if (payloadCase_ == 43) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int FEATURE_CONFIGURATION_REQUEST_FIELD_NUMBER = 44;
+  /**
+   * <code>.galaxybridge.v1.FeatureConfigurationRequest feature_configuration_request = 44;</code>
+   */
+  @java.lang.Override
+  public boolean hasFeatureConfigurationRequest() {
+    return payloadCase_ == 44;
+  }
+  /**
+   * <code>.galaxybridge.v1.FeatureConfigurationRequest feature_configuration_request = 44;</code>
+   */
+  @java.lang.Override
+  public com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest getFeatureConfigurationRequest() {
+    if (payloadCase_ == 44) {
+       return (com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest) payload_;
+    }
+    return com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest.getDefaultInstance();
+  }
+  /**
+   * <code>.galaxybridge.v1.FeatureConfigurationRequest feature_configuration_request = 44;</code>
+   */
+  private void setFeatureConfigurationRequest(com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 44;
+  }
+  /**
+   * <code>.galaxybridge.v1.FeatureConfigurationRequest feature_configuration_request = 44;</code>
+   */
+  private void mergeFeatureConfigurationRequest(com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 44 &&
+        payload_ != com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest.getDefaultInstance()) {
+      payload_ = com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest.newBuilder((com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 44;
+  }
+  /**
+   * <code>.galaxybridge.v1.FeatureConfigurationRequest feature_configuration_request = 44;</code>
+   */
+  private void clearFeatureConfigurationRequest() {
+    if (payloadCase_ == 44) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int FEATURE_CONFIGURATION_RESULT_FIELD_NUMBER = 45;
+  /**
+   * <code>.galaxybridge.v1.FeatureConfigurationResult feature_configuration_result = 45;</code>
+   */
+  @java.lang.Override
+  public boolean hasFeatureConfigurationResult() {
+    return payloadCase_ == 45;
+  }
+  /**
+   * <code>.galaxybridge.v1.FeatureConfigurationResult feature_configuration_result = 45;</code>
+   */
+  @java.lang.Override
+  public com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult getFeatureConfigurationResult() {
+    if (payloadCase_ == 45) {
+       return (com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult) payload_;
+    }
+    return com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult.getDefaultInstance();
+  }
+  /**
+   * <code>.galaxybridge.v1.FeatureConfigurationResult feature_configuration_result = 45;</code>
+   */
+  private void setFeatureConfigurationResult(com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 45;
+  }
+  /**
+   * <code>.galaxybridge.v1.FeatureConfigurationResult feature_configuration_result = 45;</code>
+   */
+  private void mergeFeatureConfigurationResult(com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 45 &&
+        payload_ != com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult.getDefaultInstance()) {
+      payload_ = com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult.newBuilder((com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 45;
+  }
+  /**
+   * <code>.galaxybridge.v1.FeatureConfigurationResult feature_configuration_result = 45;</code>
+   */
+  private void clearFeatureConfigurationResult() {
+    if (payloadCase_ == 45) {
       payloadCase_ = 0;
       payload_ = null;
     }
@@ -3921,6 +4025,102 @@ public  final class Envelope extends
       return this;
     }
 
+    /**
+     * <code>.galaxybridge.v1.FeatureConfigurationRequest feature_configuration_request = 44;</code>
+     */
+    @java.lang.Override
+    public boolean hasFeatureConfigurationRequest() {
+      return instance.hasFeatureConfigurationRequest();
+    }
+    /**
+     * <code>.galaxybridge.v1.FeatureConfigurationRequest feature_configuration_request = 44;</code>
+     */
+    @java.lang.Override
+    public com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest getFeatureConfigurationRequest() {
+      return instance.getFeatureConfigurationRequest();
+    }
+    /**
+     * <code>.galaxybridge.v1.FeatureConfigurationRequest feature_configuration_request = 44;</code>
+     */
+    public Builder setFeatureConfigurationRequest(com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest value) {
+      copyOnWrite();
+      instance.setFeatureConfigurationRequest(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.FeatureConfigurationRequest feature_configuration_request = 44;</code>
+     */
+    public Builder setFeatureConfigurationRequest(
+        com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest.Builder builderForValue) {
+      copyOnWrite();
+      instance.setFeatureConfigurationRequest(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.FeatureConfigurationRequest feature_configuration_request = 44;</code>
+     */
+    public Builder mergeFeatureConfigurationRequest(com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest value) {
+      copyOnWrite();
+      instance.mergeFeatureConfigurationRequest(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.FeatureConfigurationRequest feature_configuration_request = 44;</code>
+     */
+    public Builder clearFeatureConfigurationRequest() {
+      copyOnWrite();
+      instance.clearFeatureConfigurationRequest();
+      return this;
+    }
+
+    /**
+     * <code>.galaxybridge.v1.FeatureConfigurationResult feature_configuration_result = 45;</code>
+     */
+    @java.lang.Override
+    public boolean hasFeatureConfigurationResult() {
+      return instance.hasFeatureConfigurationResult();
+    }
+    /**
+     * <code>.galaxybridge.v1.FeatureConfigurationResult feature_configuration_result = 45;</code>
+     */
+    @java.lang.Override
+    public com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult getFeatureConfigurationResult() {
+      return instance.getFeatureConfigurationResult();
+    }
+    /**
+     * <code>.galaxybridge.v1.FeatureConfigurationResult feature_configuration_result = 45;</code>
+     */
+    public Builder setFeatureConfigurationResult(com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult value) {
+      copyOnWrite();
+      instance.setFeatureConfigurationResult(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.FeatureConfigurationResult feature_configuration_result = 45;</code>
+     */
+    public Builder setFeatureConfigurationResult(
+        com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult.Builder builderForValue) {
+      copyOnWrite();
+      instance.setFeatureConfigurationResult(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.FeatureConfigurationResult feature_configuration_result = 45;</code>
+     */
+    public Builder mergeFeatureConfigurationResult(com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult value) {
+      copyOnWrite();
+      instance.mergeFeatureConfigurationResult(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.FeatureConfigurationResult feature_configuration_result = 45;</code>
+     */
+    public Builder clearFeatureConfigurationResult() {
+      copyOnWrite();
+      instance.clearFeatureConfigurationResult();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:galaxybridge.v1.Envelope)
   }
   @java.lang.Override
@@ -3978,14 +4178,17 @@ public  final class Envelope extends
             com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus.class,
             com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.class,
             com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult.class,
+            com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest.class,
+            com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult.class,
           };
           java.lang.String info =
-              "\u0000\'\u0001\u0000\u0001+\'\u0000\u0000\u0000\u0001\u000b\u0002\u000b\u0003\u0208" +
+              "\u0000)\u0001\u0000\u0001-)\u0000\u0000\u0000\u0001\u000b\u0002\u000b\u0003\u0208" +
               "\u0004\u0208\u0005\u0003\n<\u0000\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f" +
               "<\u0000\u0010<\u0000\u0011<\u0000\u0012<\u0000\u0013<\u0000\u0014<\u0000\u0015<\u0000" +
               "\u0016<\u0000\u0017<\u0000\u0018<\u0000\u0019<\u0000\u001a<\u0000\u001b<\u0000\u001c" +
               "<\u0000\u001d<\u0000\u001e<\u0000\u001f<\u0000 <\u0000!<\u0000\"<\u0000#<\u0000$" +
-              "<\u0000%<\u0000&<\u0000\'<\u0000(<\u0000)<\u0000*<\u0000+<\u0000";
+              "<\u0000%<\u0000&<\u0000\'<\u0000(<\u0000)<\u0000*<\u0000+<\u0000,<\u0000-<\u0000" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
@@ -4039,4 +4242,3 @@ public  final class Envelope extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

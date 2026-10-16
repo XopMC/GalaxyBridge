@@ -144,16 +144,10 @@ class SetupStateResolverTest {
     }
 
     @Test
-    fun firstLaunchAndUnconfirmedChoicesNeverRequestAnyPermission() {
-        for (selection in listOf(SetupSelection(), SetupSelection(setOf(SetupFeature.Camera)))) {
-            val state = SetupStateResolver.resolve(readySnapshot.copy(
-                selection = selection, paired = false, cameraGranted = false,
-                recordAudioGranted = false, postNotificationsGranted = false,
-            ))
-            assertTrue(state.cards.isEmpty())
-            assertTrue(state.runtimeQueue.isEmpty())
-            assertEquals(SetupStage.ChooseFeatures, state.stage)
-        }
+    fun firstLaunchPreparesShippingFunctionsWithoutCheckboxConfirmation() {
+        val selection = SetupSelection()
+        assertTrue(selection.confirmed)
+        assertEquals(SetupFeature.entries.toSet() - SetupFeature.Calls, selection.features)
     }
 
     @Test
@@ -253,7 +247,46 @@ class SetupStateResolverTest {
         assertFalse(empty.confirmed)
         val restored = SetupSelection.restore(empty.savedIDs, true)
         assertFalse(restored.confirmed)
-        assertEquals(SetupStage.ChooseFeatures, SetupStateResolver.resolve(readySnapshot.copy(selection = restored)).stage)
+        assertEquals(SetupStage.CheckOnMac, SetupStateResolver.resolve(readySnapshot.copy(selection = restored)).stage)
+    }
+
+    @Test
+    fun initialRuntimeQueueUsesOnlyPermissionsAvailableOnEachAndroidVersion() {
+        for (api in listOf(31, 34, 36, 37)) {
+            val state = SetupStateResolver.resolve(readySnapshot.copy(
+                apiLevel = api, selection = SetupSelection.defaultForDistribution("direct"),
+                connectionPath = SetupConnectionPath.FullMac, nearbyDevicesGranted = false,
+                localNetworkGranted = false, postNotificationsGranted = false,
+                cameraGranted = false, recordAudioGranted = false, accessibilityEnabled = false,
+            ))
+            val expected = buildList {
+                add(SetupAction.NearbyDevicesPermission)
+                if (api >= 37) add(SetupAction.LocalNetworkPermission)
+                if (api >= 33) add(SetupAction.PostNotificationsPermission)
+                add(SetupAction.CameraPermission)
+            }
+            assertEquals("API $api", expected, state.runtimeQueue)
+            assertFalse(state.cards.any { it.action == SetupAction.AccessibilitySettings })
+        }
+    }
+
+    @Test
+    fun nearbyOptOutDoesNotRequireNearbyPermissionsAndDoesNotBlockCameraOrLan() {
+        val state = SetupStateResolver.resolve(readySnapshot.copy(
+            nearbyEnabled = false, nearbyDevicesGranted = false, cameraGranted = false,
+        ))
+        assertEquals(listOf(SetupAction.CameraPermission), state.runtimeQueue)
+    }
+
+    @Test
+    fun macFeatureOptOutsDoNotHideConnectionPermissionsOrCreateAChooser() {
+        val state = SetupStateResolver.resolve(readySnapshot.copy(
+            selection = SetupSelection(emptySet(), true), paired = false,
+            nearbyDevicesGranted = false, localNetworkGranted = false,
+        ))
+        assertEquals(listOf(SetupAction.NearbyDevicesPermission, SetupAction.LocalNetworkPermission), state.runtimeQueue)
+        assertEquals(SetupStage.Permissions, state.stage)
+        assertTrue(state.cards.any { it.action == SetupAction.PairMac })
     }
 
     private val readySnapshot = SetupSnapshot(

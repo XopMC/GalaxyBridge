@@ -64,7 +64,7 @@ class NearbyBootstrapCoordinator(private val context: Context, private val isFor
 
     fun handleAuthenticated(peerID: String, request: DirectLinkRequest, bootstrapConnectionID: String? = null): Envelope = synchronized(lock) {
         check(!closed && isForegroundOwner()) { "foreground_owner_required" }
-        check(preferences.getBoolean("nearby_enabled", false)) { "nearby_disabled" }
+        check(preferences.getBoolean("nearby_enabled", true)) { "nearby_disabled" }
         check(preferences.getString("paired_host_id", null) == peerID) { "nearby_unpaired_host" }
         require(request.requestId.length in 1..128)
         expireGroupLocked()

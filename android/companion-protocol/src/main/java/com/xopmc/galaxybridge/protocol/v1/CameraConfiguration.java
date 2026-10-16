@@ -80,7 +80,7 @@ public  final class CameraConfiguration extends
    * @param value The width to set.
    */
   private void setWidth(int value) {
-    
+
     width_ = value;
   }
   /**
@@ -106,7 +106,7 @@ public  final class CameraConfiguration extends
    * @param value The height to set.
    */
   private void setHeight(int value) {
-    
+
     height_ = value;
   }
   /**
@@ -132,7 +132,7 @@ public  final class CameraConfiguration extends
    * @param value The framesPerSecond to set.
    */
   private void setFramesPerSecond(int value) {
-    
+
     framesPerSecond_ = value;
   }
   /**
@@ -158,7 +158,7 @@ public  final class CameraConfiguration extends
    * @param value The enabled to set.
    */
   private void setEnabled(boolean value) {
-    
+
     enabled_ = value;
   }
   /**
@@ -602,4 +602,3 @@ public  final class CameraConfiguration extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

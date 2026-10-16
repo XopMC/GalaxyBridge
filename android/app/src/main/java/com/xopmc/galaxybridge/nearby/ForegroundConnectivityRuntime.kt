@@ -51,7 +51,7 @@ class ForegroundConnectivityRuntime(private val context: Context, private val is
     fun start() { internet.start(); refresh() }
     fun refresh() {
         if (closed || !isOwner()) return
-        val enabled = preferences.getBoolean("nearby_enabled", false)
+        val enabled = preferences.getBoolean("nearby_enabled", true)
         val permissionsGranted = hasNearbyPermissions(context)
         val observingRadio = !enabled || !permissionsGranted || ensureBluetoothReceiver()
         val radioOn = observingRadio && permissionsGranted && runCatching {

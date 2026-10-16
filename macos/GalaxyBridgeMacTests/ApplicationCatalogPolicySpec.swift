@@ -323,48 +323,39 @@ private enum ApplicationCatalogPolicySpec {
             if !condition { failures.append(message) }
         }
 
-        let a = "device:phone-a"
-        let b = "device:phone-b"
-        let c = "device:phone-c"
-        let d = "device:phone-d"
-        // Duplicate logical IDs represent already coalesced USB/LAN routes,
-        // not additional physical phones. Never deduplicate by display name.
-        for physicalIDs in [[a, b, a, b], [a, b, c, a, c], []] {
+        let a = "device:phone-a", b = "device:phone-b", c = "device:phone-c"
+        let d = "device:phone-d", e = "device:phone-e", f = "device:phone-f"
+        // Five authorized physical phones may each retain an app window.
+        // Aliases never spend another physical lease, and the two budgets
+        // remain independent in either admission order.
+        for physicalIDs in [[a, b, a, b], [a, b, c, a, c], [a, b, c, d, a], [a, b, c, d, e, a], []] {
             let model = ApplicationSessionBudgetProbe()
             model.activePhysicalLogicalSessionIDs = Set(physicalIDs)
             let context = "\(model.activePhysicalLogicalSessionIDs.count) connected phones"
-            check(model.reserveApplicationWindowSession("app:a:notes"), "First app with \(context)")
-            check(model.reserveApplicationWindowSession("app:b:calculator"), "Second app with \(context)")
-            check(model.reserveApplicationWindowSession("app:a:browser"), "Third app with \(context)")
-            check(!model.reserveApplicationWindowSession("app:c:files"), "Fourth app remains rejected with \(context)")
-            check(model.applicationSessionLeases.leasedSessionIDs == ["app:a:notes", "app:b:calculator", "app:a:browser"],
-                  "App budget contains only the three real window leases with \(context)")
-            check(model.reserveApplicationWindowSession("app:b:calculator"), "Reopen is idempotent at app capacity")
-
-            check(model.canStartLogicalSession(a), "Existing/first physical phone must not be blocked by full app budget")
-            if model.activePhysicalLogicalSessionIDs.count < 3 {
-                check(model.canStartLogicalSession(c), "New physical phone below device capacity ignores app budget")
+            let appIDs = ["app:a:notes", "app:b:calculator", "app:c:files", "app:d:clock", "app:e:browser"]
+            for id in appIDs { check(model.reserveApplicationWindowSession(id), "Each of five app windows is admitted with \(context)") }
+            check(!model.reserveApplicationWindowSession("app:f:gallery"), "Sixth distinct app is bounded with \(context)")
+            check(model.applicationSessionLeases.leasedSessionIDs == Set(appIDs), "Exactly five real app leases with \(context)")
+            check(model.reserveApplicationWindowSession("app:b:calculator"), "Reopen is idempotent at full app capacity")
+            check(model.canStartLogicalSession(a), "Existing physical phone is independent of full app budget")
+            if model.activePhysicalLogicalSessionIDs.count < 5 {
+                check(model.canStartLogicalSession(e), "Fifth physical phone is admitted independently of five app windows")
             } else {
-                check(!model.canStartLogicalSession(d), "Fourth physical phone remains rejected")
-                check(model.canStartLogicalSession(c), "Reconnect at physical capacity remains allowed")
+                check(!model.canStartLogicalSession(f), "Sixth physical phone remains bounded")
+                check(model.canStartLogicalSession(d), "Reconnect at five-phone capacity remains allowed")
             }
-
             model.releaseApplicationWindowSession("app:b:calculator")
-            check(model.applicationSessionLeases.leasedSessionIDs == ["app:a:notes", "app:a:browser"],
-                  "Closing a window frees only its own app lease")
-            check(model.reserveApplicationWindowSession("app:c:files"), "Freed app capacity is immediately reusable")
+            check(model.applicationSessionLeases.leasedSessionIDs == Set(appIDs.filter { $0 != "app:b:calculator" }),
+                  "Closing an app frees only its exact lease")
+            check(model.reserveApplicationWindowSession("app:f:gallery"), "Freed app capacity is immediately reusable")
             model.releaseApplicationWindowSession("app:never-opened")
-            check(model.applicationSessionLeases.leasedSessionIDs == ["app:a:notes", "app:a:browser", "app:c:files"],
-                  "Duplicate/unknown close does not release unrelated app leases")
-            check(model.activePhysicalLogicalSessionIDs == Set(physicalIDs),
-                  "App reservation/release cannot drop physical sessions")
-
-            model.activePhysicalLogicalSessionIDs = [a, b, c]
-            check(!model.canStartLogicalSession(d), "Physical capacity stays three regardless of earlier app operations")
+            check(model.applicationSessionLeases.leasedSessionIDs.count == 5, "Unknown app close preserves five other leases")
+            check(model.activePhysicalLogicalSessionIDs == Set(physicalIDs), "App activity does not evict any physical phone")
+            model.activePhysicalLogicalSessionIDs = [a, b, c, d, e]
+            check(!model.canStartLogicalSession(f), "Physical capacity remains bounded at five despite app operations")
             model.activePhysicalLogicalSessionIDs.remove(c)
-            check(model.canStartLogicalSession(d), "Freed physical capacity recovers even with three app leases")
-            check(model.applicationSessionLeases.leasedSessionIDs.count == 3,
-                  "Physical admission does not evict app leases")
+            check(model.canStartLogicalSession(f), "Freed physical capacity recovers while all five app leases survive")
+            check(model.applicationSessionLeases.leasedSessionIDs.count == 5, "Physical admission never evicts app windows")
         }
 
         if !failures.isEmpty {

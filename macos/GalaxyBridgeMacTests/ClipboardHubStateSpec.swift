@@ -60,6 +60,15 @@ private enum ClipboardHubStateSpec {
                 == [1, 2, 5, 10, 30, 30],
             "capture-free clipboard reconnect must use the bounded 1/2/5/10/30 second policy"
         )
+        let epoch = ClipboardDeliveryEpoch(trustGeneration: UUID(), routeIDs: ["control:A", "clipboard:A"])
+        let content = Data("same".utf8)
+        hub.observeClipboard(deviceID: "A", epoch: epoch, kind: .text, content: content)
+        try require(hub.needsDelivery(deviceID: "A", epoch: epoch, kind: .text, content: content), "Queued delivery without a current observer is not an ACK")
+        hub.observeClipboard(deviceID: "A", epoch: epoch, kind: .text, content: content, confirmed: true)
+        try require(!hub.needsDelivery(deviceID: "A", epoch: epoch, kind: .text, content: content), "Unchanged target needs no physical rewrite")
+        try require(hub.needsDelivery(deviceID: "A", epoch: epoch, kind: .png, content: content), "Image/text payload families remain distinct")
+        hub.forgetClipboard(deviceID: "A")
+        try require(hub.needsDelivery(deviceID: "A", epoch: epoch, kind: .text, content: content), "Empty/sensitive/unreadable target or feature reset must invalidate the current value")
         print("PASS shared clipboard hub orders Mac and multi-Galaxy writes without loops")
     }
 

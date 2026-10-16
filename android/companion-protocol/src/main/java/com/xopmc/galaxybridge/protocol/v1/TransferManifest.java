@@ -129,7 +129,7 @@ public  final class TransferManifest extends
    * @param value The size to set.
    */
   private void setSize(long value) {
-    
+
     size_ = value;
   }
   /**
@@ -203,7 +203,7 @@ public  final class TransferManifest extends
    */
   private void setSha256(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     sha256_ = value;
   }
   /**
@@ -229,7 +229,7 @@ public  final class TransferManifest extends
    * @param value The confirmedOffset to set.
    */
   private void setConfirmedOffset(long value) {
-    
+
     confirmedOffset_ = value;
   }
   /**
@@ -647,4 +647,3 @@ public  final class TransferManifest extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

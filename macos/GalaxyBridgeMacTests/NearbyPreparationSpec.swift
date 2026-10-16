@@ -1,6 +1,9 @@
 import Foundation
 import Combine
 
+@MainActor final class TestDefaults { func set(_ value: Any?, forKey: String) {} }
+@MainActor enum UserDefaults { static let standard = TestDefaults() }
+
 private enum SpecFailure: Error { case failed(String) }
 enum ShellCapabilityBridgeFailure: Error { case unavailable, operationFailed }
 struct DeviceRow { var id = "device:phone"; var adbSerial: String? = "verified-usb"; var isReady = true }
@@ -59,6 +62,8 @@ typealias ShellCapabilityBridgeProvider = Provider
 @MainActor final class NearbyConnection {
     let log: EventLog
     var connections: [String] = []
+    var cancelledAutomatic: [String] = []
+    func cancelAutomaticConnection(deviceID: String) { cancelledAutomatic.append(deviceID) }
     init(log: EventLog) { self.log = log }
     func connect(deviceID: String) { connections.append(deviceID); log.values.append("connect") }
     func autoConnectIfUnassociated(deviceID: String) { connections.append(deviceID); log.values.append("auto-connect") }
@@ -98,6 +103,8 @@ typealias ShellCapabilityBridgeProvider = Provider
     // ACTUAL_SHELL_READINESS_STORAGE
     // ACTUAL_PREPARATION_TASK_STORAGE
     var nearbyPreparationTickets: [String: UUID] = [:]
+    var nearbyAutomaticPreparationTickets: [String: UUID] = [:]
+    var nearbyAutoPreferences: [String: Bool] = [:]
     var preparingDirectDevices = Set<String>()
     var requestedDirectDevices = Set<String>()
     var shellPreferredDevices = Set<String>()
@@ -131,7 +138,7 @@ typealias ShellCapabilityBridgeProvider = Provider
     func shellBridgeProvider(deviceID: String) -> Provider? { shellProviders[deviceID] }
     func companionControl(for deviceID: String) -> CompanionControl? { deviceID == device.id ? (deleted ? nil : control) : additionalControls[deviceID] }
     func canConnectNearby(deviceID: String) -> Bool { true }
-    func nearbyAutoConnect(deviceID: String) -> Bool { false }
+    func nearbyAutoConnect(deviceID: String) -> Bool { nearbyAutoPreferences[deviceID] ?? false }
     func reconcileEnhancedClipboardSessions() {}
     func reconcilePhoneDisplayPrivacyRoutes() {}
     func ensureEnhancedSessionForPrimaryDemand(for device: DeviceRow) {}
@@ -143,6 +150,8 @@ typealias ShellCapabilityBridgeProvider = Provider
     }
     func probe() { reconcileShellCapabilities() }
     // ACTUAL_SHELL_READINESS
+    // ACTUAL_AUTOMATIC_PREFERENCE
+    // ACTUAL_PREPARATION_VALIDATION
     // ACTUAL_NEARBY_PREPARATION
     // ACTUAL_PREPARATION_PRESENTATION
     // ACTUAL_SHELL_RECONCILIATION
@@ -170,6 +179,34 @@ private extension String {
         ShellCapabilityBridgeActivation.readySerials = []
     }
     @MainActor static func main() async throws {
+        for mutateOnly in [false, true] {
+            reset()
+            let automatic = AppModel(), status = PreparationGate()
+            automatic.nearbyAutoPreferences["device:phone"] = true
+            automatic.provider?.refreshResults = [true]
+            automatic.provider?.refreshGate = status
+            automatic.begin(automatic: true, connect: true)
+            for _ in 0..<200 where !status.entered { await Task.yield() }
+            let work = automatic.nearbyPreparationTasks["device:phone"]
+            if mutateOnly { automatic.nearbyAutoPreferences["device:phone"] = false }
+            else { automatic.setNearbyAutoConnect(false, deviceID: "device:phone") }
+            status.release(); await work?.value
+            try expect(automatic.nearbyConnection.connections.isEmpty && automatic.log.values.isEmpty && automatic.shellPreferredDevices.isEmpty,
+                "Auto OFF must fence an already-running preparation before shell migration or connect")
+            try expect(!automatic.requestedDirectDevices.contains("device:phone"), "Canceled automatic intent remained available to a later shell probe")
+            if !mutateOnly { try expect(automatic.nearbyConnection.cancelledAutomatic == ["phone"], "Auto OFF must cancel the coordinator's pending automatic ticket") }
+        }
+        reset()
+        let manual = AppModel(), manualStatus = PreparationGate()
+        manual.provider?.refreshResults = [true]; manual.provider?.refreshGate = manualStatus
+        manual.begin(automatic: false, connect: true)
+        for _ in 0..<200 where !manualStatus.entered { await Task.yield() }
+        let manualWork = manual.nearbyPreparationTasks["device:phone"]
+        manual.setNearbyAutoConnect(false, deviceID: "device:phone")
+        manualStatus.release(); await manualWork?.value
+        try expect(manual.nearbyConnection.connections == ["phone"] && manual.shellPreferredDevices.contains("device:phone"),
+            "Auto OFF must preserve the explicit manual connection and its prepared route")
+
         // Removing shared admission between automatic probing and manual preparation
         // must expose overlapping runtime.prepare calls for the same verified phone.
         for probeFirst in [true, false] {
@@ -355,8 +392,8 @@ private extension String {
         gate.release(); await work?.value
         try expect(!preparing.nearbyIsPreparing(deviceID: "phone") && publications >= 2,
             "Settlement must publish the end of preparation")
-        try expect(preparing.log.values == ["suspend", "screen-retire", "clipboard-stop", "privacy-settle", "resume"],
-            "Cancellation must settle and restore advanced owners without starting Bluetooth")
+        try expect(preparing.log.values == ["suspend", "resume"],
+            "Cancellation during window suspension must restore those windows without retiring unaffected media or starting Bluetooth")
         observation.cancel()
 
         reset()
@@ -369,6 +406,7 @@ private extension String {
 
         reset()
         let failedRefresh = AppModel(); failedRefresh.provider?.refreshResults = [false, false]
+        failedRefresh.nearbyAutoPreferences["device:phone"] = true
         await run(failedRefresh, automatic: true)
         try expect(failedRefresh.log.values.contains("auto-connect"), "Unavailable post-activation shell refresh must preserve automatic basic nearby")
         try expect(failedRefresh.applicationWindowCoordinator?.suspendCalls == 0, "Unavailable shell must not begin advanced owner migration")
@@ -388,6 +426,8 @@ private extension String {
         let preflight = AppModel()
         await run(preflight, connect: false)
         try expect(preflight.nearbyConnection.connections.isEmpty, "Optional USB preparation alone must never join a network")
+        try expect(preflight.log.values.isEmpty && preflight.shellPreferredDevices.isEmpty,
+            "Automatic availability preparation must preserve active windows, screen, clipboard and route")
 
         reset()
         let succeeded = AppModel()

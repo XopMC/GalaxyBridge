@@ -36,7 +36,7 @@ public  final class PairingCommit extends
    */
   private void setTranscriptSignature(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     transcriptSignature_ = value;
   }
   /**
@@ -537,4 +537,3 @@ public  final class PairingCommit extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

@@ -62,10 +62,11 @@ public final class ClipboardAgent {
              LocalSocket socket = server.accept();
              DataOutputStream output = new DataOutputStream(socket.getOutputStream())) {
             DataInputStream input = new DataInputStream(socket.getInputStream());
-            output.write(new byte[] {'G', 'B', 'C', '2'});
+            output.write(new byte[] {'G', 'B', 'C', '3'});
             output.flush();
             byte[] previousDigest = null;
             long previousTimestamp = Long.MIN_VALUE;
+            boolean unavailableSent = false;
             ClipboardSnapshotCache<Snapshot> cache = new ClipboardSnapshotCache<>();
             ClipboardOriginTracker origins = new ClipboardOriginTracker();
             AtomicBoolean connected = new AtomicBoolean(true);
@@ -85,9 +86,17 @@ public final class ClipboardAgent {
             while (connected.get() && !Thread.currentThread().isInterrupted()) {
                 Snapshot snapshot = readSnapshot(clipboard, cache);
                 if (snapshot == null) {
+                    if (!unavailableSent) {
+                        // Invalidates the Mac's current-payload claim without
+                        // exporting a sensitive, empty, or unsupported value.
+                        output.write(new byte[15]);
+                        output.flush();
+                        unavailableSent = true;
+                    }
                     previousDigest = null;
                     previousTimestamp = Long.MIN_VALUE;
                 } else if (snapshot.timestamp != previousTimestamp || !Arrays.equals(snapshot.digest, previousDigest)) {
+                    unavailableSent = false;
                     String source = origins.originFor(snapshot.origin, snapshot.timestamp, snapshot.platformSource);
                     byte[] origin = source == null ? new byte[0] : source.getBytes(java.nio.charset.StandardCharsets.UTF_8);
                     output.writeByte(snapshot.kind);
@@ -109,40 +118,34 @@ public final class ClipboardAgent {
         try {
             ClipDescription description = clipboard.getPrimaryClipDescription();
             if (description == null || isSensitive(description)) { cache.clear(); return null; }
-            ClipData clip = clipboard.getPrimaryClip();
-            if (clip == null || clip.getItemCount() == 0) { cache.clear(); return null; }
-            ClipData.Item item = clip.getItemAt(0);
-            final byte kind;
-            final String identity;
-            final Uri uri;
-            final String text;
-            if (description.hasMimeType("image/*") && item.getUri() != null) {
-                uri = item.getUri();
-                text = null;
-                identity = "image:" + uri;
-                kind = KIND_PNG;
-            } else if (item.getText() != null) {
-                text = item.getText().toString();
-                if (text.length() > MAX_PAYLOAD) return null;
-                uri = null;
-                identity = "text:" + text;
-                kind = KIND_TEXT;
-            } else {
-                cache.clear();
-                return null;
-            }
             final long timestamp = description.getTimestamp();
-            // Inspect the complete current primary clip every poll, but do not
-            // reopen a provider, decode/compress and hash the same screenshot
-            // three times per second while a mirror encoder is running.
-            return cache.read(timestamp, identity, () -> {
+            final String metadata = metadataIdentity(description);
+            if (metadata == null) { cache.clear(); return null; }
+            // Poll the complete clipboard's occurrence metadata, then access the
+            // payload only for a new occurrence. Unchanged full reads can show
+            // a system privacy toast on vendor Android versions.
+            return cache.read(timestamp, metadata, () -> {
+                ClipData clip = clipboard.getPrimaryClip();
+                if (clip == null || clip.getItemCount() == 0) return null;
+                ClipData.Item item = clip.getItemAt(0);
+                final byte kind;
+                final Uri uri;
+                final String text;
+                if (description.hasMimeType("image/*") && item.getUri() != null) {
+                    uri = item.getUri(); text = null; kind = KIND_PNG;
+                } else if (item.getText() != null) {
+                    text = item.getText().toString();
+                    if (text.length() > MAX_PAYLOAD) return null;
+                    uri = null; kind = KIND_TEXT;
+                } else return null;
                 byte[] content = kind == KIND_PNG
                         ? readImage(imageResolver, uri)
                         : text.getBytes(java.nio.charset.StandardCharsets.UTF_8);
                 if (content == null || content.length == 0 || content.length > MAX_PAYLOAD) return null;
                 ClipDescription latest = clipboard.getPrimaryClipDescription();
                 if (latest == null || isSensitive(latest)
-                        || (timestamp > 0 && latest.getTimestamp() != timestamp)) return null;
+                        || (timestamp > 0 && latest.getTimestamp() != timestamp)
+                        || !metadata.equals(metadataIdentity(latest))) return null;
                 byte[] digest = fingerprint(kind, content);
                 PersistableBundle extras = description.getExtras();
                 String origin = extras == null ? null : extras.getString(ORIGIN_ID);
@@ -151,7 +154,8 @@ public final class ClipboardAgent {
                 String source = origin == null ? null : clipboardSource(clipboard);
                 ClipDescription current = clipboard.getPrimaryClipDescription();
                 if (current == null || isSensitive(current)
-                        || (timestamp > 0 && current.getTimestamp() != timestamp)) return null;
+                        || (timestamp > 0 && current.getTimestamp() != timestamp)
+                        || !metadata.equals(metadataIdentity(current))) return null;
                 return new Snapshot(kind, content, digest, timestamp, origin, source);
             });
         } catch (RuntimeException error) {
@@ -159,6 +163,24 @@ public final class ClipboardAgent {
         } catch (Exception error) {
             return null;
         }
+    }
+
+    private static String metadataIdentity(ClipDescription description) {
+        int count = description.getMimeTypeCount();
+        if (count < 1 || count > 32) return null;
+        StringBuilder result = new StringBuilder();
+        for (int index = 0; index < count; index++) {
+            String mime = description.getMimeType(index);
+            if (mime == null || mime.length() > 256) return null;
+            result.append(mime.length()).append(':').append(mime);
+        }
+        PersistableBundle extras = description.getExtras();
+        for (String key : new String[] { ORIGIN_ID, ORIGIN_DIGEST }) {
+            String value = extras == null ? null : extras.getString(key);
+            if (value != null && value.length() > 256) return null;
+            result.append('|').append(value == null ? "" : value);
+        }
+        return result.toString();
     }
 
     private static Method clipboardSourceMethod() {

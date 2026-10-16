@@ -426,5 +426,27 @@ public interface EnvelopeOrBuilder extends
    */
   com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult getShellBridgeResult();
 
+  /**
+   * <code>.galaxybridge.v1.FeatureConfigurationRequest feature_configuration_request = 44;</code>
+   * @return Whether the featureConfigurationRequest field is set.
+   */
+  boolean hasFeatureConfigurationRequest();
+  /**
+   * <code>.galaxybridge.v1.FeatureConfigurationRequest feature_configuration_request = 44;</code>
+   * @return The featureConfigurationRequest.
+   */
+  com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationRequest getFeatureConfigurationRequest();
+
+  /**
+   * <code>.galaxybridge.v1.FeatureConfigurationResult feature_configuration_result = 45;</code>
+   * @return Whether the featureConfigurationResult field is set.
+   */
+  boolean hasFeatureConfigurationResult();
+  /**
+   * <code>.galaxybridge.v1.FeatureConfigurationResult feature_configuration_result = 45;</code>
+   * @return The featureConfigurationResult.
+   */
+  com.xopmc.galaxybridge.protocol.v1.FeatureConfigurationResult getFeatureConfigurationResult();
+
   public com.xopmc.galaxybridge.protocol.v1.Envelope.PayloadCase getPayloadCase();
 }

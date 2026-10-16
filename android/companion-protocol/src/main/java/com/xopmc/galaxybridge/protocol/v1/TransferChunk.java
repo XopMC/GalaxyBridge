@@ -80,7 +80,7 @@ public  final class TransferChunk extends
    * @param value The offset to set.
    */
   private void setOffset(long value) {
-    
+
     offset_ = value;
   }
   /**
@@ -107,7 +107,7 @@ public  final class TransferChunk extends
    */
   private void setContent(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     content_ = value;
   }
   /**
@@ -396,4 +396,3 @@ public  final class TransferChunk extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

@@ -14,6 +14,8 @@ start = source.index('    func canSendNotificationAction(deviceID: String)')
 end = source.index('\n#if !GALAXYBRIDGE_APP_STORE\n', start)
 listing_start = source.index('    func notifications(for deviceID: String)')
 listing_end = source.index('    func mutedPackages(for deviceID: String)', listing_start)
+feature_start = source.index('    func featureEnabled(')
+feature_end = source.index('\n    }', feature_start) + len('\n    }')
 boundaries = '''import Foundation
 struct BridgeNotificationActionRow { let id: String; let title: String; let acceptsText: Bool }
 struct BridgeNotificationRow { let id: String; let packageName: String; let appLabel: String; let title: String; let body: String; let postedAt: Date; let actions: [BridgeNotificationActionRow]; let appIconPNG: Data? }
@@ -21,6 +23,10 @@ struct GBNotificationAction { var notificationID = ""; var actionID = ""; var re
 final class CompanionTLSClient { var supportsNotificationActionResults = true; var sent: [GBNotificationAction] = []; func sendNotificationAction(_ action: GBNotificationAction) throws { sent.append(action) } }
 final class Supervisor { var generation: UInt64? = 4; func currentGeneration(companionID: String) -> UInt64? { generation } }
 @MainActor final class AppModel {
+let clientSetup: ClientSetupModel
+init(featureStorageURL: URL = FileManager.default.temporaryDirectory.appendingPathComponent("gb-notification-features-" + UUID().uuidString).appendingPathComponent("choices.json")) {
+    clientSetup = ClientSetupModel(storageURL: featureStorageURL)
+}
 var notificationActions = NotificationActionState()
 private var notificationActionTimeouts: [String: Task<Void, Never>] = [:]
 private var notificationActionCleanup: Task<Void, Never>?
@@ -35,9 +41,10 @@ func mutedPackages(for deviceID: String) -> Set<String> { [] }
 }
 '''
 # Keep the extracted methods inside the harness class.
-(temp / 'AppModelNotificationEntryPoint.swift').write_text(boundaries[:-2] + source[listing_start:listing_end] + source[start:end] + '\n}\n')
+(temp / 'AppModelNotificationEntryPoint.swift').write_text(boundaries[:-2] + source[feature_start:feature_end] + '\n' + source[listing_start:listing_end] + source[start:end] + '\n}\n')
 PY
-xcrun swiftc "$GB_ROOT/macos/GalaxyBridgeMac/NotificationActionState.swift" \
+xcrun swiftc "$GB_ROOT/macos/GalaxyBridgeMac/ClientSetupModel.swift" \
+  "$GB_ROOT/macos/GalaxyBridgeMac/NotificationActionState.swift" \
   "$GB_TMP/AppModelNotificationEntryPoint.swift" \
   "$GB_ROOT/macos/GalaxyBridgeMacTests/NotificationActionEntryPointSpec.swift" \
   -o "$GB_TMP/NotificationActionEntryPointSpec"

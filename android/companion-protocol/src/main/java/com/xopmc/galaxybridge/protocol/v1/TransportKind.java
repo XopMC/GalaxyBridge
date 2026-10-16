@@ -98,13 +98,13 @@ public enum TransportKind
           }
         };
 
-  public static com.google.protobuf.Internal.EnumVerifier 
+  public static com.google.protobuf.Internal.EnumVerifier
       internalGetVerifier() {
     return TransportKindVerifier.INSTANCE;
   }
 
-  private static final class TransportKindVerifier implements 
-       com.google.protobuf.Internal.EnumVerifier { 
+  private static final class TransportKindVerifier implements
+       com.google.protobuf.Internal.EnumVerifier {
           static final com.google.protobuf.Internal.EnumVerifier
               INSTANCE = new TransportKindVerifier();
           @java.lang.Override
@@ -121,4 +121,3 @@ public enum TransportKind
 
   // @@protoc_insertion_point(enum_scope:galaxybridge.v1.TransportKind)
 }
-

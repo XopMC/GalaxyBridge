@@ -12,4 +12,10 @@ swiftc -swift-version 6 -I "$privacy_test_dir" -L "$privacy_test_dir" -lGalaxyBr
   -Xlinker -rpath -Xlinker "$privacy_test_dir" -parse-as-library \
   macos/GalaxyBridgeMac/PhoneDisplayPrivacyCoordinator.swift \
   macos/GalaxyBridgeMacTests/PhoneDisplayPrivacySpec.swift -o "$privacy_test_dir/spec"
+swiftc -swift-version 6 -I "$privacy_test_dir" -L "$privacy_test_dir" -lGalaxyBridgeCore \
+  -Xlinker -rpath -Xlinker "$privacy_test_dir" -parse-as-library \
+  macos/GalaxyBridgeMac/Transport/DisplayPowerControllerProtocol.swift \
+  macos/GalaxyBridgeMac/Transport/DisplayPowerControllerProcess.swift \
+  macos/GalaxyBridgeMacTests/DisplayPowerControllerProtocolSpec.swift -o "$privacy_test_dir/controller-spec"
+"$privacy_test_dir/controller-spec"
 "$privacy_test_dir/spec"

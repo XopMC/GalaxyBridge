@@ -81,7 +81,7 @@ public  final class TransferAck extends
    * @param value The confirmedOffset to set.
    */
   private void setConfirmedOffset(long value) {
-    
+
     confirmedOffset_ = value;
   }
   /**
@@ -107,7 +107,7 @@ public  final class TransferAck extends
    * @param value The complete to set.
    */
   private void setComplete(boolean value) {
-    
+
     complete_ = value;
   }
   /**
@@ -630,4 +630,3 @@ public  final class TransferAck extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

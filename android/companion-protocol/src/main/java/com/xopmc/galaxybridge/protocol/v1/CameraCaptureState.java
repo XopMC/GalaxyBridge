@@ -107,13 +107,13 @@ public enum CameraCaptureState
           }
         };
 
-  public static com.google.protobuf.Internal.EnumVerifier 
+  public static com.google.protobuf.Internal.EnumVerifier
       internalGetVerifier() {
     return CameraCaptureStateVerifier.INSTANCE;
   }
 
-  private static final class CameraCaptureStateVerifier implements 
-       com.google.protobuf.Internal.EnumVerifier { 
+  private static final class CameraCaptureStateVerifier implements
+       com.google.protobuf.Internal.EnumVerifier {
           static final com.google.protobuf.Internal.EnumVerifier
               INSTANCE = new CameraCaptureStateVerifier();
           @java.lang.Override
@@ -130,4 +130,3 @@ public enum CameraCaptureState
 
   // @@protoc_insertion_point(enum_scope:galaxybridge.v1.CameraCaptureState)
 }
-

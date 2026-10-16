@@ -85,6 +85,9 @@ class CameraCaptureService : Service(), LifecycleOwner {
             framesPerSecond = intent?.getIntExtra(EXTRA_FPS, 0) ?: 0,
         )
         activeRequestId = request.requestId
+        if (request.enabled && !com.xopmc.galaxybridge.setup.DeviceFeaturePreferences(this).isEnabled("camera")) {
+            publishFailure("feature_disabled", retryable = false); stopSelf(); return START_NOT_STICKY
+        }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             publishFailure("camera_permission_required", retryable = false)
             stopSelf()

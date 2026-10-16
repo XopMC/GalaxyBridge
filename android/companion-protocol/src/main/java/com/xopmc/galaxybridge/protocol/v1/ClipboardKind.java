@@ -89,13 +89,13 @@ public enum ClipboardKind
           }
         };
 
-  public static com.google.protobuf.Internal.EnumVerifier 
+  public static com.google.protobuf.Internal.EnumVerifier
       internalGetVerifier() {
     return ClipboardKindVerifier.INSTANCE;
   }
 
-  private static final class ClipboardKindVerifier implements 
-       com.google.protobuf.Internal.EnumVerifier { 
+  private static final class ClipboardKindVerifier implements
+       com.google.protobuf.Internal.EnumVerifier {
           static final com.google.protobuf.Internal.EnumVerifier
               INSTANCE = new ClipboardKindVerifier();
           @java.lang.Override
@@ -112,4 +112,3 @@ public enum ClipboardKind
 
   // @@protoc_insertion_point(enum_scope:galaxybridge.v1.ClipboardKind)
 }
-

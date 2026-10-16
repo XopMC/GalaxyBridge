@@ -35,7 +35,7 @@ public  final class SessionAuthentication extends
    */
   private void setIdentityPublicKey(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     identityPublicKey_ = value;
   }
   /**
@@ -62,7 +62,7 @@ public  final class SessionAuthentication extends
    */
   private void setNonce(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     nonce_ = value;
   }
   /**
@@ -88,7 +88,7 @@ public  final class SessionAuthentication extends
    * @param value The timestampUnixSeconds to set.
    */
   private void setTimestampUnixSeconds(long value) {
-    
+
     timestampUnixSeconds_ = value;
   }
   /**
@@ -115,7 +115,7 @@ public  final class SessionAuthentication extends
    */
   private void setSignature(com.google.protobuf.ByteString value) {
     java.util.Objects.requireNonNull(value);
-  
+
     signature_ = value;
   }
   /**
@@ -412,4 +412,3 @@ public  final class SessionAuthentication extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-

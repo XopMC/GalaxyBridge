@@ -13,7 +13,7 @@ start = source.index('        CompanionLifecycleEvents.pairingStoredPublisher()'
 end = source.index('            .store(in: &cancellables)', start) + len('            .store(in: &cancellables)')
 observer = source[start:end].replace('pairingStoredPublisher()', 'pairingStoredPublisher(in: notificationCenter)')
 methods.append('func installPairingObserver(in notificationCenter: NotificationCenter) {\n' + observer + '\n}')
-for name in ['publishClipboardIfChanged', 'acceptConvertedClipboard', 'acceptRemoteClipboard', 'clipboardRecipients', 'broadcastClipboard', 'revalidateClipboardTrust', 'clipboardRouteIDs', 'acceptEnhancedClipboard', 'enhancedClipboardIdentity']:
+for name in ['featureEnabled', 'publishClipboardIfChanged', 'acceptConvertedClipboard', 'acceptRemoteClipboard', 'clipboardRecipients', 'broadcastClipboard', 'revalidateClipboardTrust', 'clipboardRouteIDs', 'acceptEnhancedClipboard', 'enhancedClipboardIdentity']:
     marker = '    private func ' + name + '('
     if marker not in source and '    func ' + name + '(' in source: marker = '    func ' + name + '('
     if marker not in source:
@@ -68,6 +68,7 @@ xcrun swiftc -parse-as-library -swift-version 6 -strict-concurrency=complete \
   "$GB_ROOT/macos/GalaxyBridgeMac/Storage/ContentCacheMaintenanceCoordinator.swift" \
   "$GB_ROOT/macos/GalaxyBridgeMac/Transport/CompanionLifecycleEvents.swift" \
   -module-cache-path "$GB_TMP/modules" \
+  "$GB_ROOT/macos/GalaxyBridgeMac/ClientSetupModel.swift" \
   "$GB_ROOT/macos/GalaxyBridgeMac/ClipboardPayloadPolicy.swift" \
   "$GB_ROOT/macos/GalaxyBridgeMac/ClipboardConversionWorker.swift" \
   "$GB_ROOT/macos/GalaxyBridgeMac/ClipboardHubState.swift" \
