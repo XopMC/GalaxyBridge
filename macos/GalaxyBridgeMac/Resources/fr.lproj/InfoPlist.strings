@@ -1,2 +1,3 @@
 "CFBundleDisplayName" = "Galaxy Bridge";
 "NSLocalNetworkUsageDescription" = "Connectez votre Galaxy à ce Mac en toute sécurité sur votre réseau local.";
+"NSDownloadsFolderUsageDescription" = "Enregistrez les fichiers envoyés depuis votre Galaxy dans Téléchargements.";

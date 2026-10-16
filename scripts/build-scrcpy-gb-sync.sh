@@ -36,6 +36,9 @@ work=$(mktemp -d "$cache/source-build.XXXXXX")
 tar -xzf "$archive" -C "$work"
 src="$work/$prefix"
 cp "$bundle/ClipboardAgent.java" "$src/server/src/main/java/com/genymobile/scrcpy/ClipboardAgent.java"
+cp "$bundle/ClipboardSnapshotCache.java" "$src/server/src/main/java/com/genymobile/scrcpy/ClipboardSnapshotCache.java"
+cp "$bundle/ClipboardOriginTracker.java" "$src/server/src/main/java/com/genymobile/scrcpy/ClipboardOriginTracker.java"
+cp "$bundle/ClipboardContentResolver.java" "$src/server/src/main/java/com/genymobile/scrcpy/wrappers/ClipboardContentResolver.java"
 build_server() {
     local version="$1" dest="$work/$1"
     mkdir -p "$dest/gen/com/genymobile/scrcpy" "$dest/classes"

@@ -43,6 +43,17 @@ final class ClipboardAgentSocket: @unchecked Sendable {
 
     func cancel() { connection.cancel() }
 
+    func setText(_ value: String, changeID: String) -> Bool {
+        guard let frame = ScrcpyClipboardAgentMessage.textCommand(value, changeID: changeID) else { return false }
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.connection.send(content: frame, completion: .contentProcessed { [weak self] error in
+                if let error { self?.failureHandler(error) }
+            })
+        }
+        return true
+    }
+
     private func receive() {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 256 * 1024) { [weak self] data, _, complete, error in
             guard let self else { return }

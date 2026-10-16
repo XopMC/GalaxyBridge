@@ -53,8 +53,8 @@
     <string name="notifications_description">See phone notifications on your Mac, reply, or dismiss them.</string>
     <string name="files_title">Files</string>
     <string name="files_description">Files from your Mac are saved to Download/GalaxyBridge on your phone.</string>
-    <string name="camera_title">Mac webcam</string>
-    <string name="camera_description">Use your phone camera as Galaxy Bridge Camera on your Mac.</string>
+    <string name="camera_title">Phone camera</string>
+    <string name="camera_description">View the phone camera in Galaxy Bridge on your Mac.</string>
     <string name="sms_notification_only_title">Message replies</string>
     <string name="sms_notification_only_description">Galaxy Bridge keeps your usual messaging app. You can reply from your Mac when a message notification arrives.</string>
     <string name="calls_permissions_title">Call permissions</string>
@@ -83,7 +83,7 @@
     <string name="setup_screen_feature_body">Open your phone screen and apps from Galaxy Bridge on your Mac. Start the connection on your Mac.</string>
     <string name="setup_audio_feature_body">Play phone audio on your Mac while sharing the screen from your Mac.</string>
     <string name="setup_clipboard_feature_title">Clipboard</string>
-    <string name="setup_clipboard_feature_body">Share copied text and web links between your phone and Mac.</string>
+    <string name="setup_clipboard_feature_body">Share copied text, links, and images between your phone and Mac.</string>
     <string name="setup_permission_section_title">Permissions for your choices</string>
     <string name="setup_permissions_allowed">No more phone permissions are needed for your choices.</string>
     <string name="setup_waiting_title">Check on your Mac</string>

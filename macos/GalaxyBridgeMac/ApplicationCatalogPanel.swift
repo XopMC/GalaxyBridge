@@ -94,6 +94,7 @@ struct ApplicationCatalogPanel: View {
     }
 
     private var isLoading: Bool {
+        if model.applicationCatalogRequestsByDevice[device.id] != nil { return true }
         if case .loading = state { return true }
         return false
     }

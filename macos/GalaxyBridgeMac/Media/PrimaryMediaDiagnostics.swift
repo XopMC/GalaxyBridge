@@ -303,7 +303,9 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
 #if GALAXYBRIDGE_APP_STORE
         return false
 #else
-        return bundleID == "com.xopmc.GalaxyBridge.internal" && arguments.contains("--primary-media-diagnostics")
+        let supportedBundle = bundleID == "com.xopmc.GalaxyBridge.internal"
+            || bundleID == "com.xopmc.GalaxyBridge"
+        return supportedBundle && arguments.contains("--primary-media-diagnostics")
 #endif
     }
 

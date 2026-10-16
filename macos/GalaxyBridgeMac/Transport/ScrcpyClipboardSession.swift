@@ -43,6 +43,7 @@ final class ScrcpyClipboardSession {
     private var sendSequence: UInt64 = 1
     private var lastObservedContent: Data?
     private var pendingAgentMessage: ScrcpyClipboardAgentMessage?
+    private(set) var usesClipboardOccurrences = false
     private var injectedEchoes = ScrcpyInjectedClipboardEchoSuppressor(capacity: 16)
 
     var clipboardEventHandler: (@Sendable (ScrcpyClipboardUpdate) -> Void)?
@@ -202,12 +203,15 @@ final class ScrcpyClipboardSession {
     }
 
     @discardableResult
-    func setText(_ value: String) -> Bool {
+    func setText(_ value: String, changeID: String) -> Bool {
         guard state == .ready,
               !value.isEmpty,
               value.utf8.count <= ScrcpyDeviceMessageDecoder.maximumClipboardLength,
               let controlSocket
         else { return false }
+        if usesClipboardOccurrences, let agentSocket {
+            return agentSocket.setText(value, changeID: changeID)
+        }
         let content = Data(value.utf8)
         injectedEchoes.markInjected(content)
         controlSocket.send(
@@ -242,6 +246,7 @@ final class ScrcpyClipboardSession {
 
     private func receive(_ message: ScrcpyDeviceMessage, request: UUID) {
         guard generation == request, state == .ready else { return }
+        guard !usesClipboardOccurrences else { return }
         guard case let .clipboard(content) = message,
               content != lastObservedContent
         else { return }
@@ -271,11 +276,13 @@ final class ScrcpyClipboardSession {
             if state == .preparing { pendingAgentMessage = message }
             return
         }
-        guard message.content != lastObservedContent else { return }
+        if message.timestamp != nil {
+            usesClipboardOccurrences = true
+        } else if message.content == lastObservedContent { return }
         lastObservedContent = message.content
-        if message.kind == .text, !injectedEchoes.shouldForward(message.content) { return }
+        if message.timestamp == nil, message.kind == .text, !injectedEchoes.shouldForward(message.content) { return }
         let update = ScrcpyClipboardUpdate(
-            changeID: ScrcpyClipboardIdentity.changeID(
+            changeID: message.originChangeID ?? ScrcpyClipboardIdentity.changeID(
                 serial: serial,
                 sessionID: sessionID,
                 sequence: receiveSequence,
@@ -321,6 +328,7 @@ final class ScrcpyClipboardSession {
         agentForwardedPort = nil
         lastObservedContent = nil
         pendingAgentMessage = nil
+        usesClipboardOccurrences = false
         injectedEchoes = ScrcpyInjectedClipboardEchoSuppressor(capacity: 16)
         if scheduleRemoteCleanup, port != nil || agentPort != nil || scid != nil {
             let adb = adb

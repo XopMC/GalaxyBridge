@@ -54,8 +54,8 @@
     <string name="notifications_description">يمكنك الاطلاع على إشعارات الهاتف على جهاز Mac أو الرد عليها أو رفضها.</string>
     <string name="files_title">الملفات</string>
     <string name="files_description">تُحفظ ملفات Mac في Download/GalaxyBridge على الهاتف.</string>
-    <string name="camera_title">كاميرا ويب Mac</string>
-    <string name="camera_description">استخدم كاميرا هاتفك كـ Galaxy Bridge Camera على Mac.</string>
+    <string name="camera_title">كاميرا الهاتف</string>
+    <string name="camera_description">شاهد كاميرا الهاتف في Galaxy Bridge على جهاز Mac.</string>
     <string name="sms_notification_only_title">ردود الرسالة</string>
     <string name="sms_notification_only_description">يحتفظ Galaxy Bridge بتطبيق المراسلة المعتاد. يمكنك الرد من Mac الخاص بك عند وصول إشعار بالرسالة.</string>
     <string name="calls_permissions_title">أذونات الاتصال</string>
@@ -84,7 +84,7 @@
     <string name="setup_screen_feature_body">افتح شاشة الهاتف وتطبيقاته في Galaxy Bridge على Mac. ابدأ الاتصال من Mac.</string>
     <string name="setup_audio_feature_body">شغّل صوت الهاتف على Mac أثناء مشاركة الشاشة التي تبدأها من Mac.</string>
     <string name="setup_clipboard_feature_title">الحافظة</string>
-    <string name="setup_clipboard_feature_body">شارك النص المنسوخ وروابط الويب بين الهاتف وMac.</string>
+    <string name="setup_clipboard_feature_body">شارك النصوص والروابط والصور المنسوخة بين الهاتف وMac.</string>
     <string name="setup_permission_section_title">أذونات الميزات المختارة</string>
     <string name="setup_permissions_allowed">لا تحتاج الميزات المختارة إلى أذونات إضافية على الهاتف.</string>
     <string name="setup_waiting_title">تحقّق على Mac</string>

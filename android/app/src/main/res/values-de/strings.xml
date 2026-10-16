@@ -53,8 +53,8 @@
     <string name="notifications_description">Sehen Sie Smartphone-Benachrichtigungen auf Ihrem Mac, antworten Sie darauf oder schließen Sie sie.</string>
     <string name="files_title">Dateien</string>
     <string name="files_description">Dateien vom Mac werden auf dem Telefon unter Download/GalaxyBridge gespeichert.</string>
-    <string name="camera_title">Webcam für den Mac</string>
-    <string name="camera_description">Verwenden Sie die Kamera Ihres Smartphones als Galaxy Bridge Camera auf Ihrem Mac.</string>
+    <string name="camera_title">Smartphone-Kamera</string>
+    <string name="camera_description">Zeigen Sie die Smartphone-Kamera in Galaxy Bridge auf Ihrem Mac an.</string>
     <string name="sms_notification_only_title">Nachrichten beantworten</string>
     <string name="sms_notification_only_description">Galaxy Bridge behält Ihre gewohnte Nachrichten-App bei. Sie können auf dem Mac antworten, wenn eine Nachrichtenbenachrichtigung eingeht.</string>
     <string name="calls_permissions_title">Anrufberechtigungen</string>
@@ -83,7 +83,7 @@
     <string name="setup_screen_feature_body">Öffne den Telefonbildschirm und Apps in Galaxy Bridge auf deinem Mac. Starte die Verbindung am Mac.</string>
     <string name="setup_audio_feature_body">Spiele Telefon-Audio auf dem Mac ab, während du dort die Bildschirmfreigabe startest.</string>
     <string name="setup_clipboard_feature_title">Zwischenablage</string>
-    <string name="setup_clipboard_feature_body">Teile kopierten Text und Weblinks zwischen Telefon und Mac.</string>
+    <string name="setup_clipboard_feature_body">Teile kopierten Text, Links und Bilder zwischen Telefon und Mac.</string>
     <string name="setup_permission_section_title">Berechtigungen für deine Auswahl</string>
     <string name="setup_permissions_allowed">Für deine Auswahl sind keine weiteren Telefonberechtigungen nötig.</string>
     <string name="setup_waiting_title">Auf deinem Mac prüfen</string>

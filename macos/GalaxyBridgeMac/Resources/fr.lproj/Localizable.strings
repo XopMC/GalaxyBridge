@@ -41,6 +41,8 @@
 "FILE_INVALID" = "Le fichier sélectionné ne peut pas être lu.";
 "FILE_CONNECTION_LOST" = "La connexion à votre téléphone a été perdue.";
 "CAMERA_SYSTEM_HINT" = "Sélectionnez Galaxy Bridge Camera dans FaceTime ou une autre application d’appel vidéo.";
+"CAMERA_DIRECT_PREVIEW_HINT" = "Affichez la caméra de votre Galaxy sur ce Mac. Son utilisation comme webcam dans d’autres apps n’est pas disponible dans cette version.";
+"CAMERA_DIRECT_STREAMING_DETAIL" = "L’aperçu en direct est disponible dans Galaxy Bridge. Les autres apps ne peuvent pas l’utiliser comme webcam dans cette version.";
 "CAMERA_BACK" = "Arrière";
 "CAMERA_FRONT" = "Avant";
 "CAMERA_STOP" = "Arrêter";
@@ -142,12 +144,14 @@
 "RECORDING_SAVE_NAME" = "Enregistrer sous :";
 "CAPABILITY_REASON_GENERIC" = "Cette fonctionnalité est actuellement indisponible sur ce téléphone.";
 "CAPABILITY_REASON_SCREEN_PERMISSION" = "Démarrez le partage d’écran dans Galaxy Bridge sur votre téléphone.";
+"CAPABILITY_REASON_DIRECT_SCREEN_CONNECTION" = "Connectez le Galaxy par câble ou configurez le Wi-Fi sur le Mac, puis ouvrez son écran.";
 "CAPABILITY_REASON_SCREEN_NOT_RUNNING" = "Démarrez le partage d’écran dans Galaxy Bridge sur votre téléphone.";
 "CAPABILITY_REASON_ACCESSIBILITY" = "Autorisez Galaxy Bridge à contrôler votre téléphone dans les paramètres d’accessibilité.";
 "CAPABILITY_REASON_NOTIFICATION_ACCESS" = "Autorisez Galaxy Bridge à afficher les notifications de votre téléphone.";
 "CAPABILITY_REASON_STORAGE_FOLDER" = "Choisissez un dossier du téléphone pour le partage de fichiers.";
 "CAPABILITY_REASON_AUDIO_PERMISSION" = "Autorisez Galaxy Bridge à partager le son de votre téléphone.";
 "CAPABILITY_REASON_AUDIO_NOT_RUNNING" = "Démarrez le partage d’écran avec le son sur votre téléphone.";
+"CAPABILITY_REASON_DIRECT_AUDIO" = "Le son du téléphone est diffusé lorsque son écran est ouvert sur le Mac.";
 "CAPABILITY_REASON_NOTIFICATION_ACTIONS_ONLY" = "Vous pouvez répondre aux messages à l’aide des actions des notifications du téléphone.";
 "CAPABILITY_REASON_CALL_PERMISSION" = "Autorisez Galaxy Bridge à contrôler les appels sur votre téléphone.";
 "CAPABILITY_REASON_DIALER_ROLE" = "Choisissez Galaxy Bridge pour les appels afin d’activer toutes les commandes d’appel.";
@@ -282,3 +286,4 @@
 "CALL_STATE_ENDED" = "Appel terminé";
 "APPLICATIONS_SEARCH_EMPTY_HINT" = "Essayez un autre nom d’application ou de paquet.";
 "CLIENT_SETUP_VERIFICATION_UNAVAILABLE" = "Cette version ne peut pas vérifier cette fonctionnalité. Modifiez votre sélection pour poursuivre la configuration.";
+"NOTIFICATION_CUSTOM_CONTENT" = "Ouvrez cette notification sur votre téléphone pour voir son contenu.";

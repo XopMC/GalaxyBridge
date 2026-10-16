@@ -46,6 +46,8 @@
     <string>public.app-category.utilities</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>GalaxyBridge connects directly to Samsung phones on your local network.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Galaxy Bridge saves files you send from your phone in Downloads.</string>
     <key>NSBonjourServices</key>
     <array>
         <string>_galaxybridge._tcp</string>

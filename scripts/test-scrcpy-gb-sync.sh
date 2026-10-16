@@ -3,6 +3,7 @@
 set -euo pipefail
 export LC_ALL=C TZ=UTC
 root=$(cd "$(dirname "$0")/.." && pwd)
+bash "$root/scripts/test-clipboard-snapshot-cache.sh"
 test "$#" -eq 1 || { echo "Usage: bash scripts/test-scrcpy-gb-sync.sh ABSOLUTE_BUILD_DIR" >&2; exit 2; }
 out=$1
 out=$(cd "$out" && pwd)

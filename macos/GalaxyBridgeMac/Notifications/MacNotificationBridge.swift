@@ -112,8 +112,15 @@ protocol MacNotificationCenterClient: AnyObject, Sendable {
     func setNotificationCategories(_ categories: Set<UNNotificationCategory>)
     func add(_ request: UNNotificationRequest, completion: @escaping @Sendable (Error?) -> Void)
     func getDeliveredNotifications(completion: @escaping @Sendable ([UNNotification]) -> Void)
+    func getDeliveredNotificationRequests(completion: @escaping @Sendable ([UNNotificationRequest]) -> Void)
     func removePendingNotificationRequests(withIdentifiers identifiers: [String])
     func removeDeliveredNotifications(withIdentifiers identifiers: [String])
+}
+
+extension MacNotificationCenterClient {
+    func getDeliveredNotificationRequests(completion: @escaping @Sendable ([UNNotificationRequest]) -> Void) {
+        getDeliveredNotifications { completion($0.map(\.request)) }
+    }
 }
 
 private final class SystemMacNotificationCenterClient: MacNotificationCenterClient, @unchecked Sendable {
@@ -336,6 +343,9 @@ final class MacNotificationBridge: NSObject, @unchecked Sendable {
     private var pending: [String: PendingPublication] = [:]
     private var inFlight: [String: InFlightPublication] = [:]
     private var nextSubmissionGeneration: UInt64 = 0
+    private var activeNativeIdentifiersByDevice: [String: Set<String>] = [:]
+    private var nativeQueryGenerations: [String: UInt64] = [:]
+    private var nextNativeQueryGeneration: UInt64 = 0
     private var storedAuthorizationState: MacNotificationAuthorizationState = .unknown
     private let qaDiagnosticsEnabled: Bool
     private let qaDiagnosticSink: @Sendable (String) -> Void
@@ -420,6 +430,20 @@ final class MacNotificationBridge: NSObject, @unchecked Sendable {
         mutedPackages: Set<String>,
         onAccepted: (@Sendable () -> Void)? = nil
     ) -> MacNotificationPublishResult {
+        publish(
+            deviceID: deviceID, deviceName: deviceName, notification: notification,
+            mutedPackages: mutedPackages, requiresSnapshotMembership: false, onAccepted: onAccepted
+        )
+    }
+
+    private func publish(
+        deviceID: String,
+        deviceName: String,
+        notification: BridgeNotificationRow,
+        mutedPackages: Set<String>,
+        requiresSnapshotMembership: Bool,
+        onAccepted: (@Sendable () -> Void)?
+    ) -> MacNotificationPublishResult {
         if mutedPackages.contains(notification.packageName) {
             remove(deviceID: deviceID, notificationID: notification.id)
             return .filtered
@@ -427,6 +451,14 @@ final class MacNotificationBridge: NSObject, @unchecked Sendable {
 
         let identifier = Self.identifier(deviceID: deviceID, notificationID: notification.id)
         lock.lock()
+        if requiresSnapshotMembership,
+           let active = activeNativeIdentifiersByDevice[deviceID], !active.contains(identifier) {
+            lock.unlock()
+            return .filtered
+        }
+        // A new live event supersedes a snapshot even if its native enumeration
+        // is still outstanding. Keep the query fenced to current phone state.
+        activeNativeIdentifiersByDevice[deviceID]?.insert(identifier)
         switch storedAuthorizationState {
         case .unknown, .requesting:
             pending[identifier] = PendingPublication(
@@ -687,6 +719,47 @@ final class MacNotificationBridge: NSObject, @unchecked Sendable {
     func remove(deviceID: String, notificationID: String) {
         let identifier = Self.identifier(deviceID: deviceID, notificationID: notificationID)
         lock.lock()
+        activeNativeIdentifiersByDevice[deviceID]?.remove(identifier)
+        removeLocked(identifier: identifier)
+        lock.unlock()
+        auditNativeRemoval(identifier: identifier)
+    }
+
+    /// A complete phone snapshot is authoritative even for requests left in
+    /// Notification Center by an older process or outside the capped in-app list.
+    /// At most one asynchronous native query per device is retained; its callback
+    /// always consults the latest snapshot plus subsequent live posts/removals.
+    func reconcile(deviceID: String, activeNotificationIDs: Set<String>) {
+        lock.lock()
+        let active = Set(activeNotificationIDs.map { Self.identifier(deviceID: deviceID, notificationID: $0) })
+        activeNativeIdentifiersByDevice[deviceID] = active
+        let managed = Set(pending.compactMap { $0.value.deviceID == deviceID ? $0.key : nil })
+            .union(inFlight.compactMap { $0.value.current.deviceID == deviceID ? $0.key : nil })
+            .union(metadata.compactMap { $0.value.deviceID == deviceID ? $0.key : nil })
+        for identifier in managed.subtracting(active) { removeLocked(identifier: identifier) }
+        guard nativeQueryGenerations[deviceID] == nil else { lock.unlock(); return }
+        nextNativeQueryGeneration &+= 1
+        let generation = nextNativeQueryGeneration
+        nativeQueryGenerations[deviceID] = generation
+        lock.unlock()
+        center.getDeliveredNotificationRequests { [weak self] requests in
+            guard let self else { return }
+            self.lock.lock()
+            defer { self.lock.unlock() }
+            guard self.nativeQueryGenerations[deviceID] == generation,
+                  let current = self.activeNativeIdentifiersByDevice[deviceID] else { return }
+            self.nativeQueryGenerations.removeValue(forKey: deviceID)
+            for request in requests {
+                guard request.content.userInfo["deviceID"] as? String == deviceID,
+                      let notificationID = request.content.userInfo["notificationID"] as? String,
+                      request.identifier == Self.identifier(deviceID: deviceID, notificationID: notificationID),
+                      !current.contains(request.identifier) else { continue }
+                self.removeLocked(identifier: request.identifier)
+            }
+        }
+    }
+
+    private func removeLocked(identifier: String) {
         pending.removeValue(forKey: identifier)
         if var existing = inFlight[identifier] {
             existing.desired = nil
@@ -701,8 +774,6 @@ final class MacNotificationBridge: NSObject, @unchecked Sendable {
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
         center.removeDeliveredNotifications(withIdentifiers: [identifier])
         center.setNotificationCategories(Set(categories.values))
-        lock.unlock()
-        auditNativeRemoval(identifier: identifier)
     }
 
     func remove(deviceID: String, packageName: String) {
@@ -742,6 +813,29 @@ final class MacNotificationBridge: NSObject, @unchecked Sendable {
         Data("\(deviceID)\u{0}\(notificationID)".utf8).base64EncodedString()
     }
 
+    func presentationOptions(for request: UNNotificationRequest) -> UNNotificationPresentationOptions {
+        guard admitsNativeRequest(request) else {
+            center.removeDeliveredNotifications(withIdentifiers: [request.identifier])
+            return []
+        }
+        return [.banner, .sound]
+    }
+
+    func response(actionIdentifier: String, reply: String?, request: UNNotificationRequest) -> MacNotificationResponse? {
+        guard admitsNativeRequest(request) else { return nil }
+        return MacNotificationResponseRouting.resolve(
+            actionIdentifier: actionIdentifier, reply: reply, userInfo: request.content.userInfo
+        )
+    }
+
+    private func admitsNativeRequest(_ request: UNNotificationRequest) -> Bool {
+        lock.withLock {
+            guard let deviceID = request.content.userInfo["deviceID"] as? String,
+                  let active = activeNativeIdentifiersByDevice[deviceID] else { return true }
+            return active.contains(request.identifier)
+        }
+    }
+
     private func transitionAuthorization(to state: MacNotificationAuthorizationState) {
         let transition = lock.withLock { () -> (
             (@Sendable (MacNotificationAuthorizationState) -> Void)?,
@@ -763,11 +857,12 @@ final class MacNotificationBridge: NSObject, @unchecked Sendable {
         }
         transition.0?(state)
         for publication in transition.1 {
-            publish(
+            _ = publish(
                 deviceID: publication.deviceID,
                 deviceName: publication.deviceName,
                 notification: publication.notification,
                 mutedPackages: publication.mutedPackages,
+                requiresSnapshotMembership: true,
                 onAccepted: publication.onAccepted
             )
         }
@@ -807,7 +902,7 @@ extension MacNotificationBridge: UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound])
+        completionHandler(presentationOptions(for: notification.request))
     }
 
     func userNotificationCenter(
@@ -817,10 +912,10 @@ extension MacNotificationBridge: UNUserNotificationCenterDelegate {
     ) {
         defer { completionHandler() }
         let reply = (response as? UNTextInputNotificationResponse)?.userText
-        guard let routed = MacNotificationResponseRouting.resolve(
+        guard let routed = self.response(
             actionIdentifier: response.actionIdentifier,
             reply: reply,
-            userInfo: response.notification.request.content.userInfo
+            request: response.notification.request
         ) else { return }
         responseHandler?(routed)
     }

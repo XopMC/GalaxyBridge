@@ -58,11 +58,29 @@ enum QuicRuntimeArtifacts {
     }
     static func launch(adb: ADBClient, serial: String, configuration c: ScrcpyLaunchConfiguration,
                        selection: QuicWirelessSelection, generation: UInt64) throws -> QuicBackendBridge.Launch {
-        let profile = try producerArguments(configuration: c)
         let helper = try checked("gb-quic-backend-android-arm64", sha: androidSHA)
         let producer = try checked("scrcpy-server-4.1-gb-sync.1", sha: producerSHA)
+        return try stageVerifiedArtifacts(adb: adb, serial: serial, configuration: c,
+            selection: selection, generation: generation, helper: helper, producer: producer)
+    }
+
+    /// The production caller verifies both local artifacts before this staging
+    /// transaction. Failed pushes may leave partial remote files, so rollback
+    /// owns both intended paths from before the first push.
+    static func stageVerifiedArtifacts(adb: ADBClient, serial: String, configuration c: ScrcpyLaunchConfiguration,
+                                      selection: QuicWirelessSelection, generation: UInt64,
+                                      helper: URL, producer: URL) throws -> QuicBackendBridge.Launch {
+        let profile = try producerArguments(configuration: c)
         let prefix = "/data/local/tmp/gb-quic-\(String(c.scid, radix: 16))-\(generation)"
         let remoteHelper = prefix + "-backend", remoteProducer = prefix + "-producer.jar"
+        _ = try ADBClient.quicArtifactRemovalArguments(helperPath: remoteHelper, producerPath: remoteProducer)
+        var transferred = false
+        defer {
+            if !transferred {
+                do { try adb.removeQuicArtifacts(serial: serial, helperPath: remoteHelper, producerPath: remoteProducer) }
+                catch { stagingLogger.error("QUIC staging rollback failed: \(String(reflecting: error), privacy: .private)") }
+            }
+        }
         // Exact selected trusted ADB is used solely for artifact staging and
         // the private stdio lifetime/bootstrap. No stock socket forward exists.
         try adb.push(serial: serial, localURL: helper, remotePath: remoteHelper)
@@ -91,9 +109,28 @@ enum QuicRuntimeArtifacts {
         // experimental QUIC pair sees kind15 parity; stock USB/Wireless ADB
         // scrcpy and an older peer never receive the new datagram record.
         let enabled = enabledMediaFeatures(audioEnabled: c.audioEnabled)
-        return .init(program: adb.executableURL.path, arguments: arguments, peerIP: peerIP,
+        let child = try adb.nativeChildCommand(arguments: arguments)
+        let launch = QuicBackendBridge.Launch(program: child.program, arguments: child.arguments, peerIP: peerIP,
             sidecarSHA: sha, generation: generation, targetToken: selection.targetToken,
-            scid: c.scid, displayID: display, captureKind: kind, enabled: enabled)
+            scid: c.scid, displayID: display, captureKind: kind, enabled: enabled,
+            cleanupStagedArtifacts: {
+                try await Task.detached(priority: .utility) {
+                    try adb.removeQuicArtifacts(serial: serial, helperPath: remoteHelper, producerPath: remoteProducer)
+                }.value
+            })
+        transferred = true
+        return launch
+    }
+
+    private static let stagingLogger = Logger(subsystem: "com.xopmc.GalaxyBridge", category: "quic-staging-cleanup")
+
+    static func cleanStagedArtifacts(_ cleanup: (@Sendable () async throws -> Void)?) async -> Bool {
+        guard let cleanup else { return true }
+        do { try await cleanup(); return true }
+        catch {
+            stagingLogger.error("QUIC staged artifact cleanup failed: \(String(reflecting: error), privacy: .private)")
+            return false
+        }
     }
     static func enabledMediaFeatures(audioEnabled: Bool) -> UInt8 {
         UInt8(audioEnabled ? 7 : 5) | xorParityFeature

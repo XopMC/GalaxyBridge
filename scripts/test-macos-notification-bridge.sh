@@ -14,3 +14,9 @@ xcrun swiftc \
   -o "$GB_TMP/MacNotificationBridgeSpec"
 
 "$GB_TMP/MacNotificationBridgeSpec"
+
+xcrun swiftc \
+  "$GB_ROOT/macos/GalaxyBridgeMac/NotificationSnapshotReconciliation.swift" \
+  "$GB_ROOT/macos/GalaxyBridgeMacTests/NotificationSnapshotReconciliationSpec.swift" \
+  -o "$GB_TMP/NotificationSnapshotReconciliationSpec"
+"$GB_TMP/NotificationSnapshotReconciliationSpec"

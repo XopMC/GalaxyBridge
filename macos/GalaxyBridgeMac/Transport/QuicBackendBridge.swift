@@ -53,6 +53,7 @@ final class QuicBackendBridge {
         let displayID: UInt32
         let captureKind: UInt8
         let enabled: UInt8
+        var cleanupStagedArtifacts: (@Sendable () async throws -> Void)? = nil
     }
 
     struct Identity: Equatable, Sendable {

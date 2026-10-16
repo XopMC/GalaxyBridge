@@ -25,6 +25,7 @@ class ForegroundClipboardMonitor(
     private val appContext = context.applicationContext
     private val clipboard = appContext.getSystemService(ClipboardManager::class.java)
     private val gate = ForegroundClipboardGate()
+    private val sampleGate = ClipboardSampleGate()
     private val listener = ClipboardManager.OnPrimaryClipChangedListener(::sample)
     @Volatile private var active = false
     private var imageTask: Future<*>? = null
@@ -45,6 +46,7 @@ class ForegroundClipboardMonitor(
             }
             ClipboardMonitorTransition.DEACTIVATE -> {
                 active = false
+                sampleGate.invalidate()
                 imageTask?.cancel(true)
                 imageTask = null
                 clipboard.removePrimaryClipChangedListener(listener)
@@ -54,6 +56,12 @@ class ForegroundClipboardMonitor(
 
     private fun sample() {
         if (!active) return
+        // Every observation invalidates earlier image reads, even if this
+        // clipboard is sensitive, unsupported, or empty. Cancellation alone
+        // cannot stop a ContentProvider which ignores interruption.
+        val sample = sampleGate.beginSample()
+        imageTask?.cancel(true)
+        imageTask = null
         val description = clipboard.primaryClipDescription ?: return
         if (description.isSensitive()) return
         val generation = description.timestamp.takeIf { it > 0L }
@@ -67,31 +75,35 @@ class ForegroundClipboardMonitor(
                 .map(description::getMimeType)
                 .firstOrNull { it.startsWith("image/") }
                 ?: appContext.contentResolver.getType(uri)
-            imageTask?.cancel(true)
             imageTask = executor.submit {
                 val png = ClipboardImageCodec.readAsBoundedPng(appContext.contentResolver, uri, mimeType) ?: return@submit
                 if (!active || Thread.currentThread().isInterrupted) return@submit
-                ClipboardPayloadPolicy.png(
-                    png,
-                    sensitive = false,
-                    tracker = tracker,
-                    generation = generation,
-                )?.let(outboundHub::publish)
+                sampleGate.publishIfCurrent(sample) {
+                    ClipboardPayloadPolicy.png(
+                        png,
+                        sensitive = false,
+                        tracker = tracker,
+                        generation = generation,
+                    )?.let(outboundHub::publish)
+                }
             }
             return
         }
 
         if (!description.hasMimeType("text/plain") && !description.hasMimeType("text/uri-list")) return
         val text = item.text ?: item.uri?.takeIf { description.hasMimeType("text/uri-list") }?.toString() ?: return
-        ClipboardPayloadPolicy.text(
-            text,
-            sensitive = false,
-            tracker = tracker,
-            generation = generation,
-        )?.let(outboundHub::publish)
+        sampleGate.publishIfCurrent(sample) {
+            ClipboardPayloadPolicy.text(
+                text,
+                sensitive = false,
+                tracker = tracker,
+                generation = generation,
+            )?.let(outboundHub::publish)
+        }
     }
 
     override fun close() {
+        sampleGate.invalidate()
         if (active) {
             active = false
             clipboard.removePrimaryClipChangedListener(listener)

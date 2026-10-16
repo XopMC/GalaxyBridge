@@ -42,6 +42,8 @@
 "FILE_INVALID" = "所選檔案不可讀。";
 "FILE_CONNECTION_LOST" = "與您手機的連線已中斷。";
 "CAMERA_SYSTEM_HINT" = "在 FaceTime 或其他視訊通話應用程式中選擇 Galaxy Bridge Camera。";
+"CAMERA_DIRECT_PREVIEW_HINT" = "在此 Mac 上預覽 Galaxy 相機畫面。此版本尚不支援在其他 App 中將其用作網路攝影機。";
+"CAMERA_DIRECT_STREAMING_DETAIL" = "可在 Galaxy Bridge 中即時預覽相機畫面。此版本不支援其他 App 將其用作網路攝影機。";
 "CAMERA_BACK" = "後置攝像頭";
 "CAMERA_FRONT" = "前置鏡頭";
 "CAMERA_STOP" = "停止";
@@ -143,12 +145,14 @@
 "RECORDING_SAVE_NAME" = "另存為：";
 "CAPABILITY_REASON_GENERIC" = "此功能目前在此手機上不可用。";
 "CAPABILITY_REASON_SCREEN_PERMISSION" = "在手機上的 Galaxy Bridge 中啟動畫面分享。";
+"CAPABILITY_REASON_DIRECT_SCREEN_CONNECTION" = "透過傳輸線連接 Galaxy，或在 Mac 上設定 Wi-Fi，然後開啟手機螢幕。";
 "CAPABILITY_REASON_SCREEN_NOT_RUNNING" = "在手機上的 Galaxy Bridge 中啟動畫面分享。";
 "CAPABILITY_REASON_ACCESSIBILITY" = "允許 Galaxy Bridge 在其輔助使用設定中控制您的手機。";
 "CAPABILITY_REASON_NOTIFICATION_ACCESS" = "允許 Galaxy Bridge 顯示您的手機通知。";
 "CAPABILITY_REASON_STORAGE_FOLDER" = "選擇手機資料夾進行檔案共用。";
 "CAPABILITY_REASON_AUDIO_PERMISSION" = "允許 Galaxy Bridge 共享手機中的音訊。";
 "CAPABILITY_REASON_AUDIO_NOT_RUNNING" = "在手機上開始使用音訊進行螢幕分享。";
+"CAPABILITY_REASON_DIRECT_AUDIO" = "在 Mac 上開啟手機螢幕時播放手機音訊。";
 "CAPABILITY_REASON_NOTIFICATION_ACTIONS_ONLY" = "您可以透過電話通知操作回覆訊息。";
 "CAPABILITY_REASON_CALL_PERMISSION" = "允許 Galaxy Bridge 控制您手機上的通話。";
 "CAPABILITY_REASON_DIALER_ROLE" = "通話時選擇 Galaxy Bridge 以啟用完整的呼叫控制。";
@@ -284,3 +288,4 @@
 "CALL_STATE_ENDED" = "通話已結束";
 "APPLICATIONS_SEARCH_EMPTY_HINT" = "請嘗試其他 App 名稱或套件名稱。";
 "CLIENT_SETUP_VERIFICATION_UNAVAILABLE" = "此版本無法驗證這項功能。請更改選擇以繼續設定。";
+"NOTIFICATION_CUSTOM_CONTENT" = "請在手機上開啟此通知以查看內容。";

@@ -29,6 +29,22 @@ private enum DeviceRowMergeSpec {
 
         let usb = row(.usbADB, ready: true, serial: "USB-FOLD")
         let wifi = row(.wirelessADB, ready: true, serial: "192.168.42.40:39643")
+        let savedRows = DeviceRowMerger.restoringSavedPeers(
+            [("trusted-fold", "My Fold"), ("offline-s24", "My S24")],
+            reachableRows: [usb.id: usb]
+        )
+        check(savedRows.count == 2, "A saved offline phone must remain selectable for removal")
+        check(savedRows.first { $0.id == usb.id } == usb,
+              "Restoring saved phones must preserve the live selected USB route")
+        if let offline = savedRows.first(where: { $0.id == "device:offline-s24" }) {
+            check(!offline.isReady && offline.adbSerial == nil && offline.companionID == nil,
+                  "Saved trust alone must not manufacture a live transport")
+            check(offline.name == "My S24", "Offline phone retains its saved display name")
+        } else {
+            check(false, "Saved phone disappeared when Bonjour was unavailable")
+        }
+        check(DeviceRowMerger.restoringSavedPeers([], reachableRows: [:]).isEmpty,
+              "Clean state or deleting the last peer must leave an empty list")
         for pair in [[wifi, usb], [usb, wifi]] {
             let merged = DeviceRowMerger.merge(pair[0], pair[1])
             check(merged.transport == .usbADB, "Ready USB must win in both input orders")

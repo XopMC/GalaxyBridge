@@ -114,6 +114,26 @@ struct ADBClient: Sendable {
         }
         _ = try runRemoteShell(serial: serial, arguments: ["chmod", "700", remotePath])
     }
+    static func quicArtifactRemovalArguments(helperPath: String, producerPath: String) throws -> [String] {
+        let directoryPrefix = "/data/local/tmp/gb-quic-", suffix = "-backend"
+        guard helperPath.hasPrefix(directoryPrefix), helperPath.hasSuffix(suffix) else {
+            throw ADBClientError.commandFailed(code: -1, message: "Invalid exact QUIC artifact pair")
+        }
+        let identity = helperPath.dropFirst(directoryPrefix.count).dropLast(suffix.count)
+        let fields = identity.split(separator: "-", omittingEmptySubsequences: false)
+        guard fields.count == 2,
+              let scid = UInt32(fields[0], radix: 16), scid > 0,
+              String(scid, radix: 16) == fields[0],
+              let generation = UInt64(fields[1]), generation > 0,
+              String(generation) == fields[1],
+              producerPath == String(helperPath.dropLast(suffix.count)) + "-producer.jar"
+        else { throw ADBClientError.commandFailed(code: -1, message: "Invalid exact QUIC artifact pair") }
+        return ["rm", "-f", "--", helperPath, producerPath]
+    }
+    func removeQuicArtifacts(serial: String, helperPath: String, producerPath: String) throws {
+        let arguments = try Self.quicArtifactRemovalArguments(helperPath: helperPath, producerPath: producerPath)
+        _ = try runRemoteShell(serial: serial, arguments: arguments, timeout: 2)
+    }
     private let distribution: ADBDistributionChannel
     private let ownedRuntime: ADBOwnedRuntimeClient?
     private var commandCancellation: ADBProcessCancellation? = nil
@@ -674,8 +694,8 @@ struct ADBClient: Sendable {
         }
     }
 
-    private func runRemoteShell(serial: String, arguments: [String]) throws -> String {
-        try run(arguments: ["-s", serial, "shell", Self.remoteShellCommand(arguments)])
+    private func runRemoteShell(serial: String, arguments: [String], timeout: TimeInterval? = nil) throws -> String {
+        try run(arguments: ["-s", serial, "shell", Self.remoteShellCommand(arguments)], timeout: timeout)
     }
 
     private static func remoteShellCommand(_ arguments: [String]) -> String {
@@ -734,6 +754,19 @@ struct ADBClient: Sendable {
         var client = self
         client.commandCancellation = token
         return client
+    }
+
+    /// Native transports own their child process, so carry the same private
+    /// endpoint and exact environment as our Process/command-runner path.
+    /// Each environment value is one argv entry; no shell or global mutation.
+    func nativeChildCommand(arguments: [String]) throws -> (program: String, arguments: [String]) {
+        guard let ownedRuntime else { return (executableURL.path, arguments) }
+        let configuration = try ownedRuntime.acquire()
+        try configuration.validate(arguments)
+        let environment = configuration.environment.sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+        return ("/usr/bin/env", ["-i"] + environment + [configuration.executableURL.path]
+            + configuration.argumentPrefix + arguments)
     }
 
     func runCommand(arguments: [String], input: Data = Data(), timeout: TimeInterval = 10,

@@ -1,3 +1,4 @@
 /* Machine translation with protected format arguments; see docs/localization/README.md. */
 "CFBundleDisplayName" = "Galaxy Bridge";
 "NSLocalNetworkUsageDescription" = "Galaxy をローカル ネットワーク経由でこの Mac に安全に接続します。";
+"NSDownloadsFolderUsageDescription" = "Galaxy から送信したファイルをダウンロードフォルダに保存します。";

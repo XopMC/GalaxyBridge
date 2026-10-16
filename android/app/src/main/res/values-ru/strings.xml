@@ -53,8 +53,8 @@
     <string name="notifications_description">Просматривайте уведомления телефона на Mac, отвечайте или закрывайте их.</string>
     <string name="files_title">Файлы</string>
     <string name="files_description">Файлы с Mac сохраняются в папку Download/GalaxyBridge на телефоне.</string>
-    <string name="camera_title">Веб-камера для Mac</string>
-    <string name="camera_description">Используйте камеру телефона как Galaxy Bridge Camera на Mac.</string>
+    <string name="camera_title">Камера телефона</string>
+    <string name="camera_description">Просматривайте видео с камеры телефона в Galaxy Bridge на Mac.</string>
     <string name="sms_notification_only_title">Ответы на сообщения</string>
     <string name="sms_notification_only_description">Galaxy Bridge оставляет ваше обычное приложение для сообщений. Отвечать с Mac можно, когда на телефон приходит уведомление о сообщении.</string>
     <string name="calls_permissions_title">Разрешения звонков</string>
@@ -83,7 +83,7 @@
     <string name="setup_screen_feature_body">Открывайте экран и приложения телефона в Galaxy Bridge на Mac. Запустите подключение на Mac.</string>
     <string name="setup_audio_feature_body">Слушайте звук телефона на Mac во время трансляции экрана, запущенной с Mac.</string>
     <string name="setup_clipboard_feature_title">Буфер обмена</string>
-    <string name="setup_clipboard_feature_body">Передавайте скопированный текст и веб-ссылки между телефоном и Mac.</string>
+    <string name="setup_clipboard_feature_body">Передавайте скопированный текст, ссылки и изображения между телефоном и Mac.</string>
     <string name="setup_permission_section_title">Разрешения для выбранных функций</string>
     <string name="setup_permissions_allowed">Для выбранных функций больше не нужны разрешения на телефоне.</string>
     <string name="setup_waiting_title">Проверьте на Mac</string>

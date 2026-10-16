@@ -45,6 +45,9 @@ import com.xopmc.galaxybridge.service.EncodedVideoBus
 import com.xopmc.galaxybridge.service.GalaxyAccessibilityService
 import com.xopmc.galaxybridge.service.GalaxyNotificationListenerService
 import com.xopmc.galaxybridge.service.NotificationEventBus
+import com.xopmc.galaxybridge.service.NotificationEmission
+import com.xopmc.galaxybridge.service.NotificationSnapshotBoundary
+import com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot
 import com.xopmc.galaxybridge.service.CallEventBus
 import com.xopmc.galaxybridge.service.TelephonyBridge
 import com.xopmc.galaxybridge.setup.DistributionFeatures
@@ -453,20 +456,20 @@ class CompanionLanServer(private val context: Context) {
                 emptyFlow()
             }
             merge(
-                NotificationEventBus.events.map { emission ->
-                    Envelope.newBuilder()
-                        .setProtocolMajor(1)
-                        .setProtocolMinor(0)
-                        .setDeviceId(deviceId())
-                        .setSessionId(sessionId)
-                        .setMessageId(nextMessageId.getAndIncrement())
-                        .setNotificationEvent(
+                NotificationEventBus.deliveries(onOverflow = { runCatching { socket.close() } }).map { delivery ->
+                    val envelope = eventEnvelope(sessionId, nextMessageId.getAndIncrement())
+                    when (delivery) {
+                        is NotificationEmission -> envelope.setNotificationEvent(
                             NotificationEventMapper.toProtocol(
-                                emission.notification,
-                                isInitialSnapshot = emission.isInitialSnapshot,
+                                delivery.notification,
+                                isInitialSnapshot = delivery.isInitialSnapshot,
                             ),
                         )
-                        .build()
+                        is NotificationSnapshotBoundary -> envelope.setNotificationSnapshot(
+                            NotificationSnapshot.newBuilder().setComplete(delivery.complete),
+                        )
+                    }
+                    envelope.build()
                 },
                 clipboardSubscription.events.map { clipboard ->
                     Envelope.newBuilder()
@@ -633,6 +636,15 @@ class CompanionLanServer(private val context: Context) {
             else -> return
         }
         ClipboardBridge.echoSuppressor.markInbound(update.kind, content)
+        if (update.changeId.isNotEmpty() && update.changeId.toByteArray(Charsets.UTF_8).size <= 256) {
+            val normalizedKind = if (update.kind == ClipboardKind.CLIPBOARD_KIND_PNG) update.kind
+                else ClipboardKind.CLIPBOARD_KIND_TEXT
+            clip.description.extras = android.os.PersistableBundle().apply {
+                putString("com.xopmc.galaxybridge.clipboard.origin", update.changeId)
+                putString("com.xopmc.galaxybridge.clipboard.origin_digest",
+                    com.xopmc.galaxybridge.service.ClipboardFingerprint.digest(normalizedKind, content))
+            }
+        }
         context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
         val id = update.changeId.ifBlank { UUID.randomUUID().toString() }
         runCatching {

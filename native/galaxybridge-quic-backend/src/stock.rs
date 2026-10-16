@@ -812,7 +812,7 @@ impl ProducerLaunch {
             format!("video_bit_rate={}", self.video_bit_rate).into(),
             format!("audio_bit_rate={}", self.audio_bit_rate).into(),
         ];
-        let mut video_codec_options = Vec::with_capacity(3);
+        let mut video_codec_options = Vec::with_capacity(4);
         if let Some(seconds) = self.key_frame_interval_seconds {
             if seconds == 0 {
                 return Err(Error::Protocol);
@@ -824,6 +824,11 @@ impl ProducerLaunch {
         // stock Wireless ADB path instead of silently dropping them at the
         // closed QUIC launch boundary.
         video_codec_options.extend(["priority=0".into(), "latency=0".into()]);
+        // Match the stock Wireless ADB AVC profile's encoder mode while
+        // retaining its requested bitrate, resolution, frame rate and GOP.
+        if !self.hevc {
+            video_codec_options.push("bitrate-mode=2".into());
+        }
         args.push(format!("video_codec_options={}", video_codec_options.join(",")).into());
         if policy.is_some() {
             args.extend(

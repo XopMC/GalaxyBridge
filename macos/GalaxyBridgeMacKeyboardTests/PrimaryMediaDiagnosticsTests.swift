@@ -692,7 +692,9 @@ struct PrimaryMediaDiagnosticsTests {
 
     @Test func invalidEpochStaticAndDisabled() {
         #expect(PrimaryMediaDiagnostics.isEnabled(arguments: [], bundleID: "com.xopmc.GalaxyBridge.internal") == false)
-        #expect(PrimaryMediaDiagnostics.isEnabled(arguments: ["--primary-media-diagnostics"], bundleID: "com.xopmc.GalaxyBridge") == false)
+        #expect(PrimaryMediaDiagnostics.isEnabled(arguments: [], bundleID: "com.xopmc.GalaxyBridge") == false)
+        #expect(PrimaryMediaDiagnostics.isEnabled(arguments: ["--primary-media-diagnostics"], bundleID: "com.xopmc.GalaxyBridge") == true)
+        #expect(PrimaryMediaDiagnostics.isEnabled(arguments: ["--primary-media-diagnostics"], bundleID: "unrelated.application") == false)
         let meter = PrimaryMediaDiagnostics(generation: 1, now: { 0 }, sink: { _ in })
         _ = meter.received(stream: .video, bytes: 1, pts: 100, epoch: 1, now: 1)
         _ = meter.received(stream: .video, bytes: 1, pts: 50, epoch: 1, now: 2)

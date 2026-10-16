@@ -69,6 +69,7 @@ final class ScrcpySession: ObservableObject {
     private let quicSelection: QuicWirelessSelection?
     private let quicPreparedLaunch: (@Sendable (ScrcpyLaunchConfiguration, UInt64) async throws -> QuicBackendBridge.Launch)?
     private var quicTransport: QuicScrcpySessionTransport?
+    private var quicStagingCleanup: (@Sendable () async throws -> Void)?
     private var retiredQuicTransport: QuicScrcpySessionTransport?
     private(set) var quicRetirementOutcome: ScrcpyTransportSettlement?
     private(set) var primaryDiagnostics: PrimaryMediaDiagnostics?
@@ -613,7 +614,14 @@ final class ScrcpySession: ObservableObject {
                                                     selection: quicSelection, generation: generation)
                 }.value
             }
-            try checkPreparation(request)
+            do { try checkPreparation(request) }
+            catch {
+                // The detached staging operation may finish after stop/cancel.
+                // No child exists until transport installation below.
+                _ = await QuicRuntimeArtifacts.cleanStagedArtifacts(launch.cleanupStagedArtifacts)
+                throw error
+            }
+            quicStagingCleanup = launch.cleanupStagedArtifacts
             invalidateApplicationDisplayObservation()
             let displayGeneration = applicationTarget == nil ? nil : ScrcpyApplicationDisplayLaunchGeneration()
             applicationDisplayLaunchGeneration = displayGeneration
@@ -1225,10 +1233,35 @@ final class ScrcpySession: ObservableObject {
     private func stopResources() {
         cancelPlaybackEvidence()
         if let transport = quicTransport {
+            let stagedCleanup = quicStagingCleanup
+            quicStagingCleanup = nil
             transport.retire(); quicTransport = nil; retiredQuicTransport = transport
             scheduleCleanup { [weak self, transport] in
                 let result = await transport.waitForCleanup()
-                await self?.recordQuicRetirement(result)
+                if result.physicallySettled {
+                    let removed = await QuicRuntimeArtifacts.cleanStagedArtifacts(stagedCleanup)
+                    await self?.recordQuicRetirement(.init(physicallySettled: true,
+                        failed: result.failed || !removed,
+                        status: removed || result.status != 0 ? result.status : 111))
+                } else {
+                    await self?.recordQuicRetirement(result)
+                    if let stagedCleanup {
+                        // Preserve the original bounded stop result. The owner
+                        // thread continues settling after a failed deadline;
+                        // only its later physical proof permits unlinking.
+                        // Retain the existing owner object until its proof even
+                        // if a successor replaces the session's retired slot.
+                        // No new native handle or frame lease is acquired.
+                        Task.detached(priority: .utility) { [transport] in
+                            var delay = 100
+                            while !transport.physicallySettled {
+                                try? await Task.sleep(for: .milliseconds(delay))
+                                delay = min(delay * 2, 2_000)
+                            }
+                            _ = await QuicRuntimeArtifacts.cleanStagedArtifacts(stagedCleanup)
+                        }
+                    }
+                }
             }
         }
         if let owner = nativeOwner {

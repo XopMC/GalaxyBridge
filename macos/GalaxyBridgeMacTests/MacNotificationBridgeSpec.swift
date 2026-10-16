@@ -373,6 +373,8 @@ enum MacNotificationBridgeSpec {
             "responses without trusted routing metadata are ignored"
         )
 
+        try verifyAuthoritativeNativeReconciliation(directory: directory, row: row)
+        try verifyReconciliationFencesLateAdds(directory: directory, row: row)
         try verifyAcceptedCompletion(directory: directory, row: row)
         try verifyFailedSubmissionCanRetry(directory: directory, row: row)
         try verifyDuplicatePendingSubmission(directory: directory, row: row)
@@ -386,6 +388,77 @@ enum MacNotificationBridgeSpec {
         try verifyDeferredAcceptanceReceipts(directory: directory, row: row)
 
         print("PASS Mac notifications surface native submission completion with serialized dedupe, replacement, removal, filters, and retry")
+    }
+
+    private static func verifyAuthoritativeNativeReconciliation(directory: URL, row: BridgeNotificationRow) throws {
+        let (center, oldBridge, _) = authorizedControlledBridge(directory: directory)
+        _ = oldBridge.publish(deviceID: "reconcile-device", deviceName: "Galaxy", notification: row, mutedPackages: [])
+        center.completeSubmission(at: 0)
+        _ = oldBridge.publish(deviceID: "other-device", deviceName: "Galaxy", notification: row, mutedPackages: [])
+        center.completeSubmission(at: 1)
+        let staleID = center.requests[0].identifier
+        let otherID = center.requests[1].identifier
+        // Simulate relaunch: no in-memory metadata survives, while native requests do.
+        let bridge = MacNotificationBridge(center: center, iconStore: .init(directoryURL: directory))
+        center.holdDeliveredQueries = true
+        bridge.reconcile(deviceID: "reconcile-device", activeNotificationIDs: [])
+        try expectEqual(center.deliveredQueries.count, 1, "reconciliation queries persisted native deliveries")
+        center.resolveDeliveredQuery(at: 0)
+        try expect(center.installedRequests[staleID] == nil, "a stale native delivery outside AppModel history is removed after relaunch")
+        try expect(center.installedRequests[otherID] != nil, "native reconciliation isolates devices")
+        try expectEqual(bridge.presentationOptions(for: center.requests[0]), [], "late stale native delivery cannot present another banner")
+        try expect(bridge.response(actionIdentifier: UNNotificationDefaultActionIdentifier, reply: nil, request: center.requests[0]) == nil,
+                   "a removed native request cannot launch its stale Android action")
+        try expectEqual(bridge.response(actionIdentifier: UNNotificationDefaultActionIdentifier, reply: nil, request: center.requests[1])?.opensApplication, true,
+                        "a default action on another device still opens its Android app")
+
+        // One outstanding query uses the newest snapshot and newer live publication.
+        bridge.requestAuthorization(); center.resolveAuthorization(granted: true)
+        bridge.reconcile(deviceID: "reconcile-device", activeNotificationIDs: [])
+        for _ in 0..<100 { bridge.reconcile(deviceID: "reconcile-device", activeNotificationIDs: [row.id]) }
+        try expectEqual(center.deliveredQueries.count, 2, "repeated snapshots coalesce behind one outstanding native query")
+        _ = bridge.publish(deviceID: "reconcile-device", deviceName: "Galaxy", notification: row, mutedPackages: [])
+        center.completeSubmission(at: 2)
+        center.resolveDeliveredQuery(at: 1)
+        try expect(center.installedRequests[staleID] != nil, "an old asynchronous query cannot delete a newer active delivery")
+        try expectEqual(bridge.response(actionIdentifier: UNNotificationDefaultActionIdentifier, reply: nil, request: center.requests[2])?.opensApplication, true,
+                        "default actions remain available for current snapshot notifications")
+        bridge.reconcile(deviceID: "reconcile-device", activeNotificationIDs: [])
+        _ = bridge.publish(deviceID: "reconcile-device", deviceName: "Galaxy", notification: row, mutedPackages: [])
+        center.completeSubmission(at: 3)
+        center.resolveDeliveredQuery(at: 2)
+        try expect(center.installedRequests[staleID] != nil, "a live post after snapshot completion survives the delayed native query")
+    }
+
+    private static func verifyReconciliationFencesLateAdds(directory: URL, row: BridgeNotificationRow) throws {
+        let (center, bridge, outcomes) = authorizedControlledBridge(directory: directory)
+        let receipts = AcceptanceReceiptRecorder()
+        _ = bridge.publish(deviceID: "late-reconcile", deviceName: "Galaxy", notification: row, mutedPackages: [], onAccepted: { receipts.append("stale") })
+        bridge.reconcile(deviceID: "late-reconcile", activeNotificationIDs: [])
+        center.completeSubmission(at: 0)
+        try expectEqual(center.installedRequests.count, 0, "late native add is removed by the completed snapshot fence")
+        try expectEqual(outcomes.values, [], "late stale completion cannot report acceptance")
+        try expectEqual(receipts.values, [], "late stale completion cannot verify feature delivery")
+
+        let deferredCenter = RecordingNotificationCenter(completesSubmissionsSynchronously: false)
+        let deferredBridge = MacNotificationBridge(center: deferredCenter, iconStore: .init(directoryURL: directory))
+        deferredBridge.requestAuthorization()
+        _ = deferredBridge.publish(deviceID: "deferred-reconcile", deviceName: "Galaxy", notification: row, mutedPackages: [])
+        deferredBridge.reconcile(deviceID: "deferred-reconcile", activeNotificationIDs: [])
+        deferredCenter.resolveAuthorization(granted: true)
+        try expectEqual(deferredCenter.requests.count, 0, "authorization grant cannot resurrect a notification missing from the completed snapshot")
+
+        // Authorization transitions release the lock before draining their copy
+        // of deferred rows. A newer snapshot can arrive in that exact window.
+        let transitionCenter = RecordingNotificationCenter(completesSubmissionsSynchronously: false)
+        let transitionBridge = MacNotificationBridge(center: transitionCenter, iconStore: .init(directoryURL: directory))
+        transitionBridge.authorizationStateHandler = { state in
+            if state == .authorized { transitionBridge.reconcile(deviceID: "transition-reconcile", activeNotificationIDs: []) }
+        }
+        transitionBridge.requestAuthorization()
+        _ = transitionBridge.publish(deviceID: "transition-reconcile", deviceName: "Galaxy", notification: row, mutedPackages: [])
+        transitionCenter.resolveAuthorization(granted: true)
+        try expectEqual(transitionCenter.requests.count, 0, "a snapshot arriving during authorization callback fences the already-drained pending copy")
     }
 
     private static func verifyAcceptedCompletion(directory: URL, row: BridgeNotificationRow) throws {
@@ -870,6 +943,8 @@ private final class RecordingNotificationCenter: MacNotificationCenterClient, @u
     private var submissionCompletions: [@Sendable (Error?) -> Void] = []
     private var completedSubmissionIndices = Set<Int>()
     var currentAuthorizationState: MacNotificationAuthorizationState = .unknown
+    var holdDeliveredQueries = false
+    var deliveredQueries: [@Sendable ([UNNotificationRequest]) -> Void] = []
     var completeSubmissionsSynchronously: Bool
 
     init(completesSubmissionsSynchronously: Bool = true) {
@@ -911,6 +986,15 @@ private final class RecordingNotificationCenter: MacNotificationCenterClient, @u
 
     func getDeliveredNotifications(completion: @escaping @Sendable ([UNNotification]) -> Void) {
         completion([])
+    }
+
+    func getDeliveredNotificationRequests(completion: @escaping @Sendable ([UNNotificationRequest]) -> Void) {
+        deliveredQueries.append(completion)
+        if !holdDeliveredQueries { completion(Array(installedRequests.values)) }
+    }
+
+    func resolveDeliveredQuery(at index: Int) {
+        deliveredQueries[index](Array(installedRequests.values))
     }
 
     func completeSubmission(at index: Int, error: Error? = nil) {

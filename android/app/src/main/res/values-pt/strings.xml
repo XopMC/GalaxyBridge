@@ -54,8 +54,8 @@
     <string name="notifications_description">Veja as notificações do telefone em seu Mac, responda ou ignore-as.</string>
     <string name="files_title">Arquivos</string>
     <string name="files_description">Os arquivos do Mac são salvos em Download/GalaxyBridge no telefone.</string>
-    <string name="camera_title">Webcam Mac</string>
-    <string name="camera_description">Use a câmera do seu telefone como Galaxy Bridge Camera em seu Mac.</string>
+    <string name="camera_title">Câmera do telefone</string>
+    <string name="camera_description">Veja a câmera do telefone no Galaxy Bridge no seu Mac.</string>
     <string name="sms_notification_only_title">Respostas de mensagens</string>
     <string name="sms_notification_only_description">Galaxy Bridge mantém seu aplicativo de mensagens habitual. Você pode responder do seu Mac quando uma notificação de mensagem chegar.</string>
     <string name="calls_permissions_title">Permissões de chamada</string>
@@ -84,7 +84,7 @@
     <string name="setup_screen_feature_body">Abra a tela e os aplicativos do telefone no Galaxy Bridge no Mac. Inicie a conexão pelo Mac.</string>
     <string name="setup_audio_feature_body">Ouça o áudio do telefone no Mac durante o compartilhamento de tela iniciado pelo Mac.</string>
     <string name="setup_clipboard_feature_title">Área de transferência</string>
-    <string name="setup_clipboard_feature_body">Compartilhe textos copiados e links entre o telefone e o Mac.</string>
+    <string name="setup_clipboard_feature_body">Compartilhe textos, links e imagens copiados entre o telefone e o Mac.</string>
     <string name="setup_permission_section_title">Permissões para suas escolhas</string>
     <string name="setup_permissions_allowed">Suas escolhas não precisam de outras permissões no telefone.</string>
     <string name="setup_waiting_title">Verificar no Mac</string>

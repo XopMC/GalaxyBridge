@@ -42,6 +42,8 @@
 "FILE_INVALID" = "선택한 파일을 읽을 수 없습니다.";
 "FILE_CONNECTION_LOST" = "휴대폰 연결이 끊어졌습니다.";
 "CAMERA_SYSTEM_HINT" = "FaceTime 또는 다른 화상 통화 앱에서 Galaxy Bridge Camera를 선택하세요.";
+"CAMERA_DIRECT_PREVIEW_HINT" = "이 Mac에서 Galaxy 카메라를 미리 볼 수 있습니다. 이 버전에서는 다른 앱에서 웹캠으로 사용할 수 없습니다.";
+"CAMERA_DIRECT_STREAMING_DETAIL" = "Galaxy Bridge에서 실시간 카메라 미리보기를 사용할 수 있습니다. 이 버전에서는 다른 앱에서 웹캠으로 사용할 수 없습니다.";
 "CAMERA_BACK" = "후면 카메라";
 "CAMERA_FRONT" = "전면 카메라";
 "CAMERA_STOP" = "정지";
@@ -143,12 +145,14 @@
 "RECORDING_SAVE_NAME" = "다른 이름으로 저장:";
 "CAPABILITY_REASON_GENERIC" = "이 기능은 현재 이 전화기에서 사용할 수 없습니다.";
 "CAPABILITY_REASON_SCREEN_PERMISSION" = "휴대폰의 Galaxy Bridge에서 화면 공유를 시작하세요.";
+"CAPABILITY_REASON_DIRECT_SCREEN_CONNECTION" = "Galaxy를 케이블로 연결하거나 Mac에서 Wi-Fi를 설정한 다음 휴대전화 화면을 여세요.";
 "CAPABILITY_REASON_SCREEN_NOT_RUNNING" = "휴대폰의 Galaxy Bridge에서 화면 공유를 시작하세요.";
 "CAPABILITY_REASON_ACCESSIBILITY" = "Galaxy Bridge가 접근성 설정에서 휴대폰을 제어할 수 있도록 허용하세요.";
 "CAPABILITY_REASON_NOTIFICATION_ACCESS" = "Galaxy Bridge가 휴대폰 알림을 표시하도록 허용하세요.";
 "CAPABILITY_REASON_STORAGE_FOLDER" = "파일 공유를 위한 휴대폰 폴더를 선택하세요.";
 "CAPABILITY_REASON_AUDIO_PERMISSION" = "Galaxy Bridge가 휴대폰에서 오디오를 공유하도록 허용합니다.";
 "CAPABILITY_REASON_AUDIO_NOT_RUNNING" = "휴대폰의 오디오로 화면 공유를 시작합니다.";
+"CAPABILITY_REASON_DIRECT_AUDIO" = "Mac에서 휴대전화 화면을 여는 동안 소리가 재생됩니다.";
 "CAPABILITY_REASON_NOTIFICATION_ACTIONS_ONLY" = "전화 알림 동작을 통해 메시지에 답장할 수 있습니다.";
 "CAPABILITY_REASON_CALL_PERMISSION" = "Galaxy Bridge가 전화기의 통화를 제어하도록 허용합니다.";
 "CAPABILITY_REASON_DIALER_ROLE" = "전체 통화 제어를 활성화하려면 통화에 Galaxy Bridge를 선택하세요.";
@@ -284,3 +288,4 @@
 "CALL_STATE_ENDED" = "통화 종료";
 "APPLICATIONS_SEARCH_EMPTY_HINT" = "다른 앱 이름이나 패키지 이름으로 검색해 보세요.";
 "CLIENT_SETUP_VERIFICATION_UNAVAILABLE" = "이 버전에서는 이 기능을 검증할 수 없습니다. 설정을 계속하려면 선택을 변경하세요.";
+"NOTIFICATION_CUSTOM_CONTENT" = "내용을 보려면 휴대전화에서 이 알림을 여세요.";

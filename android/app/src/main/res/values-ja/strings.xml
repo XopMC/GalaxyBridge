@@ -54,8 +54,8 @@
     <string name="notifications_description">Mac で電話通知を確認し、返信するか、拒否します。</string>
     <string name="files_title">ファイル</string>
     <string name="files_description">MacからのファイルはスマートフォンのDownload/GalaxyBridgeに保存されます。</string>
-    <string name="camera_title">Mac ウェブカメラ</string>
-    <string name="camera_description">Mac 上の Galaxy Bridge Camera として携帯電話のカメラを使用します。</string>
+    <string name="camera_title">スマートフォンのカメラ</string>
+    <string name="camera_description">Mac の Galaxy Bridge でスマートフォンのカメラ映像を表示します。</string>
     <string name="sms_notification_only_title">メッセージの返信</string>
     <string name="sms_notification_only_description">Galaxy Bridge は、通常のメッセージング アプリを維持します。メッセージ通知が届いたらMacから返信することができます。</string>
     <string name="calls_permissions_title">通話許可</string>
@@ -84,7 +84,7 @@
     <string name="setup_screen_feature_body">MacのGalaxy Bridgeでスマートフォンの画面とアプリを開きます。Macから接続を開始してください。</string>
     <string name="setup_audio_feature_body">Macから画面共有を開始して、スマートフォンの音声をMacで再生します。</string>
     <string name="setup_clipboard_feature_title">クリップボード</string>
-    <string name="setup_clipboard_feature_body">コピーしたテキストやウェブリンクをスマートフォンとMac間で共有します。</string>
+    <string name="setup_clipboard_feature_body">コピーしたテキスト、リンク、画像をスマートフォンと Mac 間で共有します。</string>
     <string name="setup_permission_section_title">選択した機能の権限</string>
     <string name="setup_permissions_allowed">選択した機能に追加のスマートフォンの権限は必要ありません。</string>
     <string name="setup_waiting_title">Macで確認</string>

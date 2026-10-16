@@ -14,9 +14,24 @@ Android-to-Mac clipboard sync now uses a bounded capture-free agent inside the b
 
 The release includes a rebuilt drag-to-Applications DMG for **macOS 14+ / Apple Silicon** and a signed Direct APK for **Android 12+**. ADB remains included in the Mac app. The QR pairing screen was opened successfully from the packaged macOS app during release validation.
 
+### Maintenance update
+
+The refreshed 0.1.1 builds fix repeated clipboard copies and background image
+reads, bound notification queues and reconcile missed removals after reconnect,
+retain removable offline devices, and keep catalog tiles visible during refresh.
+Camera controls fit the selected language and describe phone-camera preview.
+QUIC session files are removed after normal retirement and partial launch failure.
+
+The experimental QUIC path retains its existing transport. Its native child now
+uses the owned ADB environment and endpoint; AVC requests constant bitrate,
+matching the Wireless ADB profile. In the tested S24 runs this improved sustained
+presentation and input timing; occasional stalls remain. QUIC remains opt-in.
+See [audit evidence and validation limits](production-audit.md).
+
 ### Known limits
 
 - Wi-Fi reliability, clean-Mac installation, and the wider hardware matrix still need validation.
+- Phone-to-Mac file acceptance awaits the standard macOS Downloads permission; it is not certified by this audit.
 - Android requires the user to enable Developer options/Wireless debugging and approve the initial ADB pairing. A regular APK cannot enable these protected system settings itself.
 - Full SMS history/direct sending and virtual webcam activation are not included.
 - The Mac app is ad-hoc signed and not Apple-notarized.
@@ -33,9 +48,26 @@ The release includes a rebuilt drag-to-Applications DMG for **macOS 14+ / Apple 
 
 В выпуск входят заново собранный DMG с переносом приложения в «Программы» для **macOS 14+ / Apple Silicon** и подписанный Direct APK для **Android 12+**. ADB по-прежнему встроен в приложение для Mac. В ходе проверки выпуска QR-экран был успешно открыт из упакованного приложения macOS.
 
+### Обновление сборок
+
+В обновлённых сборках 0.1.1 исправлены повторное копирование в буфер и фоновое
+чтение изображений. Очереди уведомлений ограничены, пропущенные удаления
+восстанавливаются после переподключения. Ранее добавленные устройства остаются
+доступны для удаления без сети, а каталог сохраняет плитки при обновлении.
+Элементы управления камерой адаптируются к языку и описывают предпросмотр камеры
+телефона.
+Временные файлы QUIC удаляются после штатного завершения и ошибки подготовки сеанса.
+
+Экспериментальный QUIC сохраняет прежний транспорт. Дочерний процесс получает
+параметры встроенного ADB, а кодировщик AVC использует постоянный битрейт, как
+в Wireless ADB. В проведённых проверках на S24 это улучшило плавность и задержку
+управления; отдельные паузы остаются. QUIC по-прежнему включается отдельно.
+Подробнее — [результаты аудита и границы проверки](production-audit.md).
+
 ### Известные ограничения
 
 - Надёжность Wi-Fi, установка на чистый Mac и расширенная матрица устройств ещё требуют проверки.
+- Проверка файлов с телефона на Mac ждёт системного доступа к «Загрузкам»; аудит пока не подтверждает этот сценарий.
 - Android требует вручную включить параметры разработчика/Wireless debugging и подтвердить первое ADB-сопряжение. Обычный APK не может сам включить защищённые системные настройки.
 - Полная история SMS, прямая отправка SMS и активация виртуальной веб-камеры пока не входят в выпуск.
 - Приложение для Mac имеет локальную ad-hoc подпись и не нотарифицировано Apple.

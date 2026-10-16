@@ -443,6 +443,61 @@ fn current_producer_artifact_and_private_bootstrap_are_one_exact_pin() {
 }
 
 #[test]
+fn avc_producer_matches_wireless_adb_constant_bitrate_profile() {
+    use galaxybridge_quic_backend::{
+        bootstrap::Binding,
+        stock::{LaunchPolicy, ProducerLaunch},
+    };
+    let binding = Binding {
+        nonce: [3; 32],
+        sidecar_sha: [4; 32],
+        context: galaxybridge_quic_media::Context {
+            session: [7; 32],
+            generation: 1,
+            scid: 0xabc,
+            capture_kind: 0,
+            display_id: 0,
+            target_token: 9,
+            enabled: 7,
+        },
+    };
+    let launch = ProducerLaunch {
+        jar: "/data/local/tmp/gb-sync-approved.jar".into(),
+        hevc: false,
+        max_size: 1920,
+        max_fps: 60,
+        video_bit_rate: 6_000_000,
+        audio_bit_rate: 128_000,
+        key_frame_interval_seconds: Some(1),
+        new_display: None,
+    };
+    let command = launch
+        .command_with_policy(&binding, Some(LaunchPolicy::Primary))
+        .unwrap();
+    let args: Vec<_> = command.args.iter().map(|a| a.to_str().unwrap()).collect();
+    for required in [
+        "video_codec=h264",
+        "max_size=1920",
+        "max_fps=60",
+        "video_bit_rate=6000000",
+        "audio_bit_rate=128000",
+        "video_codec_options=i-frame-interval=1,priority=0,latency=0,bitrate-mode=2",
+    ] {
+        assert!(args.contains(&required), "missing exact option {required}");
+    }
+    let hevc = ProducerLaunch {
+        hevc: true,
+        ..launch
+    }
+    .command(&binding)
+    .unwrap();
+    assert!(hevc
+        .args
+        .iter()
+        .any(|a| a == "video_codec_options=i-frame-interval=1,priority=0,latency=0"));
+}
+
+#[test]
 fn producer_launch_preserves_disabled_control_and_selected_profile() {
     use galaxybridge_quic_backend::{bootstrap::Binding, stock::ProducerLaunch};
     let binding = Binding {

@@ -46,6 +46,7 @@ struct ContentView: View {
                             } label: {
                                 Label("DETACH", systemImage: "macwindow.on.rectangle")
                             }
+                            .disabled(!device.isReady)
                             Button(action: model.refresh) {
                                 Label("REFRESH", systemImage: "arrow.clockwise")
                             }
@@ -410,7 +411,7 @@ struct ScreenSurface: View {
     var body: some View {
         let surface = model.videoSurface(for: device.id)
         let physicalDeviceActive = model.enhancedScreenInterlocks[device.id] == .physicalDeviceActive
-        let mediaUnavailable = model.enhancedScreenInterlocks[device.id] == .mediaUnavailable
+        let mediaUnavailable = screenMediaUnavailable
         GeometryReader { _ in
           ZStack {
             Color.black
@@ -538,6 +539,14 @@ struct ScreenSurface: View {
     private var screenCapabilityUnavailableReason: String? {
         guard device.transport == .companionLAN else { return nil }
         return model.capabilityReasonsByDevice[device.id]?["CAPABILITY_SCREEN_CAPTURE"]
+    }
+
+    private var screenMediaUnavailable: Bool {
+        if model.enhancedScreenInterlocks[device.id] == .mediaUnavailable { return true }
+#if !GALAXYBRIDGE_APP_STORE
+        if device.transport != .companionLAN, case .failed = model.enhancedStates[device.id] { return true }
+#endif
+        return false
     }
 }
 
@@ -834,65 +843,142 @@ private struct CameraPanel: View {
     @State private var framesPerSecond: UInt32 = 30
 
     var body: some View {
-        HStack(spacing: 14) {
-            MetalVideoSurface(model: model.cameraSurface(for: deviceID))
-                .environment(\.layoutDirection, .leftToRight)
-                .aspectRatio(16 / 9, contentMode: .fit)
-                .frame(width: 220)
-                .background(.black)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 8) {
-                Text("CAMERA_PANEL").font(.headline)
-                Text("CAMERA_SYSTEM_HINT").font(.caption).foregroundStyle(.secondary)
-                if let status = model.cameraStatusesByDevice[deviceID] {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: status.symbolName)
-                            .foregroundStyle(status.isFailure ? Color.red : Color.accentColor)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(LocalizedStringKey(status.titleKey))
-                                .font(.callout.weight(.semibold))
-                            if let detailKey = status.detailKey {
-                                Text(LocalizedStringKey(detailKey))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .padding(9)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("CAMERA_PANEL").font(.headline)
+                    Text(LocalizedStringKey(cameraHintKey))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                HStack {
-                    Picker("CAMERA_LENS", selection: $cameraID) {
-                        Text("CAMERA_BACK").tag("back")
-                        Text("CAMERA_FRONT").tag("front")
+                preview
+                statusNotice
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .bottom, spacing: 12) {
+                        lensPicker.fixedSize(horizontal: true, vertical: false)
+                        resolutionPicker.fixedSize(horizontal: true, vertical: false)
+                        frameRatePicker.fixedSize(horizontal: true, vertical: false)
+                        Spacer(minLength: 4)
+                        cameraActions.fixedSize(horizontal: true, vertical: false)
                     }
-                    .frame(width: 110)
-                    Picker("CAMERA_RESOLUTION", selection: $resolution) {
-                        ForEach(CameraResolution.allCases) { value in Text(value.label).tag(value) }
+                    VStack(alignment: .leading, spacing: 12) {
+                        lensPicker
+                        resolutionPicker
+                        frameRatePicker
+                        cameraActions
                     }
-                    .frame(width: 120)
-                    Picker("CAMERA_FPS", selection: $framesPerSecond) {
-                        Text(UserFacingText.formatted("CAMERA_FPS_VALUE", UInt32(24))).tag(UInt32(24))
-                        Text(UserFacingText.formatted("CAMERA_FPS_VALUE", UInt32(30))).tag(UInt32(30))
-                        Text(UserFacingText.formatted("CAMERA_FPS_VALUE", UInt32(60))).tag(UInt32(60))
-                    }
-                    .frame(width: 90)
-                    Button("CAMERA_START") {
-                        model.configureCamera(
-                            deviceID: deviceID,
-                            enabled: true,
-                            cameraID: cameraID,
-                            width: resolution.width,
-                            height: resolution.height,
-                            framesPerSecond: framesPerSecond
-                        )
-                    }
-                    Button("CAMERA_STOP") { model.configureCamera(deviceID: deviceID, enabled: false) }
                 }
             }
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
         }
-        .padding(12)
+    }
+
+    private var preview: some View {
+        MetalVideoSurface(model: model.cameraSurface(for: deviceID))
+            .environment(\.layoutDirection, .leftToRight)
+            .frame(width: 320, height: 180)
+            .clipped()
+            .background(.black)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private var statusNotice: some View {
+        if let status = model.cameraStatusesByDevice[deviceID] {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: status.symbolName)
+                    .foregroundStyle(status.isFailure ? Color.red : Color.accentColor)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(LocalizedStringKey(status.titleKey))
+                        .font(.callout.weight(.semibold))
+                    if let detailKey = cameraDetailKey(status.detailKey) {
+                        Text(LocalizedStringKey(detailKey))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+    }
+
+    private var lensPicker: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("CAMERA_LENS").font(.caption).foregroundStyle(.secondary)
+            Picker("CAMERA_LENS", selection: $cameraID) {
+                Text("CAMERA_BACK").tag("back")
+                Text("CAMERA_FRONT").tag("front")
+            }
+            .labelsHidden()
+            .accessibilityLabel(Text("CAMERA_LENS"))
+            .frame(minWidth: 140)
+        }
+    }
+
+    private var resolutionPicker: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("CAMERA_RESOLUTION").font(.caption).foregroundStyle(.secondary)
+            Picker("CAMERA_RESOLUTION", selection: $resolution) {
+                ForEach(CameraResolution.allCases) { value in Text(value.label).tag(value) }
+            }
+            .labelsHidden()
+            .accessibilityLabel(Text("CAMERA_RESOLUTION"))
+            .frame(minWidth: 140)
+        }
+    }
+
+    private var frameRatePicker: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("CAMERA_FPS").font(.caption).foregroundStyle(.secondary)
+            Picker("CAMERA_FPS", selection: $framesPerSecond) {
+                Text(UserFacingText.formatted("CAMERA_FPS_VALUE", UInt32(24))).tag(UInt32(24))
+                Text(UserFacingText.formatted("CAMERA_FPS_VALUE", UInt32(30))).tag(UInt32(30))
+                Text(UserFacingText.formatted("CAMERA_FPS_VALUE", UInt32(60))).tag(UInt32(60))
+            }
+            .labelsHidden()
+            .accessibilityLabel(Text("CAMERA_FPS"))
+            .frame(minWidth: 120)
+        }
+    }
+
+    private var cameraActions: some View {
+        HStack(spacing: 8) {
+            Button("CAMERA_START") {
+                model.configureCamera(
+                    deviceID: deviceID,
+                    enabled: true,
+                    cameraID: cameraID,
+                    width: resolution.width,
+                    height: resolution.height,
+                    framesPerSecond: framesPerSecond
+                )
+            }
+            .buttonStyle(.borderedProminent)
+            Button("CAMERA_STOP") { model.configureCamera(deviceID: deviceID, enabled: false) }
+                .buttonStyle(.bordered)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var cameraHintKey: String {
+#if GALAXYBRIDGE_APP_STORE
+        "CAMERA_SYSTEM_HINT"
+#else
+        "CAMERA_DIRECT_PREVIEW_HINT"
+#endif
+    }
+
+    private func cameraDetailKey(_ key: String?) -> String? {
+#if GALAXYBRIDGE_APP_STORE
+        key
+#else
+        key == "CAMERA_STATUS_STREAMING_DETAIL" ? "CAMERA_DIRECT_STREAMING_DETAIL" : key
+#endif
     }
 
     private enum CameraResolution: String, CaseIterable, Identifiable {
@@ -1055,13 +1141,21 @@ private struct NotificationCard: View {
                 } label: { Image(systemName: "xmark") }
                 .buttonStyle(.plain)
             }
-            Text(notification.title)
-                .font(.headline)
-                .lineLimit(2)
-            Text(notification.body)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(3)
+            if !notification.title.isEmpty {
+                Text(notification.title)
+                    .font(.headline)
+                    .lineLimit(2)
+            }
+            if notification.body.isEmpty && (notification.title.isEmpty || notification.title == notification.appLabel) {
+                Text("NOTIFICATION_CUSTOM_CONTENT")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else if !notification.body.isEmpty {
+                Text(notification.body)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
             ForEach(notification.actions.prefix(2)) { action in
                 if action.acceptsText {
                     HStack {

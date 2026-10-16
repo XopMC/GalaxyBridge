@@ -61,6 +61,11 @@ private enum UserFacingTextSpec {
             "Russian permission reason"
         )
         try expect(
+            russian.unavailableReason(for: "media_projection_consent_required", usesDirectScreenConnection: true),
+            "Подключите Galaxy кабелем или настройте Wi-Fi на Mac, затем откройте экран телефона.",
+            "Direct mirroring starts from the Mac, not from a missing phone capture action"
+        )
+        try expect(
             english.capabilityName(for: "CAPABILITY_PHYSICAL_SCREEN_OFF"),
             "Phone screen privacy",
             "English companion privacy capability"

@@ -42,6 +42,8 @@
 "FILE_INVALID" = "الملف المحدد غير قابل للقراءة.";
 "FILE_CONNECTION_LOST" = "انقطع الاتصال بهاتفك.";
 "CAMERA_SYSTEM_HINT" = "حدد Galaxy Bridge Camera في FaceTime أو أي تطبيق آخر لمكالمات الفيديو.";
+"CAMERA_DIRECT_PREVIEW_HINT" = "عاين كاميرا Galaxy على هذا الـ Mac. لا يتوفر استخدامها ككاميرا ويب في التطبيقات الأخرى في هذا الإصدار.";
+"CAMERA_DIRECT_STREAMING_DETAIL" = "تتوفر معاينة الكاميرا المباشرة في Galaxy Bridge. لا يمكن للتطبيقات الأخرى استخدامها ككاميرا ويب في هذا الإصدار.";
 "CAMERA_BACK" = "الكاميرا الخلفية";
 "CAMERA_FRONT" = "الكاميرا الأمامية";
 "CAMERA_STOP" = "توقف";
@@ -143,12 +145,14 @@
 "RECORDING_SAVE_NAME" = "حفظ بإسم:";
 "CAPABILITY_REASON_GENERIC" = "هذه الميزة غير متوفرة حاليًا على هذا الهاتف.";
 "CAPABILITY_REASON_SCREEN_PERMISSION" = "ابدأ مشاركة الشاشة في Galaxy Bridge على هاتفك.";
+"CAPABILITY_REASON_DIRECT_SCREEN_CONNECTION" = "وصّل Galaxy بالكابل أو أعدّ Wi-Fi على Mac، ثم افتح شاشة الهاتف.";
 "CAPABILITY_REASON_SCREEN_NOT_RUNNING" = "ابدأ مشاركة الشاشة في Galaxy Bridge على هاتفك.";
 "CAPABILITY_REASON_ACCESSIBILITY" = "اسمح لـ Galaxy Bridge بالتحكم في هاتفك من خلال إعدادات إمكانية الوصول الخاصة به.";
 "CAPABILITY_REASON_NOTIFICATION_ACCESS" = "اسمح لـ Galaxy Bridge بإظهار إشعارات هاتفك.";
 "CAPABILITY_REASON_STORAGE_FOLDER" = "اختر مجلد هاتف لمشاركة الملفات.";
 "CAPABILITY_REASON_AUDIO_PERMISSION" = "اسمح لـ Galaxy Bridge بمشاركة الصوت من هاتفك.";
 "CAPABILITY_REASON_AUDIO_NOT_RUNNING" = "ابدأ مشاركة الشاشة بالصوت على هاتفك.";
+"CAPABILITY_REASON_DIRECT_AUDIO" = "يتم تشغيل صوت الهاتف أثناء فتح شاشته على Mac.";
 "CAPABILITY_REASON_NOTIFICATION_ACTIONS_ONLY" = "يمكنك الرد على الرسائل من خلال إجراءات الإشعارات عبر الهاتف.";
 "CAPABILITY_REASON_CALL_PERMISSION" = "اسمح لـ Galaxy Bridge بالتحكم في المكالمات على هاتفك.";
 "CAPABILITY_REASON_DIALER_ROLE" = "اختر Galaxy Bridge للمكالمات لتمكين التحكم الكامل في المكالمات.";
@@ -284,3 +288,4 @@
 "CALL_STATE_ENDED" = "انتهت المكالمة";
 "APPLICATIONS_SEARCH_EMPTY_HINT" = "جرّب اسم تطبيق أو اسم حزمة مختلفًا.";
 "CLIENT_SETUP_VERIFICATION_UNAVAILABLE" = "لا يمكن لهذا الإصدار التحقق من هذه الميزة. غيّر اختيارك لمتابعة الإعداد.";
+"NOTIFICATION_CUSTOM_CONTENT" = "افتح هذا الإشعار على هاتفك لعرض محتواه.";

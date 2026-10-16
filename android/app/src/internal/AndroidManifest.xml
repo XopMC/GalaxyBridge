@@ -88,5 +88,9 @@
                 <action android:name="com.xopmc.galaxybridge.QA_SET_CLIPBOARD" />
             </intent-filter>
         </receiver>
+        <activity
+            android:name=".service.InteractionQaActivity"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
     </application>
 </manifest>

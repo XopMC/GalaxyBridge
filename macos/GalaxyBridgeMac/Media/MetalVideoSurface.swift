@@ -16,8 +16,13 @@ final class VideoSurfaceModel: ObservableObject {
     /// verification attempt here; old cached redraws never ask for a new token.
     var freshFramePresentationReceipt: (@MainActor () -> (@MainActor @Sendable () -> Void)?)?
 
-    // Camera retirement only; screen/window owners do not call this hook.
     func clearCameraFrame() {
+        clearFrame()
+    }
+
+    /// Retire cached pixels together with their owning stream. A reopened
+    /// window must not display a previous session as if it were live.
+    func clearFrame() {
         presenters.clear()
         hasFrame = false
         protectedContentSuspected = false

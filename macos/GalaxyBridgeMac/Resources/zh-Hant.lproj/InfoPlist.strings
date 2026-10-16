@@ -1,3 +1,4 @@
 /* Machine translation with protected format arguments; see docs/localization/README.md. */
 "CFBundleDisplayName" = "Galaxy Bridge";
 "NSLocalNetworkUsageDescription" = "透過本地網路將 Galaxy 安全地連接到該 Mac。";
+"NSDownloadsFolderUsageDescription" = "將 Galaxy 傳送的檔案儲存至「下載項目」資料夾。";

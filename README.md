@@ -21,7 +21,7 @@
 
 Galaxy Bridge connects a Samsung Android phone to a Mac for screen control, audio, notifications, clipboard, and file transfers. It works locally, without an account or cloud relay. A shared One UI-inspired icon and system-language interfaces keep both apps familiar.
 
-**0.1.1 is a prerelease** for Apple Silicon Macs and Samsung Android phones. It fixes the macOS 26 QR crash, Wireless ADB discovery of `.local` phone endpoints, and Android-to-Mac image clipboard sync. See the [release notes](docs/public/release-notes-0.1.1.md).
+**0.1.1 is a prerelease** for Apple Silicon Macs and Samsung Android phones. It fixes the macOS 26 QR crash, Wireless ADB discovery of `.local` phone endpoints, and Android-to-Mac image clipboard sync. See the [release notes](docs/public/release-notes-0.1.1.md) and [audit evidence](docs/public/production-audit.md).
 
 ### Screenshots
 
@@ -95,7 +95,7 @@ Created by **Mikhail Khoroshavin ([XopMC](https://github.com/XopMC))**. Galaxy B
 
 Galaxy Bridge связывает Samsung на Android с Mac: управление экраном телефона, звук, уведомления, буфер обмена и передача файлов. Всё работает локально, без аккаунта и облачного ретранслятора. Общая иконка в духе One UI и интерфейс на системном языке объединяют оба приложения.
 
-**0.1.1 — предварительный выпуск** для Mac с Apple Silicon и телефонов Samsung на Android. Исправлены падение macOS 26 при открытии QR-сопряжения, поиск `.local`-адресов телефона через Wireless ADB и передача изображений из буфера Android на Mac. Подробнее — в [заметках к выпуску](docs/public/release-notes-0.1.1.md#russian).
+**0.1.1 — предварительный выпуск** для Mac с Apple Silicon и телефонов Samsung на Android. Исправлены падение macOS 26 при открытии QR-сопряжения, поиск `.local`-адресов телефона через Wireless ADB и передача изображений из буфера Android на Mac. Подробнее — в [заметках к выпуску](docs/public/release-notes-0.1.1.md#russian) и [результатах аудита](docs/public/production-audit.md).
 
 ### Скриншоты
 

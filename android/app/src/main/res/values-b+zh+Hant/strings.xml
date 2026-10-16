@@ -54,8 +54,8 @@
     <string name="notifications_description">在 Mac 上查看電話通知、回覆或忽略它們。</string>
     <string name="files_title">文件</string>
     <string name="files_description">來自Mac的檔案儲存在手機的Download/GalaxyBridge資料夾中。</string>
-    <string name="camera_title">Mac 網路攝影機</string>
-    <string name="camera_description">在 Mac 上使用手機相機作為 Galaxy Bridge Camera。</string>
+    <string name="camera_title">手機相機</string>
+    <string name="camera_description">在 Mac 的 Galaxy Bridge 中查看手機相機畫面。</string>
     <string name="sms_notification_only_title">留言回覆</string>
     <string name="sms_notification_only_description">Galaxy Bridge 保留您常用的訊息應用程式。當訊息通知到達時，您可以透過 Mac 進行回覆。</string>
     <string name="calls_permissions_title">通話權限</string>
@@ -84,7 +84,7 @@
     <string name="setup_screen_feature_body">在Mac上的Galaxy Bridge中開啟手機螢幕與App。請從Mac開始連線。</string>
     <string name="setup_audio_feature_body">從Mac開始螢幕共享時，在Mac上播放手機音訊。</string>
     <string name="setup_clipboard_feature_title">剪貼簿</string>
-    <string name="setup_clipboard_feature_body">在手機與Mac之間分享複製的文字和網頁連結。</string>
+    <string name="setup_clipboard_feature_body">在手機和 Mac 之間分享複製的文字、連結和圖片。</string>
     <string name="setup_permission_section_title">所選功能的權限</string>
     <string name="setup_permissions_allowed">所選功能不需要更多手機權限。</string>
     <string name="setup_waiting_title">在Mac上檢查</string>

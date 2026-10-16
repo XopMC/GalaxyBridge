@@ -40,6 +40,7 @@ message Envelope {
     PairingCommitAck pairing_commit_ack = 32;
     CameraStatus camera_status = 33;
     TransferCancel transfer_cancel = 34;
+    NotificationSnapshot notification_snapshot = 35;
   }
 }
 
@@ -204,6 +205,14 @@ message NotificationEvent {
   // that were already active on the phone. They restore the Mac in-app list
   // but must not generate a fresh native macOS banner.
   bool initial_snapshot = 10;
+}
+
+// The events stream sends begin (complete=false), all currently active
+// NotificationEvent rows with initial_snapshot=true, then end (complete=true).
+// Only a complete snapshot is authoritative: IDs absent from it were removed.
+// Live posts/removals follow end in order. Older peers may ignore this message.
+message NotificationSnapshot {
+  bool complete = 1;
 }
 
 message NotificationActionDescriptor {

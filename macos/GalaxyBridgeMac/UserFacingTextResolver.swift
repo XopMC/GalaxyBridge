@@ -25,8 +25,17 @@ struct UserFacingTextResolver {
         localized(Self.capabilityKeys[code] ?? "CAPABILITY_NAME_GENERIC")
     }
 
-    func unavailableReason(for code: String) -> String {
-        localized(Self.reasonKeys[code] ?? "CAPABILITY_REASON_GENERIC")
+    func unavailableReason(for code: String, usesDirectScreenConnection: Bool = false) -> String {
+        if usesDirectScreenConnection {
+            switch code {
+            case "media_projection_consent_required", "screen_capture_not_running":
+                return localized("CAPABILITY_REASON_DIRECT_SCREEN_CONNECTION")
+            case "media_projection_audio_not_running_or_blocked":
+                return localized("CAPABILITY_REASON_DIRECT_AUDIO")
+            default: break
+            }
+        }
+        return localized(Self.reasonKeys[code] ?? "CAPABILITY_REASON_GENERIC")
     }
 
     func connectionStatus(isReady: Bool, usesPhoneApp: Bool) -> String {

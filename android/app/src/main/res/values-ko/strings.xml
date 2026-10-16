@@ -54,8 +54,8 @@
     <string name="notifications_description">Mac에서 전화 알림을 확인하고 응답하거나 무시하세요.</string>
     <string name="files_title">파일</string>
     <string name="files_description">Mac의 파일은 휴대전화의 Download/GalaxyBridge에 저장됩니다.</string>
-    <string name="camera_title">Mac 웹캠</string>
-    <string name="camera_description">Mac에서 휴대폰 카메라를 Galaxy Bridge Camera로 사용하세요.</string>
+    <string name="camera_title">휴대전화 카메라</string>
+    <string name="camera_description">Mac의 Galaxy Bridge에서 휴대전화 카메라 영상을 보세요.</string>
     <string name="sms_notification_only_title">메시지 답장</string>
     <string name="sms_notification_only_description">Galaxy Bridge는 일반적인 메시징 앱을 유지합니다. 메시지 알림이 도착하면 Mac에서 답장을 보낼 수 있습니다.</string>
     <string name="calls_permissions_title">통화 권한</string>
@@ -84,7 +84,7 @@
     <string name="setup_screen_feature_body">Mac의 Galaxy Bridge에서 휴대전화 화면과 앱을 여세요. Mac에서 연결을 시작하세요.</string>
     <string name="setup_audio_feature_body">Mac에서 화면 공유를 시작하고 휴대전화 소리를 Mac에서 재생하세요.</string>
     <string name="setup_clipboard_feature_title">클립보드</string>
-    <string name="setup_clipboard_feature_body">복사한 텍스트와 웹 링크를 휴대전화와 Mac 간에 공유하세요.</string>
+    <string name="setup_clipboard_feature_body">복사한 텍스트, 링크, 이미지를 휴대전화와 Mac 간에 공유하세요.</string>
     <string name="setup_permission_section_title">선택한 기능의 권한</string>
     <string name="setup_permissions_allowed">선택한 기능에 추가 휴대전화 권한은 필요하지 않습니다.</string>
     <string name="setup_waiting_title">Mac에서 확인</string>

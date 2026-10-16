@@ -33,57 +33,89 @@ public enum ScrcpyClipboardAgentError: Error, Equatable {
     case invalidPreamble
     case unknownKind(UInt8)
     case invalidLength(Int)
+    case invalidOrigin
 }
 
 public struct ScrcpyClipboardAgentMessage: Equatable, Sendable {
     public let kind: ScrcpyClipboardContentKind
     public let content: Data
+    public let timestamp: UInt64?
+    public let originChangeID: String?
 
-    public init(kind: ScrcpyClipboardContentKind, content: Data) {
+    public init(kind: ScrcpyClipboardContentKind, content: Data, timestamp: UInt64? = nil, originChangeID: String? = nil) {
         self.kind = kind
         self.content = content
+        self.timestamp = timestamp
+        self.originChangeID = originChangeID
+    }
+
+    /// Commands on the already-owned local socket use the same bounded GBC2
+    /// frame, without a second stream preamble. Only text writes are supported.
+    public static func textCommand(_ text: String, changeID: String) -> Data? {
+        let payload = Data(text.utf8), origin = Data(changeID.utf8)
+        guard !payload.isEmpty, payload.count <= ScrcpyDeviceMessageDecoder.maximumClipboardLength,
+              !origin.isEmpty, origin.count <= 256 else { return nil }
+        var result = Data([ScrcpyClipboardContentKind.text.rawValue])
+        result.append(Data(repeating: 0, count: 8))
+        result.append(contentsOf: [UInt8(origin.count >> 8), UInt8(truncatingIfNeeded: origin.count)])
+        for shift in stride(from: 24, through: 0, by: -8) { result.append(UInt8(truncatingIfNeeded: payload.count >> shift)) }
+        result.append(origin); result.append(payload)
+        return result
     }
 }
 
 public struct ScrcpyClipboardAgentDecoder: Sendable {
     public static let maximumPayloadLength = 4 * 1024 * 1024
-    private static let preamble = Data("GBC1".utf8)
     private var buffer = Data()
-    private var acceptedPreamble = false
+    private var version: UInt8?
 
     public init() {}
 
     public mutating func append<S: DataProtocol>(_ bytes: S) throws -> [ScrcpyClipboardAgentMessage] {
         buffer.append(contentsOf: bytes)
-        if !acceptedPreamble {
-            guard buffer.count >= Self.preamble.count else { return [] }
-            guard buffer.prefix(Self.preamble.count) == Self.preamble else {
+        if version == nil {
+            guard buffer.count >= 4 else { return [] }
+            let prefix = Data(buffer.prefix(4))
+            guard prefix == Data("GBC1".utf8) || prefix == Data("GBC2".utf8) else {
                 throw ScrcpyClipboardAgentError.invalidPreamble
             }
-            buffer.removeFirst(Self.preamble.count)
-            acceptedPreamble = true
+            version = prefix.last
+            buffer.removeFirst(4)
         }
         var messages: [ScrcpyClipboardAgentMessage] = []
-        while buffer.count >= 5 {
+        let headerLength = version == 0x32 ? 15 : 5
+        while buffer.count >= headerLength {
             guard let kind = ScrcpyClipboardContentKind(rawValue: buffer[buffer.startIndex]) else {
                 throw ScrcpyClipboardAgentError.unknownKind(buffer[buffer.startIndex])
             }
-            let length = Int(readUInt32(at: 1))
+            let originLength = headerLength == 15 ? Int(readWord(at: 9, count: 2)) : 0
+            guard originLength <= 256 else { throw ScrcpyClipboardAgentError.invalidOrigin }
+            let length = Int(readWord(at: headerLength == 15 ? 11 : 1, count: 4))
             guard length > 0, length <= Self.maximumPayloadLength else {
                 throw ScrcpyClipboardAgentError.invalidLength(length)
             }
-            guard buffer.count >= 5 + length else { break }
-            let start = buffer.index(buffer.startIndex, offsetBy: 5)
+            guard buffer.count >= headerLength + originLength + length else { break }
+            let originStart = buffer.index(buffer.startIndex, offsetBy: headerLength)
+            let start = buffer.index(originStart, offsetBy: originLength)
             let end = buffer.index(start, offsetBy: length)
-            messages.append(.init(kind: kind, content: Data(buffer[start ..< end])))
-            buffer.removeFirst(5 + length)
+            let origin: String?
+            if originLength > 0 {
+                guard let decoded = String(data: buffer[originStart..<start], encoding: .utf8) else {
+                    throw ScrcpyClipboardAgentError.invalidOrigin
+                }
+                origin = decoded
+            } else { origin = nil }
+            messages.append(.init(kind: kind, content: Data(buffer[start ..< end]),
+                timestamp: headerLength == 15 ? readWord(at: 1, count: 8) : nil,
+                originChangeID: origin))
+            buffer.removeFirst(headerLength + originLength + length)
         }
         return messages
     }
 
-    private func readUInt32(at offset: Int) -> UInt32 {
-        var value: UInt32 = 0
-        for byte in buffer.dropFirst(offset).prefix(4) { value = (value << 8) | UInt32(byte) }
+    private func readWord(at offset: Int, count: Int) -> UInt64 {
+        var value: UInt64 = 0
+        for byte in buffer.dropFirst(offset).prefix(count) { value = (value << 8) | UInt64(byte) }
         return value
     }
 }

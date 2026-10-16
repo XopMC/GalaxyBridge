@@ -327,5 +327,16 @@ public interface EnvelopeOrBuilder extends
    */
   com.xopmc.galaxybridge.protocol.v1.TransferCancel getTransferCancel();
 
+  /**
+   * <code>.galaxybridge.v1.NotificationSnapshot notification_snapshot = 35;</code>
+   * @return Whether the notificationSnapshot field is set.
+   */
+  boolean hasNotificationSnapshot();
+  /**
+   * <code>.galaxybridge.v1.NotificationSnapshot notification_snapshot = 35;</code>
+   * @return The notificationSnapshot.
+   */
+  com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot getNotificationSnapshot();
+
   public com.xopmc.galaxybridge.protocol.v1.Envelope.PayloadCase getPayloadCase();
 }

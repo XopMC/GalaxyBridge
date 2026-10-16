@@ -42,6 +42,8 @@
 "FILE_INVALID" = "El archivo seleccionado no es legible.";
 "FILE_CONNECTION_LOST" = "Se perdió la conexión con su teléfono.";
 "CAMERA_SYSTEM_HINT" = "Seleccione Galaxy Bridge Camera en FaceTime u otra aplicación de videollamadas.";
+"CAMERA_DIRECT_PREVIEW_HINT" = "Previsualiza la cámara de tu Galaxy en este Mac. Esta versión no permite usarla como cámara web en otras apps.";
+"CAMERA_DIRECT_STREAMING_DETAIL" = "La vista previa en directo está disponible en Galaxy Bridge. Otras apps no pueden usarla como cámara web en esta versión.";
 "CAMERA_BACK" = "Cámara trasera";
 "CAMERA_FRONT" = "Cámara frontal";
 "CAMERA_STOP" = "Detener";
@@ -143,12 +145,14 @@
 "RECORDING_SAVE_NAME" = "Guardar como:";
 "CAPABILITY_REASON_GENERIC" = "Esta función no está disponible actualmente en este teléfono.";
 "CAPABILITY_REASON_SCREEN_PERMISSION" = "Inicie la pantalla compartida en Galaxy Bridge en su teléfono.";
+"CAPABILITY_REASON_DIRECT_SCREEN_CONNECTION" = "Conecta Galaxy por cable o configura Wi-Fi en tu Mac y abre la pantalla del teléfono.";
 "CAPABILITY_REASON_SCREEN_NOT_RUNNING" = "Inicie la pantalla compartida en Galaxy Bridge en su teléfono.";
 "CAPABILITY_REASON_ACCESSIBILITY" = "Permita que Galaxy Bridge controle su teléfono en su configuración de Accesibilidad.";
 "CAPABILITY_REASON_NOTIFICATION_ACCESS" = "Permita que Galaxy Bridge muestre las notificaciones de su teléfono.";
 "CAPABILITY_REASON_STORAGE_FOLDER" = "Elija una carpeta de teléfono para compartir archivos.";
 "CAPABILITY_REASON_AUDIO_PERMISSION" = "Permita que Galaxy Bridge comparta audio desde su teléfono.";
 "CAPABILITY_REASON_AUDIO_NOT_RUNNING" = "Comience a compartir la pantalla con audio en su teléfono.";
+"CAPABILITY_REASON_DIRECT_AUDIO" = "El audio se reproduce mientras la pantalla del teléfono está abierta en tu Mac.";
 "CAPABILITY_REASON_NOTIFICATION_ACTIONS_ONLY" = "Puede responder mensajes mediante acciones de notificación telefónica.";
 "CAPABILITY_REASON_CALL_PERMISSION" = "Permita que Galaxy Bridge controle las llamadas en su teléfono.";
 "CAPABILITY_REASON_DIALER_ROLE" = "Elija Galaxy Bridge para llamadas para habilitar controles completos de llamadas.";
@@ -283,3 +287,4 @@
 "CALL_STATE_ENDED" = "Llamada finalizada";
 "APPLICATIONS_SEARCH_EMPTY_HINT" = "Prueba con otro nombre de aplicación o paquete.";
 "CLIENT_SETUP_VERIFICATION_UNAVAILABLE" = "Esta versión no puede verificar esta función. Cambia tu selección para continuar con la configuración.";
+"NOTIFICATION_CUSTOM_CONTENT" = "Abre esta notificación en el teléfono para ver su contenido.";

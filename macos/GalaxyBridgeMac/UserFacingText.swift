@@ -15,7 +15,11 @@ enum UserFacingText {
     }
 
     static func unavailableReason(for code: String) -> String {
+#if GALAXYBRIDGE_APP_STORE
         resolver.unavailableReason(for: code)
+#else
+        resolver.unavailableReason(for: code, usesDirectScreenConnection: true)
+#endif
     }
 
     static func connectionStatus(isReady: Bool, usesPhoneApp: Bool) -> String {

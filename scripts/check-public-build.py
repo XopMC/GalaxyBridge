@@ -39,6 +39,11 @@ for product in ['GalaxyBridgeCoreSpec', 'GalaxyBridgeProtocolSpec']:
 env['GB_OWNED_ADB_TEST_RUNTIME'] = str(build / 'artifacts/adb')
 for script in ['test-macos-companion-diagnostics.sh', 'test-macos-owned-adb-runtime.sh', 'test-macos-incoming-file-store.sh', 'test-macos-client-setup.sh', 'test-macos-file-transfer-presentation.sh']:
     run(['sh', ROOT / 'scripts' / script])
+for script in ['test-clipboard-agent-protocol.sh', 'test-macos-clipboard-hub.sh',
+               'test-macos-clipboard-policy.sh', 'test-macos-notification-bridge.sh',
+               'test-macos-device-row-merge.sh', 'test-macos-device-selection.sh',
+               'test-macos-user-facing-text.sh', 'test-macos-synthetic-text-input.sh']:
+    run(['sh', ROOT / 'scripts' / script])
 # Rust tests compile the source crates; do not depend on frozen release binaries.
 run(['bash', ROOT / 'scripts/test-quic-backend.sh'])
 run(['bash', ROOT / 'scripts/test-quic-backend-native.sh'])

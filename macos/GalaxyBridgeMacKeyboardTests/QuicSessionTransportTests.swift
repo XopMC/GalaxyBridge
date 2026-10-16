@@ -13,6 +13,62 @@ private func diagnosticTestRetire(_ owner: UInt64) -> UInt32
 
 @Suite(.serialized)
 struct QuicSessionTransportTests {
+    @Test(arguments: [false, true]) @MainActor
+    func stagedArtifactsAreRemovedAfterPhysicalRetirementExactlyOnce(cleanupFails: Bool) async throws {
+        let file = try QuicBackendConsumerFixture.prepared(hevc: false)
+        let cleaned = NativeFixtureBox<Int>(0)
+        let current = NativeFixtureBox<ScrcpySession?>(nil)
+        let session = try ScrcpySession(serial: "staging-retirement-fixture",
+            adb: ADBClient(testingExecutableURL: URL(fileURLWithPath: "/unexercised-adb")),
+            physicalDisplayPolicy: .leaveUnchanged, automaticDisplayManagement: false,
+            quicSelection: .init(targetToken: 9),
+            quicPreparedLaunch: { configuration, generation in
+                var launch = Self.fixtureLaunch(file: file, generation: generation, scid: configuration.scid, duration: 9000)
+                launch.cleanupStagedArtifacts = {
+                    let physicallySettled = await MainActor.run { current.value?.cleanupPhysicallySettled == true }
+                    #expect(physicallySettled, "staging cleanup must follow actual backend and native settlement")
+                    cleaned.update { $0 += 1 }
+                    if cleanupFails { throw QuicBackendError(status: 111) }
+                }
+                return launch
+            })
+        current.update { $0 = session }
+        defer { current.update { $0 = nil }; session.stop() }
+        session.start(preferredCodec: .h264)
+        try await NativeFixtures.until { if case .streaming = session.state { return true }; return false }
+        #expect(cleaned.value == 0, "live helper files must remain owned")
+        await session.stopAndWaitForCleanup()
+        #expect(session.quicRetirementOutcome?.physicallySettled == true)
+        #expect(session.quicRetirementOutcome?.failed == cleanupFails, "remote deletion failure must remain visible in retirement status")
+        #expect(cleaned.value == 1)
+        await session.stopAndWaitForCleanup()
+        #expect(cleaned.value == 1, "repeated close must not repeat another owner's cleanup")
+    }
+
+    @Test @MainActor func cancellationBeforeTransportInstallationRemovesReturnedStaging() async throws {
+        let entered = NativeFixtureBox<Bool>(false), cleaned = NativeFixtureBox<Int>(0)
+        let session = try ScrcpySession(serial: "staging-cancellation-fixture",
+            adb: ADBClient(testingExecutableURL: URL(fileURLWithPath: "/unexercised-adb")),
+            physicalDisplayPolicy: .leaveUnchanged, automaticDisplayManagement: false,
+            quicSelection: .init(targetToken: 9),
+            quicPreparedLaunch: { configuration, generation in
+                entered.update { $0 = true }
+                // Model an already-running detached staging operation returning
+                // its Launch after the enclosing preparation was cancelled.
+                try? await Task.sleep(for: .seconds(30))
+                var launch = QuicBackendBridge.Launch(program: "/must-not-launch", arguments: [], peerIP: "invalid-ip",
+                    sidecarSHA: Array(repeating: 4, count: 32), generation: generation, targetToken: 9,
+                    scid: configuration.scid, displayID: 0, captureKind: 0, enabled: 7)
+                launch.cleanupStagedArtifacts = { cleaned.update { $0 += 1 } }
+                return launch
+            })
+        session.start(preferredCodec: .h264)
+        try await NativeFixtures.until { entered.value }
+        await session.stopAndWaitForCleanup()
+        #expect(cleaned.value == 1)
+        #expect(session.quicRetirementOutcome == nil, "cancelled preparation must not install a backend")
+    }
+
     @Test func videoSequenceGapRequiresDecoderReferenceReset() {
         var continuity = QuicVideoSequenceContinuity()
 

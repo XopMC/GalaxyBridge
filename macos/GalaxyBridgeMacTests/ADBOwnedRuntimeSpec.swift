@@ -60,7 +60,7 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
         try require(!fm.fileExists(atPath: ranMarker.path) && !fm.fileExists(atPath: rejectedIdentity.path),
                     "artifact rejection must precede execution and persistent identity creation")
 
-        let identity = root.appendingPathComponent("identity")
+        let identity = root.appendingPathComponent("identity with spaces")
         let owner = ADBOwnedRuntime(executableURL: executable, identityRoot: identity, runtimeParent: root)
         let client = try ADBClient(ownedRuntime: owner, executableURL: executable)
         try require(!fm.fileExists(atPath: identity.path), "constructing a client must not provision ADB")
@@ -82,6 +82,14 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
         }
         try require(outcomes.count == 8 && outcomes.passed, "concurrent starts must coalesce")
         try require(try client.devices().isEmpty)
+        let nativeChild = try client.nativeChildCommand(arguments: ["devices", "-l"])
+        try require(nativeChild.program == "/usr/bin/env" && nativeChild.arguments.first == "-i")
+        let nativeResult = try ADBCommandRunner(executableURL: URL(fileURLWithPath: nativeChild.program))
+            .run(arguments: nativeChild.arguments)
+        try require(nativeResult.exitCode == 0, "native transport child must inherit owned keys and endpoint without aborting")
+        try require(String(decoding: nativeResult.stdout, as: UTF8.self).contains("List of devices attached"))
+        try require(nativeChild.arguments.contains("GALAXYBRIDGE_ADB_USER_DIR=" + identity.appendingPathComponent("keys").path))
+        try require(nativeChild.arguments.contains("-L"), "native transport must not fall through to system ADB")
         let key = identity.appendingPathComponent("keys/adbkey")
         let publicKey = identity.appendingPathComponent("keys/adbkey.pub")
         let originalKey = try Data(contentsOf: key)
@@ -101,6 +109,8 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
                           ["kill-server"], ["start-server"], ["disconnect"],
                           ["-s", "fake", "forward", "--remove-all"]] {
             do { _ = try client.run(arguments: arguments); preconditionFailure("endpoint/lifecycle override accepted") }
+            catch ADBOwnedRuntimeError.invalidCommand {}
+            do { _ = try client.nativeChildCommand(arguments: arguments); preconditionFailure("native child accepted endpoint/lifecycle override") }
             catch ADBOwnedRuntimeError.invalidCommand {}
         }
 

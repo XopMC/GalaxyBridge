@@ -32,9 +32,26 @@ by the Mac app through the already-authorized ADB shell. It polls Android's
 current primary clip without installing an input method or requiring the
 Android Helper to remain in the foreground. It sends bounded UTF-8 text or PNG
 frames over a private ADB-forwarded abstract socket. The stream starts with
-`GBC1`; each frame is an unsigned byte kind (`1` text, `3` PNG), a big-endian
-32-bit length, and at most 4 MiB of content. Sensitive clips are ignored.
-Android still controls the initial Wireless debugging enablement and pairing.
+`GBC2`; each frame carries a byte kind (`1` text, `3` PNG), a big-endian
+64-bit Android copy timestamp, a 16-bit origin length (at most 256 UTF-8 bytes),
+a 32-bit content length (at most 4 MiB), then origin and content bytes. The Mac
+reader also accepts legacy `GBC1`. Text commands use the GBC2 frame with timestamp
+zero and an origin ID. Sensitive clips are ignored. Clipboard images use a shell
+resolver that acquires and releases external provider leases, including the
+unstable-provider path required by `openInputStream`.
+Injection origins are accepted only with a matching payload digest and
+platform-owned writer attribution to the shell or Helper. Other apps and
+unavailable attribution produce a fresh occurrence, including a first-observed
+copy that retained old extras. Android still controls the initial Wireless
+debugging enablement and pairing.
+
+Each poll still reads the current clip metadata and item. A one-entry cache
+reuses the bounded decoded payload and hash only while a positive Android clip
+timestamp and item identity remain unchanged. Copying again or changing the
+URI/text triggers a fresh read. Unknown timestamps are read again on each poll. Failed reads retry after two
+seconds, or immediately when the copy timestamp or item changes. Sensitive or
+empty clips clear the cache; no previous payload is returned for them. A second metadata check after expensive
+image processing prevents a superseded image from being sent over newer text.
 
 Private control type23 is exactly33 bytes: u8 opcode, then four big-endian
 positive signed64 integers: producerEpoch, producerConfigOrdinal, requestId,

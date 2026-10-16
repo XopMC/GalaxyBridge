@@ -108,6 +108,21 @@ enum ADBHardwareQAIsolationPolicy {
 /// Combines routes only after AppModel has assigned the same logical identity
 /// through its existing trust checks. This is not an alias/identity resolver.
 enum DeviceRowMerger {
+    static func restoringSavedPeers(
+        _ peers: [(deviceID: String, name: String)],
+        reachableRows: [String: DeviceRow]
+    ) -> [DeviceRow] {
+        var rows = reachableRows
+        for peer in peers {
+            let id = "device:\(peer.deviceID)"
+            guard rows[id] == nil else { continue }
+            rows[id] = DeviceRow(id: id, name: peer.name,
+                subtitle: UserFacingText.connectionStatus(isReady: false, usesPhoneApp: true),
+                transport: .companionLAN, isReady: false)
+        }
+        return Array(rows.values)
+    }
+
     static func merge(_ left: DeviceRow, _ right: DeviceRow) -> DeviceRow {
         let selected: DeviceRow
         if left.isReady != right.isReady {

@@ -10,9 +10,18 @@ import android.service.notification.StatusBarNotification
 import com.xopmc.galaxybridge.storage.EncryptedContentCache
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -35,33 +44,74 @@ data class BridgeNotification(
     val appIconPng: ByteArray? = null,
 )
 
+sealed interface NotificationDelivery
+
 data class NotificationEmission(
     val notification: BridgeNotification,
     val isInitialSnapshot: Boolean,
-)
+) : NotificationDelivery
+
+data class NotificationSnapshotBoundary(val complete: Boolean) : NotificationDelivery
+
+class NotificationBacklogOverflowException : IllegalStateException("Notification subscriber backlog exceeded; reconnect for an authoritative snapshot")
 
 object NotificationEventBus {
+    private class Subscription {
+        val channel = Channel<BridgeNotification>(128)
+        val overflow = CompletableDeferred<NotificationBacklogOverflowException>()
+    }
+
     private val nextSubscriptionId = AtomicLong()
     private val activeNotifications = linkedMapOf<String, BridgeNotification>()
-    private val subscriptions = linkedMapOf<Long, Channel<BridgeNotification>>()
+    private val subscriptions = linkedMapOf<Long, Subscription>()
 
-    val events: Flow<NotificationEmission> = flow {
-        val subscriptionId = nextSubscriptionId.incrementAndGet()
-        val channel = Channel<BridgeNotification>(Channel.UNLIMITED)
-        val snapshot = synchronized(activeNotifications) {
-            subscriptions[subscriptionId] = channel
-            activeNotifications.values.sortedWith(
-                compareByDescending<BridgeNotification> { it.postedAtMillis }.thenBy { it.key },
-            )
-        }
-        try {
-            snapshot.forEach { emit(NotificationEmission(it, isInitialSnapshot = true)) }
-            for (notification in channel) {
-                emit(NotificationEmission(notification, isInitialSnapshot = false))
+    // Compatibility view for consumers interested only in notification rows.
+    val events: Flow<NotificationEmission> get() = deliveries.filterIsInstance<NotificationEmission>()
+
+    val deliveries: Flow<NotificationDelivery> get() = deliveries {}
+
+    fun deliveries(onOverflow: () -> Unit): Flow<NotificationDelivery> = flow {
+        coroutineScope {
+            val subscriptionId = nextSubscriptionId.incrementAndGet()
+            val subscription = Subscription()
+            val channel = subscription.channel
+            // Failure must reach merge even while emit is suspended behind a slow
+            // transport, rather than waiting for another receive from the channel.
+            val overflowWatcher = launch(Dispatchers.IO, start = CoroutineStart.UNDISPATCHED) {
+                throw subscription.overflow.await()
             }
-        } finally {
-            synchronized(activeNotifications) {
-                subscriptions.remove(subscriptionId)?.close()
+            val snapshot = synchronized(activeNotifications) {
+                subscriptions[subscriptionId] = subscription
+                activeNotifications.values.sortedWith(
+                    compareByDescending<BridgeNotification> { it.postedAtMillis }.thenBy { it.key },
+                )
+            }
+            try {
+                emit(NotificationSnapshotBoundary(complete = false))
+                snapshot.forEach { emit(NotificationEmission(it, isInitialSnapshot = true)) }
+                emit(NotificationSnapshotBoundary(complete = true))
+                for (notification in channel) {
+                    emit(NotificationEmission(notification, isInitialSnapshot = false))
+                }
+            } catch (failure: CancellationException) {
+                // Channel.cancel discards retained icons/backlog immediately. A plain
+                // cancellation would silently finish this child of merge without
+                // failing the socket, so expose overflow as a transport failure.
+                val overflow = failure.cause as? NotificationBacklogOverflowException
+                if (overflow != null) throw overflow
+                throw failure
+            } finally {
+                overflowWatcher.cancel()
+                if (subscription.overflow.isCompleted) {
+                    // Either the channel receiver or the watcher may observe the
+                    // failure first. Cleanup owns the close exactly once, so an
+                    // early receiver cannot cancel the watcher before it closes
+                    // a synchronous socket write. Cancellation must not skip it.
+                    withContext(NonCancellable + Dispatchers.IO) { runCatching(onOverflow) }
+                }
+                synchronized(activeNotifications) {
+                    subscriptions.remove(subscriptionId)?.channel?.cancel()
+                }
             }
         }
     }
@@ -74,10 +124,32 @@ object NotificationEventBus {
                 activeNotifications[notification.key] = notification
             }
             val closed = mutableListOf<Long>()
-            subscriptions.forEach { (id, channel) ->
-                if (channel.trySend(notification).isClosed) closed += id
+            subscriptions.forEach { (id, subscription) ->
+                val channel = subscription.channel
+                val sent = channel.trySend(notification)
+                if (sent.isFailure) {
+                    if (!sent.isClosed) {
+                        val overflow = NotificationBacklogOverflowException()
+                        // Publish before waking a cancelled receiver: its cleanup
+                        // must know that transport closure is required.
+                        subscription.overflow.complete(overflow)
+                        channel.cancel(CancellationException("Notification backlog overflow").apply {
+                            initCause(overflow)
+                        })
+                    }
+                    closed += id
+                }
             }
-            closed.forEach { subscriptions.remove(it)?.close() }
+            closed.forEach { subscriptions.remove(it)?.channel?.cancel() }
+        }
+    }
+
+    internal fun replaceActiveNotifications(notifications: List<BridgeNotification>) {
+        synchronized(activeNotifications) {
+            val currentKeys = notifications.filterNot { it.removed }.mapTo(hashSetOf()) { it.key }
+            val missedRemovals = activeNotifications.values.filter { it.key !in currentKeys }
+            missedRemovals.forEach { emit(it.copy(removed = true, appIconPng = null)) }
+            notifications.filterNot { it.removed }.forEach(::emit)
         }
     }
 }
@@ -85,9 +157,11 @@ object NotificationEventBus {
 class GalaxyNotificationListenerService : NotificationListenerService() {
     override fun onListenerConnected() {
         active.set(this)
-        runCatching { activeNotifications.toList() }
-            .getOrDefault(emptyList())
-            .forEach(::publish)
+        // A listener may have missed removals while Android had it disconnected.
+        // Failed OS reads must not be mistaken for an authoritative empty list.
+        val current = runCatching { activeNotifications.map(::toBridgeNotification) }.getOrNull() ?: return
+        current.forEach(::cache)
+        NotificationEventBus.replaceActiveNotifications(current)
     }
 
     override fun onListenerDisconnected() {
@@ -104,16 +178,51 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
     }
 
     private fun publish(sbn: StatusBarNotification) {
+        val notification = toBridgeNotification(sbn)
+        cache(notification)
+        NotificationEventBus.emit(notification)
+    }
+
+    @Suppress("DEPRECATION") // Bundle array and legacy sender APIs also support Android 12 MessagingStyle notifications.
+    private fun toBridgeNotification(sbn: StatusBarNotification): BridgeNotification {
         val extras = sbn.notification.extras
-        val notification = BridgeNotification(
+        val appLabel = runCatching {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString()
+        }.getOrDefault(sbn.packageName)
+        fun textExtra(key: String) = runCatching { extras.getCharSequence(key) }.getOrNull()
+        val messageBundles = runCatching {
+            extras.getParcelableArray(Notification.EXTRA_MESSAGES)
+                ?: extras.getParcelableArray(Notification.EXTRA_HISTORIC_MESSAGES)
+        }.getOrNull().orEmpty().takeLast(NotificationTextExtractor.MAX_ENTRIES)
+        val messages = messageBundles.mapNotNull { bundle ->
+            // Parse independently so a malformed entry cannot hide valid messages.
+            runCatching {
+                Notification.MessagingStyle.Message.getMessagesFromBundleArray(arrayOf(bundle)).firstOrNull()?.let {
+                    NotificationMessageText(it.senderPerson?.name ?: it.sender, it.text)
+                }
+            }.getOrNull()
+        }
+        val content = NotificationTextExtractor.extract(NotificationTextInput(
+            appLabel = appLabel,
+            title = textExtra(Notification.EXTRA_TITLE),
+            bigTitle = textExtra(Notification.EXTRA_TITLE_BIG),
+            conversationTitle = textExtra(Notification.EXTRA_CONVERSATION_TITLE),
+            text = textExtra(Notification.EXTRA_TEXT),
+            bigText = textExtra(Notification.EXTRA_BIG_TEXT),
+            textLines = runCatching { extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES) }
+                .getOrNull().orEmpty().takeLast(NotificationTextExtractor.MAX_ENTRIES),
+            messages = messages,
+            subText = textExtra(Notification.EXTRA_SUB_TEXT),
+            summaryText = textExtra(Notification.EXTRA_SUMMARY_TEXT),
+            ticker = sbn.notification.tickerText,
+        ))
+        return BridgeNotification(
             key = sbn.key,
             packageName = sbn.packageName,
             postedAtMillis = sbn.postTime,
-            appLabel = runCatching {
-                packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString()
-            }.getOrDefault(sbn.packageName),
-            title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty(),
-            text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty(),
+            appLabel = appLabel,
+            title = content.title,
+            text = content.body,
             actions = sbn.notification.actions?.mapIndexed { index, action ->
                 BridgeNotificationAction(
                     id = index.toString(),
@@ -125,8 +234,6 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
             removed = false,
             appIconPng = NotificationAppIconEncoder.load(this, sbn.packageName),
         )
-        cache(notification)
-        NotificationEventBus.emit(notification)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {

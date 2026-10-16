@@ -83,6 +83,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var recordingDeviceIDs: Set<String> = []
     @Published private(set) var activeRecordings: [ActiveRecordingSummary] = []
     @Published private(set) var notificationsByDevice: [String: [BridgeNotificationRow]] = [:]
+    private var notificationSnapshotReconciliation = NotificationSnapshotReconciliation()
     @Published private(set) var fileTransferStatus: [String: String] = [:]
     @Published private(set) var incomingFilesByDevice: [String: [IncomingFileRow]] = [:]
     @Published private(set) var smsByDevice: [String: [BridgeSMSRow]] = [:]
@@ -97,6 +98,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var enhancedDisplaysByDevice: [String: [ScrcpyDisplay]] = [:]
     @Published private(set) var enhancedCaptureTargets: [String: ScrcpyCaptureTarget] = [:]
     @Published private(set) var applicationCatalogsByDevice: [String: ApplicationCatalogState] = [:]
+    @Published private(set) var applicationCatalogRequestsByDevice: [String: UUID] = [:]
     @Published private(set) var cameraStatusesByDevice: [String: CameraStatusViewState] = [:]
 
     let discovery = BonjourDiscovery()
@@ -680,6 +682,7 @@ final class AppModel: ObservableObject {
             companionAuthenticationBlockedPeerIDs.remove(peerID)
 
             notificationsByDevice.removeValue(forKey: deviceID)
+            notificationSnapshotReconciliation.forget(deviceID: deviceID)
             smsByDevice.removeValue(forKey: deviceID)
             callByDevice.removeValue(forKey: deviceID)
             callHistoryByDevice.removeValue(forKey: deviceID)
@@ -697,12 +700,14 @@ final class AppModel: ObservableObject {
             enhancedDisplaysByDevice.removeValue(forKey: deviceID)
             enhancedCaptureTargets.removeValue(forKey: deviceID)
             applicationCatalogsByDevice.removeValue(forKey: deviceID)
+            applicationCatalogRequestsByDevice.removeValue(forKey: deviceID)
             cameraStatusesByDevice.removeValue(forKey: deviceID)
             cameraRequestIDsByDevice.removeValue(forKey: deviceID)
             cameraLifecyclesByDevice.removeValue(forKey: deviceID)
             cameraRemoteStatusesByDevice.removeValue(forKey: deviceID)
             if selectedDeviceID == deviceID { selectedDeviceID = nil }
             mergeDevices()
+            if devices.isEmpty { lastError = nil }
         } catch {
             lastError = error.localizedDescription
         }
@@ -858,7 +863,8 @@ final class AppModel: ObservableObject {
     }
 
     func loadApplicationCatalog(deviceID: String, force: Bool = false) {
-        if !force, case .loading = applicationCatalogsByDevice[deviceID] { return }
+        guard applicationCatalogRequestsByDevice[deviceID] == nil else { return }
+        if !force, case .available = applicationCatalogsByDevice[deviceID] { return }
         guard let device = row(id: deviceID) else { return }
 #if GALAXYBRIDGE_APP_STORE
         applicationCatalogsByDevice[deviceID] = .unavailable(.storeBuildUnsupported)
@@ -871,17 +877,41 @@ final class AppModel: ObservableObject {
             return
         }
         guard let serial = device.adbSerial else { return }
-        applicationCatalogsByDevice[deviceID] = .loading
+        let requestID = UUID()
+        applicationCatalogRequestsByDevice[deviceID] = requestID
+        let previous = applicationCatalogsByDevice[deviceID]
+        if case .available = previous {} else { applicationCatalogsByDevice[deviceID] = .loading }
         Task {
+            defer {
+                if applicationCatalogRequestsByDevice[deviceID] == requestID {
+                    applicationCatalogRequestsByDevice.removeValue(forKey: deviceID)
+                    if let current = row(id: deviceID), current.adbSerial != serial {
+                        // A USB/Wi-Fi route change may have arrived while this
+                        // request was running. Its view task could not start a
+                        // second load until this owner had retired.
+                        if case .loading = applicationCatalogsByDevice[deviceID] {
+                            applicationCatalogsByDevice[deviceID] = .idle
+                        }
+                        loadApplicationCatalog(deviceID: deviceID, force: true)
+                    }
+                }
+            }
             do {
                 let client = ApplicationCatalogEnhancedClient(adb: try ADBClient())
                 let items = try await Task.detached(priority: .userInitiated) {
                     try client.load(deviceID: deviceID, serial: serial)
                 }.value
-                guard row(id: deviceID) != nil else { return }
+                guard applicationCatalogRequestsByDevice[deviceID] == requestID,
+                      row(id: deviceID)?.adbSerial == serial else { return }
                 applicationCatalogsByDevice[deviceID] = .available(items)
             } catch {
-                applicationCatalogsByDevice[deviceID] = .failed(error.localizedDescription)
+                guard applicationCatalogRequestsByDevice[deviceID] == requestID,
+                      row(id: deviceID)?.adbSerial == serial else { return }
+                if case .available = previous {
+                    lastError = error.localizedDescription
+                } else {
+                    applicationCatalogsByDevice[deviceID] = .failed(error.localizedDescription)
+                }
             }
         }
 #endif
@@ -911,6 +941,9 @@ final class AppModel: ObservableObject {
     }
 
     func acceptEnhancedClipboard(deviceID: String, changeID: String, content: Data) {
+#if !GALAXYBRIDGE_APP_STORE
+        guard clipboardSessions[deviceID]?.usesClipboardOccurrences != true else { return }
+#endif
         acceptRemoteClipboard(
             deviceID: deviceID,
             changeID: changeID,
@@ -959,6 +992,7 @@ final class AppModel: ObservableObject {
             session.clipboardEventHandler = { [weak self, weak session] update in
                 Task { @MainActor in
                     guard let self, let session, let targetID = self.activeEnhancedDeviceID(session) else { return }
+                    guard self.clipboardSessions[targetID]?.usesClipboardOccurrences != true else { return }
                     self.acceptRemoteClipboard(
                         deviceID: targetID,
                         changeID: update.changeID,
@@ -991,6 +1025,8 @@ final class AppModel: ObservableObject {
                     currentDiagnostic: self.lastError
                 )
                 switch state {
+                case .preparing:
+                    self.videoSurfaces[targetID]?.clearFrame()
                 case .streaming:
                     self.enhancedReconnectAttempts[targetID] = 0
                     self.enhancedReconnectTasks.removeValue(forKey: targetID)?.cancel()
@@ -1087,6 +1123,7 @@ final class AppModel: ObservableObject {
         // Stop closes transport/frame admission before returning; the async
         // barrier settles resource acquisition and native work before restart.
         session.stop()
+        videoSurfaces[deviceID]?.clearFrame()
         enhancedRetirements[permit] = Task { [weak self] in
             await session.stopAndWaitForCleanup()
             guard let self else { return }
@@ -2181,7 +2218,13 @@ final class AppModel: ObservableObject {
         let cachedClipboard = restoration.clipboard
         var notificationRows = notificationsByDevice[deviceID, default: []]
         let liveNotificationIDs = Set(notificationRows.map(\.id))
-        for record in cachedNotifications where !liveNotificationIDs.contains(record.itemID) && cacheMaintenance.shouldRestore(.init(deviceID: deviceID, namespace: .notifications, itemID: record.itemID)) {
+        for record in cachedNotifications {
+            guard notificationSnapshotReconciliation.shouldRestore(deviceID: deviceID, notificationID: record.itemID) else {
+                cacheMaintenance.remove(.init(deviceID: deviceID, namespace: .notifications, itemID: record.itemID))
+                continue
+            }
+            guard !liveNotificationIDs.contains(record.itemID),
+                  cacheMaintenance.shouldRestore(.init(deviceID: deviceID, namespace: .notifications, itemID: record.itemID)) else { continue }
             guard let event = try? GBNotificationEvent(serializedBytes: record.payload),
                   event.notificationID == record.itemID,
                   !event.removed
@@ -2364,7 +2407,10 @@ final class AppModel: ObservableObject {
 #endif
         let previousSelection = selectedDeviceID
         let previousRows = devices.map(\.selectionIdentity)
-        devices = Array(rowsByID.values).sorted { left, right in
+        devices = DeviceRowMerger.restoringSavedPeers(
+            peers.map { (deviceID: $0.deviceID, name: $0.displayName) },
+            reachableRows: rowsByID
+        ).sorted { left, right in
             if left.transport == right.transport { return left.name < right.name }
             return TransportSelector.preferred(from: [left.transport, right.transport]) == left.transport
         }
@@ -2451,9 +2497,10 @@ final class AppModel: ObservableObject {
                 self?.handleEnhancedClipboardFailure(deviceID: deviceID, serial: failedSerial)
             }
         )
-        session.clipboardEventHandler = { [weak self] update in
+        session.clipboardEventHandler = { [weak self, weak session] update in
             Task { @MainActor in
-                self?.acceptRemoteClipboard(
+                guard let self, let session, self.clipboardSessions[deviceID] === session else { return }
+                self.acceptRemoteClipboard(
                     deviceID: deviceID,
                     changeID: update.changeID,
                     kind: update.kind == .png ? .png : .text,
@@ -3027,6 +3074,7 @@ final class AppModel: ObservableObject {
                 mergeDevices()
             case let .failed(message):
                 if let peerID {
+                    notificationSnapshotReconciliation.abort(deviceID: "device:" + peerID)
                     cancelAudioVerification(deviceID: "device:" + peerID)
                     clientSetup.invalidate(deviceID: "device:" + peerID)
                 }
@@ -3045,6 +3093,7 @@ final class AppModel: ObservableObject {
                 )
             case let .authenticationRejected(message):
                 if let peerID {
+                    notificationSnapshotReconciliation.abort(deviceID: "device:" + peerID)
                     cancelAudioVerification(deviceID: "device:" + peerID)
                     clientSetup.invalidate(deviceID: "device:" + peerID)
                 }
@@ -3057,6 +3106,7 @@ final class AppModel: ObservableObject {
                 recoveryAccepted = false
             case .disconnected:
                 if let peerID {
+                    notificationSnapshotReconciliation.abort(deviceID: "device:" + peerID)
                     cancelAudioVerification(deviceID: "device:" + peerID)
                     clientSetup.invalidate(deviceID: "device:" + peerID)
                 }
@@ -3320,7 +3370,26 @@ final class AppModel: ObservableObject {
         envelope: GBEnvelope
     ) {
         switch envelope.payload {
+        case let .notificationSnapshot(snapshot):
+            if !snapshot.complete {
+                notificationSnapshotReconciliation.begin(deviceID: deviceID)
+            } else if let stale = notificationSnapshotReconciliation.complete(
+                deviceID: deviceID,
+                knownIDs: Set(notificationsByDevice[deviceID, default: []].map(\.id))
+            ) {
+                notificationsByDevice[deviceID, default: []].removeAll { stale.contains($0.id) }
+                for notificationID in stale {
+                    macNotifications.remove(deviceID: deviceID, notificationID: notificationID)
+                    cacheMaintenance.remove(.init(deviceID: deviceID, namespace: .notifications, itemID: notificationID))
+                }
+                if let active = notificationSnapshotReconciliation.activeIDs(deviceID: deviceID) {
+                    macNotifications.reconcile(deviceID: deviceID, activeNotificationIDs: active)
+                }
+            }
         case let .notificationEvent(event):
+            notificationSnapshotReconciliation.observe(
+                deviceID: deviceID, notificationID: event.notificationID, removed: event.removed
+            )
             if event.removed {
                 macNotifications.remove(deviceID: deviceID, notificationID: event.notificationID)
                 cacheMaintenance.remove(.init(deviceID: deviceID, namespace: .notifications, itemID: event.notificationID))
@@ -3373,6 +3442,12 @@ final class AppModel: ObservableObject {
             }
             notificationsByDevice[deviceID] = rows
         case let .clipboardUpdate(update):
+#if !GALAXYBRIDGE_APP_STORE
+            // The shell agent observes every clipboard occurrence, including
+            // copied images while Helper is in background. A parallel Helper
+            // or mirror-control notification must not become a second writer.
+            guard clipboardSessions[deviceID]?.usesClipboardOccurrences != true else { return }
+#endif
             acceptRemoteClipboard(
                 deviceID: deviceID,
                 changeID: update.changeID,
@@ -3555,7 +3630,7 @@ final class AppModel: ObservableObject {
         content: Data,
         sensitive: Bool
     ) {
-        guard !sensitive else { return }
+        guard terminationAdmission.admitsWork, row(id: deviceID) != nil, !sensitive else { return }
         // Cached change IDs survive process restarts. Consult them before the
         // process-local hub so a reconnect cannot replay an old phone write
         // into the Mac pasteboard or fan it out to the other Galaxy devices.
@@ -3577,10 +3652,9 @@ final class AppModel: ObservableObject {
                 didWrite = pasteboard.setString(text, forType: .string)
             }
         case .png:
-            guard let image = NSImage(data: content) else { return }
             if pasteboard.data(forType: .png) != content {
-                pasteboard.clearContents()
-                didWrite = pasteboard.writeObjects([image])
+                guard MacClipboardImageWriter.write(content, to: pasteboard) else { return }
+                didWrite = true
             }
         default:
             return
@@ -3667,7 +3741,7 @@ final class AppModel: ObservableObject {
                (kind == .text || kind == .url),
                let value = String(data: content, encoding: .utf8),
                let clipboardSession = clipboardSessions[deviceID],
-               clipboardSession.setText(value) {
+               clipboardSession.setText(value, changeID: changeID) {
                 delivered = true
             }
             if !delivered,

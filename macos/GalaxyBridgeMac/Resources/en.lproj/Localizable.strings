@@ -41,6 +41,8 @@
 "FILE_INVALID" = "The selected file is not readable.";
 "FILE_CONNECTION_LOST" = "The connection to your phone was lost.";
 "CAMERA_SYSTEM_HINT" = "Select Galaxy Bridge Camera in FaceTime or another video calling app.";
+"CAMERA_DIRECT_PREVIEW_HINT" = "Preview your Galaxy camera on this Mac. Using it as a webcam in other apps is not available in this version.";
+"CAMERA_DIRECT_STREAMING_DETAIL" = "Live camera preview is available in Galaxy Bridge. Other apps cannot use it as a webcam in this version.";
 "CAMERA_BACK" = "Back";
 "CAMERA_FRONT" = "Front";
 "CAMERA_STOP" = "Stop";
@@ -142,12 +144,14 @@
 "RECORDING_SAVE_NAME" = "Save as:";
 "CAPABILITY_REASON_GENERIC" = "This feature is currently unavailable on this phone.";
 "CAPABILITY_REASON_SCREEN_PERMISSION" = "Start screen sharing in Galaxy Bridge on your phone.";
+"CAPABILITY_REASON_DIRECT_SCREEN_CONNECTION" = "Connect your Galaxy by cable or configure Wi-Fi on your Mac, then open its screen.";
 "CAPABILITY_REASON_SCREEN_NOT_RUNNING" = "Start screen sharing in Galaxy Bridge on your phone.";
 "CAPABILITY_REASON_ACCESSIBILITY" = "Allow Galaxy Bridge to control your phone in its Accessibility settings.";
 "CAPABILITY_REASON_NOTIFICATION_ACCESS" = "Allow Galaxy Bridge to show your phone notifications.";
 "CAPABILITY_REASON_STORAGE_FOLDER" = "Choose a phone folder for file sharing.";
 "CAPABILITY_REASON_AUDIO_PERMISSION" = "Allow Galaxy Bridge to share audio from your phone.";
 "CAPABILITY_REASON_AUDIO_NOT_RUNNING" = "Start screen sharing with audio on your phone.";
+"CAPABILITY_REASON_DIRECT_AUDIO" = "Phone audio plays while its screen is open on your Mac.";
 "CAPABILITY_REASON_NOTIFICATION_ACTIONS_ONLY" = "You can reply to messages through phone notification actions.";
 "CAPABILITY_REASON_CALL_PERMISSION" = "Allow Galaxy Bridge to control calls on your phone.";
 "CAPABILITY_REASON_DIALER_ROLE" = "Choose Galaxy Bridge for calls to enable full call controls.";
@@ -281,3 +285,4 @@
 "CALL_STATE_ENDED" = "Call ended";
 "APPLICATIONS_SEARCH_EMPTY_HINT" = "Try a different app name or package name.";
 "CLIENT_SETUP_VERIFICATION_UNAVAILABLE" = "This version cannot verify this feature. Change your selection to continue setup.";
+"NOTIFICATION_CUSTOM_CONTENT" = "Open this notification on your phone to view its content.";

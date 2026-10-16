@@ -47,6 +47,7 @@ public  final class Envelope extends
     PAIRING_COMMIT_ACK(32),
     CAMERA_STATUS(33),
     TRANSFER_CANCEL(34),
+    NOTIFICATION_SNAPSHOT(35),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -87,6 +88,7 @@ public  final class Envelope extends
         case 32: return PAIRING_COMMIT_ACK;
         case 33: return CAMERA_STATUS;
         case 34: return TRANSFER_CANCEL;
+        case 35: return NOTIFICATION_SNAPSHOT;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -1525,6 +1527,56 @@ public  final class Envelope extends
    */
   private void clearTransferCancel() {
     if (payloadCase_ == 34) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int NOTIFICATION_SNAPSHOT_FIELD_NUMBER = 35;
+  /**
+   * <code>.galaxybridge.v1.NotificationSnapshot notification_snapshot = 35;</code>
+   */
+  @java.lang.Override
+  public boolean hasNotificationSnapshot() {
+    return payloadCase_ == 35;
+  }
+  /**
+   * <code>.galaxybridge.v1.NotificationSnapshot notification_snapshot = 35;</code>
+   */
+  @java.lang.Override
+  public com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot getNotificationSnapshot() {
+    if (payloadCase_ == 35) {
+       return (com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot) payload_;
+    }
+    return com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot.getDefaultInstance();
+  }
+  /**
+   * <code>.galaxybridge.v1.NotificationSnapshot notification_snapshot = 35;</code>
+   */
+  private void setNotificationSnapshot(com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 35;
+  }
+  /**
+   * <code>.galaxybridge.v1.NotificationSnapshot notification_snapshot = 35;</code>
+   */
+  private void mergeNotificationSnapshot(com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 35 &&
+        payload_ != com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot.getDefaultInstance()) {
+      payload_ = com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot.newBuilder((com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 35;
+  }
+  /**
+   * <code>.galaxybridge.v1.NotificationSnapshot notification_snapshot = 35;</code>
+   */
+  private void clearNotificationSnapshot() {
+    if (payloadCase_ == 35) {
       payloadCase_ = 0;
       payload_ = null;
     }
@@ -3021,6 +3073,54 @@ public  final class Envelope extends
       return this;
     }
 
+    /**
+     * <code>.galaxybridge.v1.NotificationSnapshot notification_snapshot = 35;</code>
+     */
+    @java.lang.Override
+    public boolean hasNotificationSnapshot() {
+      return instance.hasNotificationSnapshot();
+    }
+    /**
+     * <code>.galaxybridge.v1.NotificationSnapshot notification_snapshot = 35;</code>
+     */
+    @java.lang.Override
+    public com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot getNotificationSnapshot() {
+      return instance.getNotificationSnapshot();
+    }
+    /**
+     * <code>.galaxybridge.v1.NotificationSnapshot notification_snapshot = 35;</code>
+     */
+    public Builder setNotificationSnapshot(com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot value) {
+      copyOnWrite();
+      instance.setNotificationSnapshot(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.NotificationSnapshot notification_snapshot = 35;</code>
+     */
+    public Builder setNotificationSnapshot(
+        com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot.Builder builderForValue) {
+      copyOnWrite();
+      instance.setNotificationSnapshot(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.NotificationSnapshot notification_snapshot = 35;</code>
+     */
+    public Builder mergeNotificationSnapshot(com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot value) {
+      copyOnWrite();
+      instance.mergeNotificationSnapshot(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.NotificationSnapshot notification_snapshot = 35;</code>
+     */
+    public Builder clearNotificationSnapshot() {
+      copyOnWrite();
+      instance.clearNotificationSnapshot();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:galaxybridge.v1.Envelope)
   }
   @java.lang.Override
@@ -3069,13 +3169,14 @@ public  final class Envelope extends
             com.xopmc.galaxybridge.protocol.v1.PairingCommitAck.class,
             com.xopmc.galaxybridge.protocol.v1.CameraStatus.class,
             com.xopmc.galaxybridge.protocol.v1.TransferCancel.class,
+            com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot.class,
           };
           java.lang.String info =
-              "\u0000\u001e\u0001\u0000\u0001\"\u001e\u0000\u0000\u0000\u0001\u000b\u0002\u000b" +
-              "\u0003\u0208\u0004\u0208\u0005\u0003\n<\u0000\u000b<\u0000\f<\u0000\r<\u0000\u000e" +
-              "<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000\u0012<\u0000\u0013<\u0000\u0014<\u0000" +
-              "\u0015<\u0000\u0016<\u0000\u0017<\u0000\u0018<\u0000\u0019<\u0000\u001a<\u0000\u001b" +
-              "<\u0000\u001c<\u0000\u001d<\u0000\u001e<\u0000\u001f<\u0000 <\u0000!<\u0000\"<\u0000" +
+              "\u0000\u001f\u0001\u0000\u0001#\u001f\u0000\u0000\u0000\u0001\u000b\u0002\u000b\u0003" +
+              "\u0208\u0004\u0208\u0005\u0003\n<\u0000\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000" +
+              "\u000f<\u0000\u0010<\u0000\u0011<\u0000\u0012<\u0000\u0013<\u0000\u0014<\u0000\u0015" +
+              "<\u0000\u0016<\u0000\u0017<\u0000\u0018<\u0000\u0019<\u0000\u001a<\u0000\u001b<\u0000" +
+              "\u001c<\u0000\u001d<\u0000\u001e<\u0000\u001f<\u0000 <\u0000!<\u0000\"<\u0000#<\u0000" +
               "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
