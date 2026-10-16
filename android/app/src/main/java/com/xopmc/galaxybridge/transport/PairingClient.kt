@@ -4,13 +4,13 @@ import android.content.Context
 import android.os.Build
 import android.util.Base64
 import android.util.Log
-import androidx.core.content.edit
 import com.google.protobuf.ByteString
 import com.xopmc.galaxybridge.core.PairingTranscript
 import com.xopmc.galaxybridge.core.PairingUriCodec
 import com.xopmc.galaxybridge.protocol.v1.Envelope
 import com.xopmc.galaxybridge.protocol.v1.PairingResponse
 import com.xopmc.galaxybridge.security.DeviceIdentityStore
+import com.xopmc.galaxybridge.security.DeviceIdStore
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.EOFException
@@ -19,7 +19,6 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.security.MessageDigest
 import java.security.SecureRandom
-import java.util.UUID
 
 class PairingClient(private val context: Context) {
     private val identity = DeviceIdentityStore()
@@ -169,12 +168,7 @@ class PairingClient(private val context: Context) {
         output.flush()
     }
 
-    private fun deviceId(): String {
-        val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-        return preferences.getString(DEVICE_ID, null) ?: UUID.randomUUID().toString().also {
-            preferences.edit { putString(DEVICE_ID, it) }
-        }
-    }
+    private fun deviceId(): String = DeviceIdStore.getOrCreate(context)
 
     private companion object {
         const val PREFERENCES = "galaxybridge"
@@ -182,7 +176,6 @@ class PairingClient(private val context: Context) {
         const val PAIRED_MAC_KEY = "paired_mac_key"
         const val PAIRED_HOST_ID = "paired_host_id"
         const val PAIRED_AT = "paired_at"
-        const val DEVICE_ID = "device_id"
         const val MAX_CONTROL_FRAME = 8 * 1024 * 1024
         const val CONNECT_TIMEOUT_MS = 5_000
         const val SOCKET_TIMEOUT_MS = 1_000

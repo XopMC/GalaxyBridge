@@ -16,12 +16,14 @@ import java.util.Date
 import javax.security.auth.x500.X500Principal
 
 class DeviceIdentityStore {
-    private val keyStore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
+    private val keyStore = DeviceIdentityCoordinator.withIdentity {
+        KeyStore.getInstance(KEYSTORE).apply { load(null) }
+    }
 
-    fun keyPair(): KeyPair {
+    fun keyPair(): KeyPair = DeviceIdentityCoordinator.withIdentity {
         val existing = keyStore.getEntry(ALIAS, null) as? KeyStore.PrivateKeyEntry
         if (existing != null && supportsTlsSigning(existing)) {
-            return KeyPair(existing.certificate.publicKey, existing.privateKey)
+            return@withIdentity KeyPair(existing.certificate.publicKey, existing.privateKey)
         }
         if (existing != null) keyStore.deleteEntry(ALIAS)
 
@@ -40,7 +42,7 @@ class DeviceIdentityStore {
                 .setUserAuthenticationRequired(false)
                 .build(),
         )
-        return generator.generateKeyPair()
+        generator.generateKeyPair()
     }
 
     private fun supportsTlsSigning(entry: KeyStore.PrivateKeyEntry): Boolean = runCatching {
@@ -49,26 +51,32 @@ class DeviceIdentityStore {
         KeyProperties.DIGEST_NONE in keyInfo.digests
     }.getOrDefault(false)
 
-    fun fingerprint(): ByteArray = MessageDigest.getInstance("SHA-256").digest(publicKeyX963())
+    fun fingerprint(): ByteArray = DeviceIdentityCoordinator.withIdentity {
+        MessageDigest.getInstance("SHA-256").digest(publicKeyX963())
+    }
 
-    fun publicKeyX963(): ByteArray = P256Keys.x963Representation(keyPair().public)
+    fun publicKeyX963(): ByteArray = DeviceIdentityCoordinator.withIdentity {
+        P256Keys.x963Representation(keyPair().public)
+    }
 
-    fun certificateSha256(): ByteArray = MessageDigest.getInstance("SHA-256").digest(
-        (keyStore.getEntry(ALIAS, null) as KeyStore.PrivateKeyEntry).certificate.encoded,
-    )
+    fun certificateSha256(): ByteArray = DeviceIdentityCoordinator.withIdentity {
+        MessageDigest.getInstance("SHA-256").digest(privateKeyEntry().certificate.encoded)
+    }
 
-    fun privateKeyEntry(): KeyStore.PrivateKeyEntry {
+    fun privateKeyEntry(): KeyStore.PrivateKeyEntry = DeviceIdentityCoordinator.withIdentity {
         keyPair()
-        return keyStore.getEntry(ALIAS, null) as KeyStore.PrivateKeyEntry
+        keyStore.getEntry(ALIAS, null) as KeyStore.PrivateKeyEntry
     }
 
-    fun signNonce(nonce: ByteArray): ByteArray = Signature.getInstance("SHA256withECDSA").run {
-        initSign(keyPair().private)
-        update(nonce)
-        sign()
+    fun signNonce(nonce: ByteArray): ByteArray = DeviceIdentityCoordinator.withIdentity {
+        Signature.getInstance("SHA256withECDSA").run {
+            initSign(keyPair().private)
+            update(nonce)
+            sign()
+        }
     }
 
-    fun revoke() {
+    fun revoke() = DeviceIdentityCoordinator.withIdentity {
         keyStore.deleteEntry(ALIAS)
     }
 

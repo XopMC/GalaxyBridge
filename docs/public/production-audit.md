@@ -18,6 +18,9 @@ all phones, networks, applications, or a zero-latency experience.
 | Notification cleanup | Authorization and native-add callbacks could resurrect stale notifications | Deterministic callback-race and per-device reconciliation tests |
 | Notification content | Only collapsed title/text extras were extracted | Expanded text, inbox and conversation extraction tests; opaque custom content retains its notification and receives neutral UI copy |
 | Devices | Saved offline peers disappeared from the removal UI | Saved paired rows remain removable; 322 route/identity assertions |
+| First pairing | Bonjour's willSet notification made the model read the previous discovery snapshot | Notify after committing the snapshot; actual publisher regression and clean S24 pairing connect without restarting either app |
+| Android identity | Concurrent first access could create different keys or device IDs | Process-wide synchronization, synchronous ID persistence and five concurrent/persistence regressions; existing IDs are retained |
+| Quit | Waiting for protected Downloads access could prevent termination indefinitely | Independent ten-second cleanup deadline; hanging-work/late-completion regressions and normal installed-app exit check |
 | Catalog refresh | Refresh replaced useful tiles with an empty loading panel; obsolete route completion could strand loading | Preserve tiles, serialize requests, reject obsolete results and reload after a USB/Wi-Fi route change |
 | QUIC launch | Native ADB child lacked the owned key directory and private server endpoint, causing SIGABRT | Child launch uses the same explicit environment/endpoint as regular ADB; real private-server regression and on-device producer start |
 | QUIC temporary files | Retired sessions left native executables and producer JARs on the phone | Exact session-owned paths are removed after physical retirement; partial-launch rollback tests and an S24 open/close check (two files while running, zero after close) |
@@ -41,6 +44,8 @@ all phones, networks, applications, or a zero-latency experience.
 - The final DMG was mounted, its Applications link and nested signatures verified,
   and its app installed in Applications. The final signed APK was installed and
   paired again; the Mac showed one device and restored the catalog after reconnect.
+  A further clean Helper setup on the final app connected and loaded the catalog
+  without restarting either application.
 
 ## Wireless timing
 

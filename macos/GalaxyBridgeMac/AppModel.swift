@@ -329,7 +329,8 @@ final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
         macNotifications.requestAuthorization()
-        discovery.$companions
+        discovery.companionsDidChange
+            .prepend(())
             .sink { [weak self] _ in self?.mergeDevices() }
             .store(in: &cancellables)
         discovery.start()

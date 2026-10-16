@@ -15,6 +15,18 @@ struct DiscoveredCompanion: Identifiable, Hashable, Sendable {
 final class BonjourDiscovery: ObservableObject {
     @Published private(set) var companions: [DiscoveredCompanion] = []
     @Published private(set) var errorDescription: String?
+    private let committedSnapshot = PassthroughSubject<Void, Never>()
+
+    /// Unlike @Published's willSet emission, observers can synchronously read
+    /// the complete new discovery state when this publisher fires.
+    var companionsDidChange: AnyPublisher<Void, Never> {
+        committedSnapshot.eraseToAnyPublisher()
+    }
+
+    func applySnapshot(_ snapshot: [DiscoveredCompanion]) {
+        companions = snapshot.sorted { $0.name < $1.name }
+        committedSnapshot.send(())
+    }
 
     private let browser = NWBrowser(
         for: .bonjourWithTXTRecord(type: "_galaxybridge._tcp", domain: nil),
@@ -44,7 +56,7 @@ final class BonjourDiscovery: ObservableObject {
                 "browser snapshot results=\(results.count, privacy: .public) valid=\(companions.count, privacy: .public)"
             )
             Task { @MainActor in
-                self?.companions = companions.sorted { $0.name < $1.name }
+                self?.applySnapshot(companions)
             }
         }
         browser.start(queue: DispatchQueue(label: "com.xopmc.GalaxyBridge.bonjour"))

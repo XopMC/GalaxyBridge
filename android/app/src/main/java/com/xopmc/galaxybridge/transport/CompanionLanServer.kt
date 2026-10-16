@@ -18,6 +18,7 @@ import com.xopmc.galaxybridge.BuildConfig
 import com.xopmc.galaxybridge.core.PairingUriCodec
 import com.xopmc.galaxybridge.core.SessionAuthenticationTranscript
 import com.xopmc.galaxybridge.security.DeviceIdentityStore
+import com.xopmc.galaxybridge.security.DeviceIdStore
 import com.xopmc.galaxybridge.protocol.v1.Capability
 import com.xopmc.galaxybridge.protocol.v1.AdbBindingResponse
 import com.xopmc.galaxybridge.protocol.v1.ChannelKind
@@ -740,12 +741,7 @@ class CompanionLanServer(private val context: Context) {
         }
     }
 
-    private fun deviceId(): String {
-        val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-        return preferences.getString(DEVICE_ID, null) ?: UUID.randomUUID().toString().also {
-            preferences.edit { putString(DEVICE_ID, it) }
-        }
-    }
+    private fun deviceId(): String = DeviceIdStore.getOrCreate(context)
 
     private fun handlePairing(
         socket: SSLSocket,
@@ -911,7 +907,6 @@ class CompanionLanServer(private val context: Context) {
         const val PAIRED_MAC_KEY = "paired_mac_key"
         const val PAIRED_HOST_ID = "paired_host_id"
         const val PAIRED_AT = "paired_at"
-        const val DEVICE_ID = "device_id"
         const val ALIAS = "galaxybridge"
         const val MAX_CONTROL_FRAME = 8 * 1024 * 1024
         const val SOCKET_TIMEOUT_MS = 15_000

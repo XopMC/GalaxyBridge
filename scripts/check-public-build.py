@@ -41,6 +41,7 @@ for script in ['test-macos-companion-diagnostics.sh', 'test-macos-owned-adb-runt
     run(['sh', ROOT / 'scripts' / script])
 for script in ['test-clipboard-agent-protocol.sh', 'test-macos-clipboard-hub.sh',
                'test-macos-clipboard-policy.sh', 'test-macos-notification-bridge.sh',
+               'test-macos-bonjour-publication.sh', 'test-macos-application-termination-cleanup.sh',
                'test-macos-device-row-merge.sh', 'test-macos-device-selection.sh',
                'test-macos-user-facing-text.sh', 'test-macos-synthetic-text-input.sh']:
     run(['sh', ROOT / 'scripts' / script])

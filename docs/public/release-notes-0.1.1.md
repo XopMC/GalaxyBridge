@@ -21,6 +21,9 @@ reads, bound notification queues and reconcile missed removals after reconnect,
 retain removable offline devices, and keep catalog tiles visible during refresh.
 Camera controls fit the selected language and describe phone-camera preview.
 QUIC session files are removed after normal retirement and partial launch failure.
+First pairing now observes the committed discovery snapshot immediately; concurrent
+Android identity creation is serialized. A protected-folder permission wait can
+no longer delay requested application termination indefinitely.
 
 The experimental QUIC path retains its existing transport. Its native child now
 uses the owned ADB environment and endpoint; AVC requests constant bitrate,
@@ -57,6 +60,9 @@ See [audit evidence and validation limits](production-audit.md).
 Элементы управления камерой адаптируются к языку и описывают предпросмотр камеры
 телефона.
 Временные файлы QUIC удаляются после штатного завершения и ошибки подготовки сеанса.
+После первой привязки Mac сразу читает актуальный список найденных устройств;
+параллельное создание идентификатора и ключей Android синхронизировано. Ожидание
+доступа к защищённой папке больше не может бесконечно задерживать выход приложения.
 
 Экспериментальный QUIC сохраняет прежний транспорт. Дочерний процесс получает
 параметры встроенного ADB, а кодировщик AVC использует постоянный битрейт, как
