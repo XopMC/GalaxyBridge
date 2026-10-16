@@ -326,7 +326,9 @@ enum MacNotificationResponseRouting {
             notificationID: notificationID,
             actionID: actionID,
             reply: reply,
-            dismiss: false
+            dismiss: false,
+            packageName: userInfo["packageName"] as? String,
+            appLabel: userInfo["appLabel"] as? String
         )
     }
 }

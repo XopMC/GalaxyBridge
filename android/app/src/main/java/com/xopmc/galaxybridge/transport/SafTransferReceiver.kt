@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import com.xopmc.galaxybridge.protocol.v1.TransferAck
 import com.xopmc.galaxybridge.protocol.v1.TransferChunk
@@ -28,7 +29,12 @@ internal class SafTransferReceiver(context: Context) {
     // coordinator for the process so two receiver instances cannot write the same item.
     private val downloads = synchronized(DOWNLOADS_LOCK) {
         sharedDownloads ?: SQLiteDownloadJournal(appContext).let { journal ->
-            Pair(journal, ResumableDownloadsTransfer(AndroidPendingDownloadsStorage(appContext), journal))
+            Pair(journal, ResumableDownloadsTransfer(AndroidPendingDownloadsStorage(appContext), journal,
+                verificationDiagnostic = { event ->
+                    Log.w("GalaxyBridgeFiles", "verification_failure stage=${event.stage} expected_bytes=${event.expectedBytes}" +
+                        " observed_bytes=${event.observedBytes} read_complete=${event.readComplete}" +
+                        " digest_equal=${event.digestEqual} identity_stable=${event.identityStable}")
+                }))
                 .also { sharedDownloads = it }
         }
     }

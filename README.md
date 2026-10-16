@@ -32,6 +32,7 @@ Galaxy Bridge connects a Samsung Android phone to a Mac for screen control, audi
 ### Features
 
 - **Phone screen on your Mac:** USB or Wireless ADB mirroring with mouse and keyboard control, phone audio, and Mac-side recording. Audio availability depends on the phone and app.
+- **Phone display privacy:** enabled by default during remote use; turn it off per device to restore the previous mode. This controls the physical display, not the Android lock screen.
 - **Separate app windows:** choose a phone app in the catalog to open it in its own Mac window through ADB; compatibility depends on the Android app.
 - **Notifications:** read phone notifications and use actions or replies when Android makes them available.
 - **Clipboard:** synchronize text and copied images in both directions. Android-to-Mac polling runs through the already-authorized ADB shell; Galaxy Bridge does not install a keyboard and does not require the Share menu.
@@ -106,6 +107,7 @@ Galaxy Bridge связывает Samsung на Android с Mac: управлени
 ### Возможности
 
 - **Экран телефона на Mac:** трансляция через USB или Wireless ADB, управление мышью и клавиатурой, звук телефона и запись на Mac. Доступность звука зависит от телефона и приложения.
+- **Выключение дисплея телефона:** включено по умолчанию во время удалённого использования; переключатель устройства возвращает прежний режим. PIN-блокировка Android не меняется.
 - **Отдельные окна приложений:** выберите приложение телефона в каталоге, чтобы открыть его в собственном окне Mac через ADB; совместимость зависит от приложения Android.
 - **Уведомления:** просмотр уведомлений телефона, действия и ответы, когда их предоставляет Android.
 - **Буфер обмена:** синхронизация текста и скопированных изображений в обе стороны. Опрос Android выполняется через уже разрешённый ADB shell; Galaxy Bridge не устанавливает клавиатуру и не требует меню «Поделиться».

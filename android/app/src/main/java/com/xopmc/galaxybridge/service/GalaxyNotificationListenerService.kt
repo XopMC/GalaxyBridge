@@ -155,13 +155,23 @@ object NotificationEventBus {
 }
 
 class GalaxyNotificationListenerService : NotificationListenerService() {
+    private val rawNotifications = linkedMapOf<String, StatusBarNotification>()
+    private val pendingRemovals = mutableSetOf<String>()
+    private val presentation = NotificationPresentationState<BridgeNotification> { previous, row ->
+        previous.copy(appIconPng = null) == row.copy(appIconPng = null) &&
+            previous.appIconPng.contentEquals(row.appIconPng)
+    }
+
     override fun onListenerConnected() {
         active.set(this)
         // A listener may have missed removals while Android had it disconnected.
         // Failed OS reads must not be mistaken for an authoritative empty list.
-        val current = runCatching { activeNotifications.map(::toBridgeNotification) }.getOrNull() ?: return
-        current.forEach(::cache)
-        NotificationEventBus.replaceActiveNotifications(current)
+        val current = runCatching { activeNotifications.toList() }.getOrNull() ?: return
+        pendingRemovals.clear()
+        rawNotifications.clear()
+        current.associateByTo(rawNotifications) { it.key }
+        presentation.clear()
+        reconcilePresentation(authoritative = true)
     }
 
     override fun onListenerDisconnected() {
@@ -174,13 +184,64 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        publish(sbn)
+        refreshNotifications()
+        pendingRemovals.remove(sbn.key)
+        rawNotifications[sbn.key] = sbn
+        // A posted notification can mutate extras without changing its SBN identity.
+        reconcilePresentation(invalidated = setOf(sbn.key))
     }
 
-    private fun publish(sbn: StatusBarNotification) {
-        val notification = toBridgeNotification(sbn)
-        cache(notification)
-        NotificationEventBus.emit(notification)
+    override fun onNotificationRankingUpdate(rankingMap: RankingMap) {
+        // Android may change overrideGroupKey while regrouping existing children.
+        refreshNotifications()
+        reconcilePresentation()
+    }
+
+    private fun refreshNotifications() {
+        val current = runCatching { activeNotifications.toList() }.getOrNull() ?: return
+        val keys = current.mapTo(hashSetOf()) { it.key }
+        pendingRemovals.retainAll(keys)
+        rawNotifications.clear()
+        current.filterNot { it.key in pendingRemovals }.associateByTo(rawNotifications) { it.key }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun reconcilePresentation(authoritative: Boolean = false, invalidated: Set<String> = emptySet()) {
+        val converted = presentation.payloads(rawNotifications.keys, invalidated) { key ->
+            toBridgeNotification(rawNotifications.getValue(key))
+        }
+        val facts = rawNotifications.values.map { sbn ->
+            val convertedRow = converted.getValue(sbn.key)
+            val notification = sbn.notification
+            NotificationGroupFacts(
+                key = sbn.key,
+                packageName = sbn.packageName,
+                userId = sbn.userId,
+                groupKey = if (sbn.isGroup) sbn.groupKey else null,
+                isSummary = notification.flags and Notification.FLAG_GROUP_SUMMARY != 0,
+                hasDistinctContent = convertedRow.text.isNotBlank() ||
+                    convertedRow.title.let { it.isNotBlank() && it != convertedRow.appLabel } ||
+                    convertedRow.actions.isNotEmpty() || notification.contentView != null ||
+                    notification.bigContentView != null || notification.headsUpContentView != null,
+                number = notification.number,
+            )
+        }
+        val visibleKeys = NotificationGroupPresentation.visibleKeys(facts)
+        val delta = presentation.present(visibleKeys)
+        // Removal emissions purge an already-present summary from subscriber snapshots.
+        // Retaining its raw SBN lets it reappear when its last represented child leaves.
+        if (authoritative) {
+            delta.visible.values.forEach(::cache)
+            NotificationEventBus.replaceActiveNotifications(delta.visible.values.toList())
+        } else {
+            delta.removed.forEach {
+                NotificationEventBus.emit(it.copy(removed = true, appIconPng = null))
+            }
+            delta.changed.forEach { row ->
+                cache(row)
+                NotificationEventBus.emit(row)
+            }
+        }
     }
 
     @Suppress("DEPRECATION") // Bundle array and legacy sender APIs also support Android 12 MessagingStyle notifications.
@@ -237,19 +298,10 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        NotificationEventBus.emit(
-            BridgeNotification(
-                key = sbn.key,
-                packageName = sbn.packageName,
-                postedAtMillis = System.currentTimeMillis(),
-                appLabel = sbn.packageName,
-                title = "",
-                text = "",
-                actions = emptyList(),
-                isOngoing = false,
-                removed = true,
-            ),
-        )
+        refreshNotifications()
+        pendingRemovals.add(sbn.key)
+        rawNotifications.remove(sbn.key)
+        reconcilePresentation()
     }
 
     fun dismiss(key: String) {
@@ -257,14 +309,18 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
     }
 
     fun invokeAction(key: String, actionIndex: Int, inlineReply: String? = null): Boolean {
-        val action = activeNotifications.firstOrNull { it.key == key }
-            ?.notification
-            ?.actions
-            ?.getOrNull(actionIndex)
-            ?: return false
+        return invokeActionResult(key, actionIndex, inlineReply).accepted
+    }
+
+    internal fun invokeActionResult(key: String, actionIndex: Int, inlineReply: String?): NotificationActionExecution {
+        val notification = activeNotifications.firstOrNull { it.key == key }
+            ?: return NotificationActionExecution(false, "notification_missing")
+        val action = notification.notification.actions?.getOrNull(actionIndex)
+            ?: return NotificationActionExecution(false, "action_missing")
         val fillIn = Intent()
         if (inlineReply != null) {
-            val inputs = action.remoteInputs ?: return false
+            val inputs = action.remoteInputs?.takeIf { it.isNotEmpty() }
+                ?: return NotificationActionExecution(false, "reply_unavailable")
             val results = Bundle().apply {
                 inputs.forEach { input -> putCharSequence(input.resultKey, inlineReply) }
             }
@@ -272,10 +328,20 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
         }
         return try {
             action.actionIntent.send(this, 0, fillIn)
-            true
+            NotificationActionExecution(true)
         } catch (_: PendingIntent.CanceledException) {
-            false
+            NotificationActionExecution(false, "pending_intent_canceled")
+        } catch (_: Exception) {
+            NotificationActionExecution(false, "action_rejected")
         }
+    }
+
+    private fun dismissResult(key: String): NotificationActionExecution {
+        if (activeNotifications.none { it.key == key }) return NotificationActionExecution(false, "notification_missing")
+        return try {
+            cancelNotification(key)
+            NotificationActionExecution(true)
+        } catch (_: Exception) { NotificationActionExecution(false, "action_rejected") }
     }
 
     private fun cache(notification: BridgeNotification) {
@@ -323,5 +389,14 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
 
         fun invokeActive(key: String, actionId: String, reply: String?): Boolean =
             active.get()?.invokeAction(key, actionId.toIntOrNull() ?: return false, reply) ?: false
+
+        internal fun performActiveResult(key: String, actionId: String, reply: String?, dismiss: Boolean): NotificationActionExecution {
+            val listener = active.get() ?: return NotificationActionExecution(false, "listener_unavailable")
+            return try {
+                if (dismiss) listener.dismissResult(key) else listener.invokeActionResult(
+                    key, actionId.toIntOrNull() ?: return NotificationActionExecution(false, "action_missing"), reply,
+                )
+            } catch (_: Exception) { NotificationActionExecution(false, "action_rejected") }
+        }
     }
 }

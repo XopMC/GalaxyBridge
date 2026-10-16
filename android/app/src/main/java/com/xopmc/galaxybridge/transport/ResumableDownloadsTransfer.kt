@@ -6,6 +6,19 @@ import java.security.MessageDigest
 internal data class PendingDownload(val id: String, val identity: String, val name: String, val pending: Boolean)
 internal data class DownloadReceipt(val result: SafTransferResult, val publishedName: String? = null)
 internal enum class DownloadPhase { RECEIVING, VERIFIED, COMPLETED, CANCELLED }
+internal enum class DownloadVerificationStage {
+    STREAMING_FINAL, PROVIDER_LENGTH_BEFORE, PROVIDER_READ, PROVIDER_DIGEST,
+    PROVIDER_LENGTH_AFTER, PROVIDER_IDENTITY, CHECKPOINT_LENGTH, CHECKPOINT_DIGEST, DUPLICATE_CONTENT,
+}
+/** Bounded diagnostics only: no identifiers, names, paths, bytes, or digest values. */
+internal data class DownloadVerificationDiagnostic(
+    val stage: DownloadVerificationStage,
+    val expectedBytes: Long,
+    val observedBytes: Long? = null,
+    val readComplete: Boolean? = null,
+    val digestEqual: Boolean? = null,
+    val identityStable: Boolean? = null,
+)
 internal data class DownloadCheckpoint(
     val owner: String,
     val manifest: SafIncomingManifest,
@@ -50,6 +63,7 @@ internal class ResumableDownloadsTransfer(
     private val storage: PendingDownloadStorage,
     private val journal: DownloadJournal,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val verificationDiagnostic: ((DownloadVerificationDiagnostic) -> Unit)? = null,
 ) {
     private data class Session(val record: DownloadCheckpoint, val digest: MessageDigest)
     private val sessions = LinkedHashMap<String, Session>()
@@ -87,8 +101,10 @@ internal class ResumableDownloadsTransfer(
         val session = recover(record)
         val end = checkedAddOffset(chunk.offset, chunk.content.size) ?: fail("unexpected_offset")
         if (chunk.offset < record.offset) {
-            check(end <= record.offset && storage.matches(record.item, chunk.offset, chunk.content)) {
-                "conflicting_duplicate"
+            if (!(end <= record.offset && storage.matches(record.item, chunk.offset, chunk.content))) {
+                emit(DownloadVerificationDiagnostic(DownloadVerificationStage.DUPLICATE_CONTENT,
+                    record.offset, end))
+                fail("conflicting_duplicate")
             }
             return@guarded receipt(record)
         }
@@ -161,10 +177,18 @@ internal class ResumableDownloadsTransfer(
                 it.record.item == record.item && storage.length(item) == record.offset) return it
         }
         val size = storage.length(item) ?: fail("storage_read_failed")
-        check(size >= record.offset) { "checkpoint_prefix_mismatch" }
+        if (size < record.offset) {
+            emit(DownloadVerificationDiagnostic(DownloadVerificationStage.CHECKPOINT_LENGTH, record.offset, size))
+            fail("checkpoint_prefix_mismatch")
+        }
         val hash = digest()
-        check(storage.hashPrefix(item, record.offset, hash) &&
-            MessageDigest.isEqual(snapshot(hash), record.prefix)) { "checkpoint_prefix_mismatch" }
+        val read = storage.hashPrefix(item, record.offset, hash)
+        val matches = read && MessageDigest.isEqual(snapshot(hash), record.prefix)
+        if (!matches) {
+            emit(DownloadVerificationDiagnostic(DownloadVerificationStage.CHECKPOINT_DIGEST, record.offset, size,
+                readComplete = read, digestEqual = if (read) matches else null))
+            fail("checkpoint_prefix_mismatch")
+        }
         check(storage.resolve(record.item) == item && storage.length(item) == size) { "checkpoint_changed" }
         if (size > record.offset) check(storage.truncate(item, record.offset)) { "storage_truncate_failed" }
         if (sessions.size >= MAX_SESSIONS) sessions.remove(sessions.keys.first())
@@ -172,18 +196,41 @@ internal class ResumableDownloadsTransfer(
     }
 
     private fun finish(record: DownloadCheckpoint): DownloadReceipt {
-        check(record.offset == record.manifest.size && record.prefix.contentEquals(record.manifest.sha256)) {
-            "sha256_mismatch"
+        val streamingMatches = record.prefix.contentEquals(record.manifest.sha256)
+        if (record.offset != record.manifest.size || !streamingMatches) {
+            emit(DownloadVerificationDiagnostic(DownloadVerificationStage.STREAMING_FINAL,
+                record.manifest.size, record.offset, digestEqual = streamingMatches))
+            fail("sha256_mismatch")
         }
         val current = storage.resolve(record.item) ?: fail("transfer_document_missing")
         check(sameItem(record.item, current)) { "transfer_document_ownership_mismatch" }
         // One full disk verification before publication, not per-chunk quadratic hashing.
         val verified = digest()
-        check(storage.length(current) == record.manifest.size &&
-            storage.hashPrefix(current, record.manifest.size, verified) &&
-            MessageDigest.isEqual(verified.digest(), record.manifest.sha256) &&
-            storage.length(current) == record.manifest.size && storage.resolve(record.item) == current) {
-            "sha256_mismatch"
+        val before = storage.length(current)
+        if (before != record.manifest.size) {
+            emit(DownloadVerificationDiagnostic(DownloadVerificationStage.PROVIDER_LENGTH_BEFORE, record.manifest.size, before))
+            fail("sha256_mismatch")
+        }
+        val read = storage.hashPrefix(current, record.manifest.size, verified)
+        if (!read) {
+            emit(DownloadVerificationDiagnostic(DownloadVerificationStage.PROVIDER_READ, record.manifest.size, before, readComplete = false))
+            fail("sha256_mismatch")
+        }
+        if (!MessageDigest.isEqual(verified.digest(), record.manifest.sha256)) {
+            emit(DownloadVerificationDiagnostic(DownloadVerificationStage.PROVIDER_DIGEST, record.manifest.size, before,
+                readComplete = true, digestEqual = false))
+            fail("sha256_mismatch")
+        }
+        val after = storage.length(current)
+        if (after != record.manifest.size) {
+            emit(DownloadVerificationDiagnostic(DownloadVerificationStage.PROVIDER_LENGTH_AFTER, record.manifest.size, after,
+                readComplete = true, digestEqual = true))
+            fail("sha256_mismatch")
+        }
+        if (storage.resolve(record.item) != current) {
+            emit(DownloadVerificationDiagnostic(DownloadVerificationStage.PROVIDER_IDENTITY, record.manifest.size, after,
+                readComplete = true, digestEqual = true, identityStable = false))
+            fail("sha256_mismatch")
         }
         check(current.pending || record.phase == DownloadPhase.VERIFIED) { "unexpected_publication" }
         val prepared = record.copy(phase = DownloadPhase.VERIFIED, updatedAt = clock())
@@ -208,6 +255,9 @@ internal class ResumableDownloadsTransfer(
         SafTransferResult(record.manifest.transferId, record.offset, record.phase == DownloadPhase.COMPLETED, failure),
         record.item.name.takeIf { record.phase == DownloadPhase.COMPLETED },
     )
+    private fun emit(event: DownloadVerificationDiagnostic) {
+        runCatching { verificationDiagnostic?.invoke(event) }
+    }
     private fun requireValidIdentity(owner: String, id: String) {
         check(owner.isNotBlank() && owner.length <= 512 && id.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "invalid_manifest" }
     }

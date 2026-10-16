@@ -4,16 +4,61 @@ import Foundation
 
 @main struct OutgoingFileTransferStoreSpec {
     static func check(_ value: Bool) { precondition(value) }
+    static func mutateBytesRestoringModificationTime(_ url: URL) throws {
+        let fd = open(url.path, O_WRONLY | O_NOFOLLOW | O_CLOEXEC)
+        precondition(fd >= 0)
+        let file = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        defer { try? file.close() }
+        var before = stat(); precondition(fstat(fd, &before) == 0)
+        try file.write(contentsOf: Data([255]))
+        let dates = [before.st_atimespec, before.st_mtimespec]
+        precondition(dates.withUnsafeBufferPointer { futimens(fd, $0.baseAddress) } == 0)
+        var after = stat(); precondition(fstat(fd, &after) == 0)
+        precondition(before.st_ino == after.st_ino && before.st_size == after.st_size)
+        precondition(before.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec &&
+            before.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec)
+    }
     static func main() throws {
         let base = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
             .appendingPathComponent("galaxybridge-outgoing-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: base) }
-        let store = OutgoingFileTransferStore(root: base.appendingPathComponent("transfers"))
+        let store = OutgoingFileTransferStore(root: base.appendingPathComponent("transfers"), testingIOBoundary: { boundary in
+            precondition(boundary != .sourceVerificationRead, "common path must not hash the full source again")
+        })
         let original = base.appendingPathComponent("example.bin")
         let payload = Data((0..<2_100_123).map { UInt8($0 % 251) })
         try payload.write(to: original)
         let peer = Data(repeating: 7, count: 32)
+        let metadataSource = base.appendingPathComponent("metadata.bin")
+        let smallPayload = Data((0..<67_584).map { UInt8($0 % 251) })
+        try smallPayload.write(to: metadataSource)
+        let metadataStore = OutgoingFileTransferStore(root: base.appendingPathComponent("metadata-transfers"), testingIOBoundary: { boundary in
+            if boundary == .snapshotCreated { precondition(chmod(metadataSource.path, 0o600) == 0) }
+        })
+        let metadataTransfer = try metadataStore.prepare(deviceID: "device:A", peerFingerprint: peer, sourceURL: metadataSource)
+        try Data("replacement".utf8).write(to: metadataSource, options: .atomic)
+        check(try metadataTransfer.read(offset: 0, maximumLength: smallPayload.count) == smallPayload)
+        try metadataStore.remove(metadataTransfer)
+        let contentSource = base.appendingPathComponent("content-change.bin")
+        try smallPayload.write(to: contentSource)
+        let changingStore = OutgoingFileTransferStore(root: base.appendingPathComponent("changed-transfers"), testingIOBoundary: { boundary in
+            if boundary == .snapshotCreated { try! mutateBytesRestoringModificationTime(contentSource) }
+        })
+        do {
+            _ = try changingStore.prepare(deviceID: "device:A", peerFingerprint: peer, sourceURL: contentSource)
+            fatalError("same-size changed content with restored mtime admitted")
+        } catch OutgoingFileTransferError.changed {}
+        let racingSource = base.appendingPathComponent("during-verification.bin")
+        try smallPayload.write(to: racingSource)
+        let racingStore = OutgoingFileTransferStore(root: base.appendingPathComponent("racing-transfers"), testingIOBoundary: { boundary in
+            if boundary == .snapshotCreated { precondition(chmod(racingSource.path, 0o600) == 0) }
+            if boundary == .sourceVerificationRead { try! mutateBytesRestoringModificationTime(racingSource) }
+        })
+        do {
+            _ = try racingStore.prepare(deviceID: "device:A", peerFingerprint: peer, sourceURL: racingSource)
+            fatalError("source mutation during verification admitted")
+        } catch OutgoingFileTransferError.changed {}
         let transfer = try store.prepare(deviceID: "device:A", peerFingerprint: peer, sourceURL: original)
         precondition(transfer.relativeName == "example.bin" && transfer.sha256 == Data(SHA256.hash(data: payload)))
         // Replacement and in-place edits of the user's source cannot change

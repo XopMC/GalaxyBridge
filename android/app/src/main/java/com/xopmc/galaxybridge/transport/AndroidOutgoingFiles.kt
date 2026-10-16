@@ -155,6 +155,12 @@ internal class AndroidOutgoingFiles private constructor(private val context: Con
         }
     }
     fun retry(id: String, owner: String) = submit { sender.retry(id, owner) }
+    fun forgetTerminal(id: String, owner: String) = submit {
+        check(currentOwner() == owner) { "transfer_owner_mismatch" }
+        check(!cancellationFences.contains(id)) { "transfer_cancel_pending" }
+        store.forgetTerminal(id, owner)
+        sender.refresh()
+    }
 
     fun attach(owner: String, sessionID: String, deviceID: String,
                write: (Envelope) -> Unit, closeTransport: () -> Unit): Lease? {

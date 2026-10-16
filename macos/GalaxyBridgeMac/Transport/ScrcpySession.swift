@@ -61,8 +61,10 @@ final class ScrcpySession: ObservableObject {
 
     let serial: String
     private let adb: ADBClient
+    private let remoteRetirement: EnhancedRemoteRetirementFence
     private let physicalDisplayPolicy: ScrcpyPhysicalDisplayPolicy
-    private let automaticDisplayManagement: Bool
+    private var automaticDisplayManagement: Bool
+    private(set) var displayRestorationFailure: String?
     private let primaryDiagnosticsEnabled: Bool
     private let clipboardPollingEnabled: Bool
     private let wirelessADBVideoRecovery: WirelessADBVideoIngressRecovery?
@@ -171,6 +173,7 @@ final class ScrcpySession: ObservableObject {
     var cleanupPhysicallySettled: Bool {
         (retiredNativeOwner?.attempt.snapshot.actuallySettled ?? true)
             && (retiredQuicTransport?.physicallySettled ?? true)
+            && remoteRetirement.settled
     }
 
     /// Actual prepare and host-native fixtures share this allocation seam.
@@ -266,6 +269,7 @@ final class ScrcpySession: ObservableObject {
     ) {
         self.serial = serial
         self.adb = adb
+        self.remoteRetirement = EnhancedRemoteRetirementFence(captureSerial: serial)
         self.physicalDisplayPolicy = physicalDisplayPolicy
         self.automaticDisplayManagement = automaticDisplayManagement
         self.primaryDiagnosticsEnabled = primaryDiagnosticsEnabled
@@ -286,7 +290,7 @@ final class ScrcpySession: ObservableObject {
         applicationTarget requestedApplicationTarget: ScrcpyApplicationTarget? = nil
     ) {
         guard state == .idle || state == .stopped || isFailure else { return }
-        if isFailure { stopResources() }
+        if isFailure { stopResources(); retryOwnedCleanup() }
         invalidateApplicationDisplayObservation()
         hasDeliveredFirstFrameEvent = false
         primaryDiagnosticsStartedAt = ProcessInfo.processInfo.systemUptime
@@ -357,6 +361,31 @@ final class ScrcpySession: ObservableObject {
                     fail(error, component: "Session preparation")
                 }
             }
+        }
+    }
+
+    func installVerifiedCleanupRoute(_ route: VerifiedEnhancedRetirementRoute) {
+        guard remoteRetirement.install(route) else { return }
+        retryOwnedCleanup()
+    }
+
+    func retryOwnedCleanup() {
+        scheduleCleanup { [weak self] in await self?.retirePendingRemoteServers() }
+        if originalDisplayBrightness != nil, displayRestorationFailure != nil { restorePhysicalDisplay() }
+    }
+
+    func waitForScheduledCleanup() async {
+        await cleanupTask?.value
+    }
+
+    private func retirePendingRemoteServers() async {
+        await remoteRetirement.retire { [adb] serial, scid in
+            try await Task.detached(priority: .utility) {
+                try adb.retireScrcpyServer(serial: serial, scid: scid)
+            }.value
+        }
+        if !remoteRetirement.settled {
+            logger.error("Enhanced remote retirement remains fenced: remote-server-not-retired")
         }
     }
 
@@ -1127,60 +1156,78 @@ final class ScrcpySession: ObservableObject {
         screenInterlockPresentation = changed
     }
 
+    /// Transfers panel ownership without racing detached legacy brightness writes.
+    func setAutomaticDisplayManagement(_ enabled: Bool) async throws {
+        if !enabled {
+            if automaticDisplayManagement { handleScreenInterlock(.stopped) }
+            automaticDisplayManagement = false
+            await displayBlackoutTask?.value
+            if let displayRestorationFailure {
+                throw NSError(domain: displayRestorationFailure, code: 1)
+            }
+        } else {
+            guard !automaticDisplayManagement else { return }
+            automaticDisplayManagement = true
+            if controlSocket != nil || quicTransport != nil { handleScreenInterlock(.controlReady) }
+            if hasDeliveredFirstFrameEvent { handleScreenInterlock(.firstFrame) }
+        }
+    }
+
     private func applyInteractiveDisplayBlackout() {
-        displayBlackoutTask?.cancel()
-        displayBlackoutTask = Task { [weak self, adb, serial] in
-            guard let self else { return }
+        let preceding = displayBlackoutTask
+        displayBlackoutTask = Task { [self, adb, serial] in
+            await preceding?.value
+            guard automaticDisplayManagement else { return }
             if originalDisplayBrightness == nil {
                 let brightness = await Task.detached(priority: .utility) {
                     try? adb.displayBrightness(serial: serial)
                 }.value
-                guard !Task.isCancelled else { return }
-                // Zero may be a residue from an interrupted previous debug
-                // session. Keep a safe, dim restoration fallback rather than
-                // trapping the user on a permanently black panel.
+                guard automaticDisplayManagement else { return }
                 originalDisplayBrightness = brightness.flatMap { $0 > 0 ? $0 : nil } ?? 0.05
             }
             await Task.detached(priority: .utility) {
                 try? adb.setDisplayBrightness(serial: serial, brightness: 0)
-                // A previous interrupted session or a physical power press may
-                // leave Samsung's display asleep. Keep the OLED black, but
-                // wake Android's display pipeline so SurfaceControl continues
-                // producing frames and positional input remains available.
                 try? adb.wakePhysicalDisplay(serial: serial)
             }.value
-            guard !Task.isCancelled else { return }
-            // Keep Android logically interactive. Samsung rejects every
-            // positional injection while display power is actually OFF.
+            guard automaticDisplayManagement else { return }
             sendControl(ScrcpyControlMessage.setDisplayPower(on: true))
         }
     }
 
     private func revealPhysicalDisplay() {
-        displayBlackoutTask?.cancel()
-        let brightness = originalDisplayBrightness ?? 0.05
-        displayBlackoutTask = Task { [weak self, adb, serial] in
+        let preceding = displayBlackoutTask
+        displayBlackoutTask = Task { [self, adb, serial] in
+            await preceding?.value
+            guard automaticDisplayManagement else { return }
+            let brightness = originalDisplayBrightness ?? 0.05
             await Task.detached(priority: .utility) {
                 try? adb.setDisplayBrightness(serial: serial, brightness: brightness)
                 try? adb.wakePhysicalDisplay(serial: serial)
             }.value
-            guard !Task.isCancelled, let self else { return }
+            guard automaticDisplayManagement else { return }
             sendControl(ScrcpyControlMessage.setDisplayPower(on: true))
         }
     }
 
     private func restorePhysicalDisplay() {
-        displayBlackoutTask?.cancel()
-        displayBlackoutTask = nil
-        let brightness = originalDisplayBrightness
-        originalDisplayBrightness = nil
-        sendControl(ScrcpyControlMessage.setDisplayPower(on: true))
-        guard let brightness else { return }
-        scheduleCleanup { [adb, serial] in
-            await Task.detached(priority: .utility) {
-                try? adb.setDisplayBrightness(serial: serial, brightness: brightness)
-            }.value
+        let preceding = displayBlackoutTask
+        let restoration = Task { [self, adb] in
+            await preceding?.value
+            let serial = remoteRetirement.cleanupSerial
+            sendControl(ScrcpyControlMessage.setDisplayPower(on: true))
+            guard let brightness = originalDisplayBrightness else { return }
+            do {
+                try await Task.detached(priority: .utility) {
+                    try adb.setDisplayBrightness(serial: serial, brightness: brightness)
+                }.value
+                originalDisplayBrightness = nil
+                displayRestorationFailure = nil
+            } catch {
+                displayRestorationFailure = String(describing: error)
+            }
         }
+        displayBlackoutTask = restoration
+        scheduleCleanup { await restoration.value }
     }
 
     private func scheduleCleanup(_ operation: @escaping @Sendable () async -> Void) {
@@ -1293,8 +1340,6 @@ final class ScrcpySession: ObservableObject {
         clipboardRequestTask = nil
         lastObservedClipboardContent = nil
         forceNextClipboardForward = false
-        displayBlackoutTask?.cancel()
-        displayBlackoutTask = nil
         if hasRemoteKeyboardPreferenceLease {
             hasRemoteKeyboardPreferenceLease = false
             let adb = adb
@@ -1311,13 +1356,8 @@ final class ScrcpySession: ObservableObject {
         serverProcess?.terminate()
         serverProcess = nil
         if let scid = serverSCID {
-            let adb = adb
-            let serial = serial
-            scheduleCleanup {
-                await Task.detached {
-                    try? adb.retireScrcpyServer(serial: serial, scid: scid)
-                }.value
-            }
+            remoteRetirement.requireRetirement(scid: scid)
+            scheduleCleanup { [weak self] in await self?.retirePendingRemoteServers() }
         }
         serverSCID = nil
         invalidateApplicationDisplayObservation()
@@ -1353,6 +1393,7 @@ final class ScrcpySession: ObservableObject {
     private func checkPreparation(_ request: UUID) throws {
         try Task.checkCancellation()
         guard preparationID == request else { throw CancellationError() }
+        guard remoteRetirement.settled else { throw NativeMediaFailure.cleanupIncomplete }
         if let owner = nativeOwner, !owner.attempt.isAdmitted { throw NativeMediaFailure.cleanupIncomplete }
     }
 

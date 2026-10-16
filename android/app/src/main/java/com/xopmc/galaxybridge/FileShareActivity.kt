@@ -173,6 +173,10 @@ class FileShareActivity : ComponentActivity() {
                     if (record.phase != OutgoingFilePhase.PREPARED) TextButton(onClick = { manager.retry(record.id, record.owner) }) { Text(stringResource(R.string.clipboard_share_retry)) }
                     TextButton(onClick = { manager.cancel(record.id, record.owner) }) { Text(stringResource(R.string.action_cancel)) }
                 }
+                if (record.terminal) TextButton(
+                    enabled = manager.currentOwner() == record.owner,
+                    onClick = { manager.forgetTerminal(record.id, record.owner) },
+                ) { Text(stringResource(R.string.file_send_forget)) }
             }
         }
     }

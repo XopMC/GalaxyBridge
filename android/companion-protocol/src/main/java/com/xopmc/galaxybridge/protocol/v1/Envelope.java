@@ -48,6 +48,7 @@ public  final class Envelope extends
     CAMERA_STATUS(33),
     TRANSFER_CANCEL(34),
     NOTIFICATION_SNAPSHOT(35),
+    NOTIFICATION_ACTION_RESULT(36),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -89,6 +90,7 @@ public  final class Envelope extends
         case 33: return CAMERA_STATUS;
         case 34: return TRANSFER_CANCEL;
         case 35: return NOTIFICATION_SNAPSHOT;
+        case 36: return NOTIFICATION_ACTION_RESULT;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -1577,6 +1579,56 @@ public  final class Envelope extends
    */
   private void clearNotificationSnapshot() {
     if (payloadCase_ == 35) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int NOTIFICATION_ACTION_RESULT_FIELD_NUMBER = 36;
+  /**
+   * <code>.galaxybridge.v1.NotificationActionResult notification_action_result = 36;</code>
+   */
+  @java.lang.Override
+  public boolean hasNotificationActionResult() {
+    return payloadCase_ == 36;
+  }
+  /**
+   * <code>.galaxybridge.v1.NotificationActionResult notification_action_result = 36;</code>
+   */
+  @java.lang.Override
+  public com.xopmc.galaxybridge.protocol.v1.NotificationActionResult getNotificationActionResult() {
+    if (payloadCase_ == 36) {
+       return (com.xopmc.galaxybridge.protocol.v1.NotificationActionResult) payload_;
+    }
+    return com.xopmc.galaxybridge.protocol.v1.NotificationActionResult.getDefaultInstance();
+  }
+  /**
+   * <code>.galaxybridge.v1.NotificationActionResult notification_action_result = 36;</code>
+   */
+  private void setNotificationActionResult(com.xopmc.galaxybridge.protocol.v1.NotificationActionResult value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 36;
+  }
+  /**
+   * <code>.galaxybridge.v1.NotificationActionResult notification_action_result = 36;</code>
+   */
+  private void mergeNotificationActionResult(com.xopmc.galaxybridge.protocol.v1.NotificationActionResult value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 36 &&
+        payload_ != com.xopmc.galaxybridge.protocol.v1.NotificationActionResult.getDefaultInstance()) {
+      payload_ = com.xopmc.galaxybridge.protocol.v1.NotificationActionResult.newBuilder((com.xopmc.galaxybridge.protocol.v1.NotificationActionResult) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 36;
+  }
+  /**
+   * <code>.galaxybridge.v1.NotificationActionResult notification_action_result = 36;</code>
+   */
+  private void clearNotificationActionResult() {
+    if (payloadCase_ == 36) {
       payloadCase_ = 0;
       payload_ = null;
     }
@@ -3121,6 +3173,54 @@ public  final class Envelope extends
       return this;
     }
 
+    /**
+     * <code>.galaxybridge.v1.NotificationActionResult notification_action_result = 36;</code>
+     */
+    @java.lang.Override
+    public boolean hasNotificationActionResult() {
+      return instance.hasNotificationActionResult();
+    }
+    /**
+     * <code>.galaxybridge.v1.NotificationActionResult notification_action_result = 36;</code>
+     */
+    @java.lang.Override
+    public com.xopmc.galaxybridge.protocol.v1.NotificationActionResult getNotificationActionResult() {
+      return instance.getNotificationActionResult();
+    }
+    /**
+     * <code>.galaxybridge.v1.NotificationActionResult notification_action_result = 36;</code>
+     */
+    public Builder setNotificationActionResult(com.xopmc.galaxybridge.protocol.v1.NotificationActionResult value) {
+      copyOnWrite();
+      instance.setNotificationActionResult(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.NotificationActionResult notification_action_result = 36;</code>
+     */
+    public Builder setNotificationActionResult(
+        com.xopmc.galaxybridge.protocol.v1.NotificationActionResult.Builder builderForValue) {
+      copyOnWrite();
+      instance.setNotificationActionResult(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.NotificationActionResult notification_action_result = 36;</code>
+     */
+    public Builder mergeNotificationActionResult(com.xopmc.galaxybridge.protocol.v1.NotificationActionResult value) {
+      copyOnWrite();
+      instance.mergeNotificationActionResult(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.NotificationActionResult notification_action_result = 36;</code>
+     */
+    public Builder clearNotificationActionResult() {
+      copyOnWrite();
+      instance.clearNotificationActionResult();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:galaxybridge.v1.Envelope)
   }
   @java.lang.Override
@@ -3170,14 +3270,15 @@ public  final class Envelope extends
             com.xopmc.galaxybridge.protocol.v1.CameraStatus.class,
             com.xopmc.galaxybridge.protocol.v1.TransferCancel.class,
             com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot.class,
+            com.xopmc.galaxybridge.protocol.v1.NotificationActionResult.class,
           };
           java.lang.String info =
-              "\u0000\u001f\u0001\u0000\u0001#\u001f\u0000\u0000\u0000\u0001\u000b\u0002\u000b\u0003" +
-              "\u0208\u0004\u0208\u0005\u0003\n<\u0000\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000" +
-              "\u000f<\u0000\u0010<\u0000\u0011<\u0000\u0012<\u0000\u0013<\u0000\u0014<\u0000\u0015" +
-              "<\u0000\u0016<\u0000\u0017<\u0000\u0018<\u0000\u0019<\u0000\u001a<\u0000\u001b<\u0000" +
-              "\u001c<\u0000\u001d<\u0000\u001e<\u0000\u001f<\u0000 <\u0000!<\u0000\"<\u0000#<\u0000" +
-              "";
+              "\u0000 \u0001\u0000\u0001$ \u0000\u0000\u0000\u0001\u000b\u0002\u000b\u0003\u0208" +
+              "\u0004\u0208\u0005\u0003\n<\u0000\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f" +
+              "<\u0000\u0010<\u0000\u0011<\u0000\u0012<\u0000\u0013<\u0000\u0014<\u0000\u0015<\u0000" +
+              "\u0016<\u0000\u0017<\u0000\u0018<\u0000\u0019<\u0000\u001a<\u0000\u001b<\u0000\u001c" +
+              "<\u0000\u001d<\u0000\u001e<\u0000\u001f<\u0000 <\u0000!<\u0000\"<\u0000#<\u0000$" +
+              "<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

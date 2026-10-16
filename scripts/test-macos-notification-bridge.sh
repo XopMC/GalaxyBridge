@@ -20,3 +20,11 @@ xcrun swiftc \
   "$GB_ROOT/macos/GalaxyBridgeMacTests/NotificationSnapshotReconciliationSpec.swift" \
   -o "$GB_TMP/NotificationSnapshotReconciliationSpec"
 "$GB_TMP/NotificationSnapshotReconciliationSpec"
+
+xcrun swiftc \
+  "$GB_ROOT/macos/GalaxyBridgeMac/NotificationActionState.swift" \
+  "$GB_ROOT/macos/GalaxyBridgeMacTests/NotificationActionStateSpec.swift" \
+  -o "$GB_TMP/NotificationActionStateSpec"
+"$GB_TMP/NotificationActionStateSpec"
+
+sh "$GB_ROOT/scripts/test-macos-notification-action-entrypoint.sh"

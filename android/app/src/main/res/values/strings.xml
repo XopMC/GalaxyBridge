@@ -109,4 +109,5 @@
     <string name="file_send_cancelled">Cancelled</string>
     <string name="clipboard_share_send">Send</string>
     <string name="clipboard_share_retry">Try again</string>
+    <string name="file_send_forget">Remove from list</string>
 </resources>

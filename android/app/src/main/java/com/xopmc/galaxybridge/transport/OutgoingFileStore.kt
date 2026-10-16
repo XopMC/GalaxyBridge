@@ -166,6 +166,31 @@ internal class OutgoingFileStore(
         return updated
     }
 
+    /** Forget a terminal private receipt only; originals and published destinations are never addressed. */
+    @Synchronized fun forgetTerminal(id: String, owner: String) {
+        require(validID(id) && validOwner(owner)) { "invalid_transfer" }
+        val current = load(id)
+        if (current == null) {
+            // Repeated taps may race the refreshed list. Absence is a no-op;
+            // an existing directory without a valid receipt is never erased.
+            check(!Files.exists(directory(id).toPath(), NOFOLLOW_LINKS)) { "invalid_transfer_record" }
+            return
+        }
+        check(current.owner == owner) { "transfer_owner_mismatch" }
+        check(current.terminal) { "transfer_not_terminal" }
+        val directory = directory(id)
+        val children = directory.listFiles() ?: error("unsafe_transfer_storage")
+        check(children.all { it.name in setOf("record", "record.new", "payload") }) { "unsafe_transfer_storage" }
+        // Validate the whole exact directory before deleting anything. No
+        // recursive delete and no traversal through provider/user paths.
+        children.forEach(::validateFile)
+        deletePrivateFile(File(directory, "payload"))
+        deletePrivateFile(File(directory, "record.new"))
+        deletePrivateFile(File(directory, "record"))
+        Files.delete(directory.toPath())
+        syncDirectory(root)
+    }
+
     fun verify(record: OutgoingFileRecord, cancelled: () -> Boolean = { false }) {
         check(!record.terminal && record.phase != OutgoingFilePhase.CANCEL_REQUESTED) { "transfer_cancelled" }
         val payload = File(directory(record.id), "payload")

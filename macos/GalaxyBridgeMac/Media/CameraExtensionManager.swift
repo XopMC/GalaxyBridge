@@ -5,6 +5,8 @@ import SystemExtensions
 final class CameraExtensionManager: NSObject, ObservableObject, OSSystemExtensionRequestDelegate {
     @Published private(set) var status = String(localized: "CAMERA_EXTENSION_NOT_INSTALLED")
     private let identifier = "com.xopmc.GalaxyBridge.CameraExtension"
+    // Preserve the existing provisioned-build activation path. macOS validates
+    // signing, provisioning and user approval when processing the request.
     let supportsActivation = Bundle.main.object(forInfoDictionaryKey: "GalaxyBridgeDistribution") as? String != "github-direct"
 
     func activate() {
@@ -27,7 +29,9 @@ final class CameraExtensionManager: NSObject, ObservableObject, OSSystemExtensio
         actionForReplacingExtension existing: OSSystemExtensionProperties,
         withExtension ext: OSSystemExtensionProperties
     ) -> OSSystemExtensionRequest.ReplacementAction {
-        ext.bundleShortVersion > existing.bundleShortVersion ? .replace : .cancel
+        CameraExtensionPolicy.shouldReplace(
+            existingVersion: existing.bundleShortVersion, existingBuild: existing.bundleVersion,
+            incomingVersion: ext.bundleShortVersion, incomingBuild: ext.bundleVersion) ? .replace : .cancel
     }
 
     nonisolated func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
@@ -38,7 +42,16 @@ final class CameraExtensionManager: NSObject, ObservableObject, OSSystemExtensio
         _ request: OSSystemExtensionRequest,
         didFinishWithResult result: OSSystemExtensionRequest.Result
     ) {
-        Task { @MainActor in status = String(localized: "CAMERA_EXTENSION_READY") }
+        let key = CameraExtensionPolicy.completionStatusKey(result)
+        Task { @MainActor in
+            status = NSLocalizedString(key, tableName: nil, bundle: .main,
+                value: key == "CAMERA_EXTENSION_RESTART_REQUIRED"
+                    ? "Restart this Mac to finish activating GalaxyBridge Camera."
+                    : key == "CAMERA_EXTENSION_READY"
+                        ? "GalaxyBridge Camera is ready."
+                        : "Camera extension is not installed",
+                comment: "Camera extension activation result")
+        }
     }
 
     nonisolated func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {

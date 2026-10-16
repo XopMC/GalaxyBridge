@@ -51,4 +51,24 @@ public interface NotificationActionOrBuilder extends
    * @return The dismiss.
    */
   boolean getDismiss();
+
+  /**
+   * <pre>
+   * Canonical UUID, generated once per deliberate user action. Empty for legacy peers.
+   * </pre>
+   *
+   * <code>string request_id = 5;</code>
+   * @return The requestId.
+   */
+  java.lang.String getRequestId();
+  /**
+   * <pre>
+   * Canonical UUID, generated once per deliberate user action. Empty for legacy peers.
+   * </pre>
+   *
+   * <code>string request_id = 5;</code>
+   * @return The bytes for requestId.
+   */
+  com.google.protobuf.ByteString
+      getRequestIdBytes();
 }

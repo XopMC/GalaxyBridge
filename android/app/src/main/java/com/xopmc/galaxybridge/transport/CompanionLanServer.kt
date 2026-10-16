@@ -238,6 +238,7 @@ class CompanionLanServer(private val context: Context) {
             socket.soTimeout = 0
             writeEnvelope(output, hello(envelope))
             writeEnvelope(output, capabilities(envelope))
+            val notificationActionLedger = NotificationActionLedger()
             while (!socket.isClosed) {
                 val incoming = runCatching { readEnvelope(input) }.getOrNull() ?: return
                 when (CompanionControlPayloadPolicy.classify(incoming)) {
@@ -270,7 +271,7 @@ class CompanionLanServer(private val context: Context) {
                     }
                     CompanionControlPayloadKind.INPUT -> handleInput(incoming)
                     CompanionControlPayloadKind.CLIPBOARD -> handleClipboard(incoming.clipboardUpdate)
-                    CompanionControlPayloadKind.NOTIFICATION_ACTION -> handleNotificationAction(incoming)
+                    CompanionControlPayloadKind.NOTIFICATION_ACTION -> handleNotificationAction(incoming, output, notificationActionLedger)
                     CompanionControlPayloadKind.CAMERA_CONFIGURATION -> handleCameraConfiguration(incoming)
                     CompanionControlPayloadKind.CALL -> TelephonyBridge.handleCall(context, incoming.callEvent)
                     CompanionControlPayloadKind.TRANSFER_MANIFEST -> writeTransferAck(
@@ -679,17 +680,22 @@ class CompanionLanServer(private val context: Context) {
             .toString()
     }.getOrNull()?.takeIf { it.isNotEmpty() }
 
-    private fun handleNotificationAction(envelope: Envelope) {
+    private fun handleNotificationAction(envelope: Envelope, output: DataOutputStream, ledger: NotificationActionLedger) {
         val action = envelope.notificationAction
-        if (action.dismiss) {
-            GalaxyNotificationListenerService.dismissActive(action.notificationId)
-        } else {
-            GalaxyNotificationListenerService.invokeActive(
-                action.notificationId,
-                action.actionId,
-                action.replyText.takeIf { it.isNotBlank() },
-            )
-        }
+        fun execute() = GalaxyNotificationListenerService.performActiveResult(
+            action.notificationId, action.actionId, action.replyText.takeIf { it.isNotEmpty() }, action.dismiss,
+        )
+        // Legacy callers receive no unsolicited result frame.
+        if (action.requestId.isEmpty()) { execute(); return }
+        val fingerprint = MessageDigest.getInstance("SHA-256").digest(action.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val result = ledger.execute(action.requestId, fingerprint, ::execute)
+        // Retain the recent outcome BEFORE the socket write. Clients must not retry an unknown result.
+        writeEnvelope(output, Envelope.newBuilder().setProtocolMajor(1).setProtocolMinor(0)
+            .setDeviceId(deviceId()).setSessionId(envelope.sessionId).setMessageId(envelope.messageId + 1)
+            .setNotificationActionResult(com.xopmc.galaxybridge.protocol.v1.NotificationActionResult.newBuilder()
+                .setRequestId(action.requestId).setNotificationId(action.notificationId).setActionId(action.actionId)
+                .setAccepted(result.accepted).setErrorCode(result.errorCode)).build())
     }
 
     private fun handleCameraConfiguration(envelope: Envelope) {

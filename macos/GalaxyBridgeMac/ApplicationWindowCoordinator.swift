@@ -1,5 +1,6 @@
 #if !GALAXYBRIDGE_APP_STORE
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
@@ -9,6 +10,7 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
         let window: NSWindow
         let session: ApplicationWindowSession
         let release: () -> Void
+        let privacySubscriptions: Set<AnyCancellable>
     }
 
     private var records: [String: Record] = [:]
@@ -84,11 +86,29 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
                 on: window
             )
             window.center()
+            let privacyLease = UUID()
+            var privacySubscriptions = Set<AnyCancellable>()
+            session.nativeSession.$screenInterlockPresentation.sink { [weak model] presentation in
+                if presentation == .mirroring {
+                    model?.phoneDisplaySessionReady(deviceID: device.id, serial: serial, leaseID: privacyLease)
+                }
+            }.store(in: &privacySubscriptions)
+            session.$state.sink { [weak model] state in
+                switch state {
+                case .preparing, .failed, .stopped:
+                    model?.releasePhoneDisplaySession(privacyLease)
+                default: break
+                }
+            }.store(in: &privacySubscriptions)
             let record = Record(
                 leaseID: leaseID,
                 window: window,
                 session: session,
-                release: { [weak model] in model?.releaseApplicationWindowSession(leaseID) }
+                release: { [weak model] in
+                    model?.releasePhoneDisplaySession(privacyLease)
+                    model?.releaseApplicationWindowSession(leaseID)
+                },
+                privacySubscriptions: privacySubscriptions
             )
             records[key] = record
             let initialGeometry = ApplicationWindowGeometrySampler.sampleAfterPresentationAndLayout(from: window) {

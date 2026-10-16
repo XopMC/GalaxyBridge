@@ -63,6 +63,14 @@ public enum Capability
    * <code>CAPABILITY_RECORDING = 12;</code>
    */
   CAPABILITY_RECORDING(12),
+  /**
+   * <pre>
+   * Implementation support, independent of current notification permission.
+   * </pre>
+   *
+   * <code>CAPABILITY_NOTIFICATION_ACTION_RESULTS = 13;</code>
+   */
+  CAPABILITY_NOTIFICATION_ACTION_RESULTS(13),
   UNRECOGNIZED(-1),
   ;
 
@@ -118,6 +126,14 @@ public enum Capability
    * <code>CAPABILITY_RECORDING = 12;</code>
    */
   public static final int CAPABILITY_RECORDING_VALUE = 12;
+  /**
+   * <pre>
+   * Implementation support, independent of current notification permission.
+   * </pre>
+   *
+   * <code>CAPABILITY_NOTIFICATION_ACTION_RESULTS = 13;</code>
+   */
+  public static final int CAPABILITY_NOTIFICATION_ACTION_RESULTS_VALUE = 13;
 
 
   @java.lang.Override
@@ -153,6 +169,7 @@ public enum Capability
       case 10: return CAPABILITY_CAMERA_STREAM;
       case 11: return CAPABILITY_VIRTUAL_DISPLAY;
       case 12: return CAPABILITY_RECORDING;
+      case 13: return CAPABILITY_NOTIFICATION_ACTION_RESULTS;
       default: return null;
     }
   }

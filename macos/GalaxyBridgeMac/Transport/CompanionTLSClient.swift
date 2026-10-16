@@ -44,6 +44,14 @@ final class CompanionTLSClient: @unchecked Sendable {
     private var deliveredTerminalAuthenticationFailure = false
     private var messageID: UInt64 = 1
     private let messageIDLock = NSLock()
+    private let notificationActionCapabilityLock = NSLock()
+    private var notificationActionResultsSupported = false
+
+    var supportsNotificationActionResults: Bool {
+        notificationActionCapabilityLock.lock()
+        defer { notificationActionCapabilityLock.unlock() }
+        return notificationActionResultsSupported
+    }
     private var heartbeat = CompanionControlHeartbeat()
     private var heartbeatPollSchedule = CompanionHeartbeatPollSchedule()
     private var heartbeatTimer: DispatchSourceTimer?
@@ -301,6 +309,11 @@ final class CompanionTLSClient: @unchecked Sendable {
                                         roundTripMilliseconds: roundTripMilliseconds
                                     )
                                 }
+                            }
+                            if case let .capabilityUpdate(update)? = envelope.payload, channelKind == .control {
+                                notificationActionCapabilityLock.lock()
+                                notificationActionResultsSupported = update.available.contains(.notificationActionResults)
+                                notificationActionCapabilityLock.unlock()
                             }
                             // The phone sends Hello THEN Capabilities. They may
                             // arrive in separate TCP reads. Do not parse the

@@ -338,5 +338,16 @@ public interface EnvelopeOrBuilder extends
    */
   com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot getNotificationSnapshot();
 
+  /**
+   * <code>.galaxybridge.v1.NotificationActionResult notification_action_result = 36;</code>
+   * @return Whether the notificationActionResult field is set.
+   */
+  boolean hasNotificationActionResult();
+  /**
+   * <code>.galaxybridge.v1.NotificationActionResult notification_action_result = 36;</code>
+   * @return The notificationActionResult.
+   */
+  com.xopmc.galaxybridge.protocol.v1.NotificationActionResult getNotificationActionResult();
+
   public com.xopmc.galaxybridge.protocol.v1.Envelope.PayloadCase getPayloadCase();
 }

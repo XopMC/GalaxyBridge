@@ -41,6 +41,7 @@ message Envelope {
     CameraStatus camera_status = 33;
     TransferCancel transfer_cancel = 34;
     NotificationSnapshot notification_snapshot = 35;
+    NotificationActionResult notification_action_result = 36;
   }
 }
 
@@ -124,6 +125,8 @@ enum Capability {
   CAPABILITY_CAMERA_STREAM = 10;
   CAPABILITY_VIRTUAL_DISPLAY = 11;
   CAPABILITY_RECORDING = 12;
+  // Implementation support, independent of current notification permission.
+  CAPABILITY_NOTIFICATION_ACTION_RESULTS = 13;
 }
 
 message CapabilityUpdate {
@@ -226,6 +229,17 @@ message NotificationAction {
   string action_id = 2;
   string reply_text = 3;
   bool dismiss = 4;
+  // Canonical UUID, generated once per deliberate user action. Empty for legacy peers.
+  string request_id = 5;
+}
+
+message NotificationActionResult {
+  string request_id = 1;
+  string notification_id = 2;
+  string action_id = 3;
+  // Android accepted PendingIntent.send/cancelNotification, not chat/network delivery.
+  bool accepted = 4;
+  string error_code = 5;
 }
 
 message TransferManifest {

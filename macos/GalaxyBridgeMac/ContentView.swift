@@ -329,6 +329,20 @@ struct DeviceWorkspace: View {
     @EnvironmentObject private var applicationWindows: ApplicationWindowCoordinator
     @State private var selectedPanel = Panel.applications
 
+#if !GALAXYBRIDGE_APP_STORE
+    private var phonePrivacyStatusKey: LocalizedStringKey {
+        switch model.phoneDisplayPrivacyStatuses[device.id] ?? (model.phoneDisplayPrivacyEnabled(deviceID: device.id) ? .waitingForSession : .disabled) {
+        case .disabled: "PHONE_DISPLAY_PRIVACY_DISABLED"
+        case .waitingForSession: "PHONE_DISPLAY_PRIVACY_WAITING"
+        case .preparing: "PHONE_DISPLAY_PRIVACY_PREPARING"
+        case .hidden: "PHONE_DISPLAY_PRIVACY_HIDDEN"
+        case .visible: "PHONE_DISPLAY_PRIVACY_VISIBLE"
+        case .restoring: "PHONE_DISPLAY_PRIVACY_RESTORING"
+        case .failed: "PHONE_DISPLAY_PRIVACY_FAILED"
+        }
+    }
+#endif
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 18) {
@@ -344,6 +358,28 @@ struct DeviceWorkspace: View {
                     Text(connectionStatus)
                         .font(.caption)
                         .foregroundStyle(device.isReady ? .green : .orange)
+#if !GALAXYBRIDGE_APP_STORE
+                    if device.transport != .companionLAN {
+                        Toggle("PHONE_DISPLAY_PRIVACY_TITLE", isOn: Binding(
+                            get: { model.phoneDisplayPrivacyEnabled(deviceID: device.id) },
+                            set: { model.setPhoneDisplayPrivacy($0, deviceID: device.id) }
+                        ))
+                        .toggleStyle(.switch)
+                        .font(.caption)
+                        .help("PHONE_DISPLAY_PRIVACY_PIN_HINT")
+                        .accessibilityHint(Text("PHONE_DISPLAY_PRIVACY_PIN_HINT"))
+                        HStack(spacing: 8) {
+                            Text(phonePrivacyStatusKey).font(.caption).foregroundStyle(.secondary)
+                            if case .failed = model.phoneDisplayPrivacyStatuses[device.id] {
+                                Button("RETRY") {
+                                    model.setPhoneDisplayPrivacy(
+                                        model.phoneDisplayPrivacyEnabled(deviceID: device.id), deviceID: device.id)
+                                }
+                                .font(.caption)
+                            }
+                        }
+                    }
+#endif
                 }
                 Spacer()
                 Button {
@@ -1111,7 +1147,6 @@ private struct NotificationCard: View {
     @EnvironmentObject private var model: AppModel
     let deviceID: String
     let notification: BridgeNotificationRow
-    @State private var reply = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1141,6 +1176,7 @@ private struct NotificationCard: View {
                     )
                 } label: { Image(systemName: "xmark") }
                 .buttonStyle(.plain)
+                .disabled(!model.canSendNotificationAction(deviceID: deviceID) || isPending)
             }
             if !notification.title.isEmpty {
                 Text(notification.title)
@@ -1159,19 +1195,7 @@ private struct NotificationCard: View {
             }
             ForEach(notification.actions.prefix(2)) { action in
                 if action.acceptsText {
-                    HStack {
-                        TextField("REPLY", text: $reply)
-                        Button("SEND") {
-                            model.performNotificationAction(
-                                deviceID: deviceID,
-                                notificationID: notification.id,
-                                actionID: action.id,
-                                reply: reply
-                            )
-                            reply = ""
-                        }
-                        .disabled(reply.isEmpty)
-                    }
+                    replyEditors(actionID: action.id)
                 } else {
                     Button(action.title) {
                         model.performNotificationAction(
@@ -1180,8 +1204,15 @@ private struct NotificationCard: View {
                             actionID: action.id
                         )
                     }
+                    .disabled(!model.canSendNotificationAction(deviceID: deviceID) || isPending)
+                    actionStatus(actionID: action.id)
                 }
             }
+            // A saved native response can outlive a phone action/notification revision.
+            ForEach(savedActionIDsOutsidePrimaryRows, id: \.self) { actionID in
+                replyEditors(actionID: actionID)
+            }
+            actionStatus(actionID: "")
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 138, alignment: .topLeading)
@@ -1189,6 +1220,75 @@ private struct NotificationCard: View {
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(.quaternary, lineWidth: 1)
+        }
+    }
+
+    private var isPending: Bool { model.notificationActionIsPending(deviceID: deviceID, notificationID: notification.id) }
+
+    private var savedActionIDsOutsidePrimaryRows: [String] {
+        let rendered = Set(notification.actions.prefix(2).filter(\.acceptsText).map(\.id))
+        return model.notificationSavedReplyActionIDs(deviceID: deviceID, notificationID: notification.id)
+            .filter { !rendered.contains($0) }
+    }
+
+    @ViewBuilder
+    private func replyEditors(actionID: String) -> some View {
+        ForEach(model.notificationComposeIDs(deviceID: deviceID, notificationID: notification.id, actionID: actionID), id: \.self) { composeID in
+            HStack {
+                TextField("REPLY", text: replyBinding(actionID: actionID, composeID: composeID))
+                Button(sendTitle(actionID: actionID, composeID: composeID)) {
+                    model.performNotificationAction(deviceID: deviceID, notificationID: notification.id,
+                        actionID: actionID, reply: entry(actionID: actionID, composeID: composeID).draft,
+                        composeID: composeID)
+                }
+                .disabled(entry(actionID: actionID, composeID: composeID).draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !model.canSendNotificationAction(deviceID: deviceID) || isPending)
+            }
+            actionStatus(actionID: actionID, composeID: composeID)
+            if model.notificationActionHasRemovedDraft(deviceID: deviceID, notificationID: notification.id,
+                actionID: actionID, composeID: composeID) {
+                Text("NOTIFICATION_ACTION_REMOVED_DRAFT").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func entry(actionID: String, composeID: String = "") -> NotificationActionEntry {
+        model.notificationActionEntry(deviceID: deviceID, notificationID: notification.id, actionID: actionID, composeID: composeID)
+    }
+
+    private func replyBinding(actionID: String, composeID: String) -> Binding<String> {
+        Binding(get: { entry(actionID: actionID, composeID: composeID).draft }, set: {
+            model.setNotificationReply($0, deviceID: deviceID, notificationID: notification.id,
+                actionID: actionID, composeID: composeID)
+        })
+    }
+
+    private func sendTitle(actionID: String, composeID: String) -> LocalizedStringKey {
+        switch entry(actionID: actionID, composeID: composeID).phase {
+        case .unknown, .legacy: "NOTIFICATION_ACTION_RETRY"
+        default: "SEND"
+        }
+    }
+
+    @ViewBuilder
+    private func actionStatus(actionID: String, composeID: String = "") -> some View {
+        let phase = entry(actionID: actionID, composeID: composeID).phase
+        if phase != .idle {
+            HStack(spacing: 6) {
+                if phase == .pending { ProgressView().controlSize(.small) }
+                Text(statusKey(phase)).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func statusKey(_ phase: NotificationActionPhase) -> LocalizedStringKey {
+        switch phase {
+        case .pending: "NOTIFICATION_ACTION_PENDING"
+        case .accepted: "NOTIFICATION_ACTION_ACCEPTED"
+        case .failed: "NOTIFICATION_ACTION_FAILED"
+        case .unknown: "NOTIFICATION_ACTION_UNKNOWN"
+        case .legacy: "NOTIFICATION_ACTION_LEGACY"
+        case .idle: ""
         }
     }
 

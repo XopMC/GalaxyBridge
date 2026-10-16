@@ -49,7 +49,29 @@ do {
         throw NSError(domain: "GalaxyBridgeProtocolSpec", code: 4)
     }
 
-    print("PASS GalaxyBridge protobuf golden fixture")
+    var notificationAction = GBNotificationAction()
+    notificationAction.notificationID = "synthetic"
+    notificationAction.actionID = "0"
+    notificationAction.replyText = "Galaxy Bridge QA — ответ42"
+    let legacyAction = try GBNotificationAction(serializedBytes: notificationAction.serializedData())
+    precondition(legacyAction.requestID.isEmpty)
+    notificationAction.requestID = "69830b65-6352-4b3a-8a21-70bcda45787e"
+    let decodedAction = try GBNotificationAction(serializedBytes: notificationAction.serializedData())
+    precondition(decodedAction == notificationAction)
+    var actionResult = GBNotificationActionResult()
+    actionResult.requestID = notificationAction.requestID
+    actionResult.notificationID = notificationAction.notificationID
+    actionResult.actionID = notificationAction.actionID
+    actionResult.accepted = false
+    actionResult.errorCode = "pending_intent_canceled"
+    var resultEnvelope = GBEnvelope()
+    resultEnvelope.protocolMajor = 1
+    resultEnvelope.notificationActionResult = actionResult
+    let decodedActionResult = try GBEnvelope(serializedBytes: resultEnvelope.serializedData())
+    precondition(decodedActionResult.notificationActionResult == actionResult)
+    precondition(GBCapability.notificationActionResults.rawValue == 13)
+
+    print("PASS GalaxyBridge protobuf golden fixture and notification request/result compatibility")
 } catch {
     FileHandle.standardError.write(Data("FAIL \(error)\n".utf8))
     exit(1)

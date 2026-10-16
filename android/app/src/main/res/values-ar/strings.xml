@@ -110,4 +110,5 @@
     <string name="file_send_cancelled">تم الإلغاء</string>
     <string name="clipboard_share_send">أرسل</string>
     <string name="clipboard_share_retry">حاول مرة أخرى</string>
+    <string name="file_send_forget">إزالة من القائمة</string>
 </resources>

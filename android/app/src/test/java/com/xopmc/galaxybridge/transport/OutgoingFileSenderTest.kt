@@ -34,6 +34,46 @@ class OutgoingFileSenderTest {
         TransferAck.newBuilder().setTransferId(record.id).setConfirmedOffset(offset).setComplete(complete)
             .setFailureReason(failure).setPublishedName(name).build()
 
+    @Test fun forgetTerminalHistoryPreservesOriginalAndPublishedFilesAcrossRestart() = fixture { f ->
+        val original = File(f.root, "original.txt").apply { writeText("selected original") }
+        val published = File(f.root, "published-on-mac.txt").apply { writeText("published copy") }
+        for (phase in listOf(OutgoingFilePhase.COMPLETED, OutgoingFilePhase.CANCELLED)) {
+            val record = f.store.prepare(owner, "copy.txt", "text/plain", { original.inputStream() })
+            f.store.transition(record.id, owner, phase, if (phase == OutgoingFilePhase.COMPLETED) published.name else "")
+            f.store.forgetTerminal(record.id, owner)
+            assertNull(f.store.load(record.id))
+            assertFalse(File(f.root, "outgoing/${record.id}").exists())
+        }
+        assertEquals("selected original", original.readText())
+        assertEquals("published copy", published.readText())
+        assertTrue(OutgoingFileStore(File(f.root, "outgoing")) {}.list().records.isEmpty())
+    }
+
+    @Test fun forgetRejectsEveryNonterminalPhaseAndWrongOwner() = fixture { f ->
+        for (phase in listOf(OutgoingFilePhase.PREPARED, OutgoingFilePhase.QUEUED, OutgoingFilePhase.PAUSED, OutgoingFilePhase.CANCEL_REQUESTED)) {
+            val record = if (phase == OutgoingFilePhase.PREPARED)
+                f.store.prepare(owner, "prepared.txt", "text/plain", { ByteArrayInputStream(byteArrayOf(1)) }, initialPhase = phase)
+                else prepare(f).let { f.store.transition(it.id, owner, phase) }
+            assertThrows(IllegalStateException::class.java) { f.store.forgetTerminal(record.id, owner) }
+            assertEquals(phase, f.store.load(record.id)!!.phase)
+            assertTrue(File(f.root, "outgoing/${record.id}/payload").exists())
+        }
+        val completed = prepare(f)
+        f.store.transition(completed.id, owner, OutgoingFilePhase.COMPLETED, "published.bin")
+        assertThrows(IllegalStateException::class.java) { f.store.forgetTerminal(completed.id, other) }
+        assertNotNull(f.store.load(completed.id))
+    }
+
+    @Test fun forgetRejectsSymlinkWithoutTouchingOriginalOrRecord() = fixture { f ->
+        val original = File(f.root, "original.txt").apply { writeText("keep") }
+        val record = prepare(f)
+        f.store.transition(record.id, owner, OutgoingFilePhase.CANCELLED)
+        Files.createSymbolicLink(File(f.root, "outgoing/${record.id}/payload").toPath(), original.toPath())
+        assertThrows(IllegalStateException::class.java) { f.store.forgetTerminal(record.id, owner) }
+        assertNotNull(f.store.load(record.id))
+        assertEquals("keep", original.readText())
+    }
+
     @Test fun privateSnapshotAndJournalSurviveRestartWithoutOriginal() = fixture { f ->
         val source = File(f.root, "original").apply { writeText("immutable bytes") }
         val record = f.store.prepare(owner, "copy.bin", "application/octet-stream", { source.inputStream() })

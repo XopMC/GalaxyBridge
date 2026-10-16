@@ -327,7 +327,9 @@ enum MacNotificationBridgeSpec {
                 notificationID: "notification-1",
                 actionID: "reply",
                 reply: "Thanks",
-                dismiss: false
+                dismiss: false,
+                packageName: "com.example.messages",
+                appLabel: "Messages"
             ),
             "inline reply routes back to the originating Android action"
         )

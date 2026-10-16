@@ -45,8 +45,16 @@ uses the Mac's system-adjusted direction. Metal redraws recover when a drawable
 is temporarily unavailable. QUIC keeps its architecture and receives bounded
 intake, pacing and gesture-order fixes; it remains opt-in.
 
-This Wi-Fi update rebuilds the DMG and bundled native resources. The signed APK
-is byte-identical to the preceding maintenance upload.
+The Wi-Fi update rebuilt the DMG and bundled native resources. The current
+acceptance update below rebuilds both installers.
+
+### Screen privacy and acceptance update
+
+- **Turn off phone display during remote use** is enabled by default for each device. It switches off the physical panel while the mirror and separate app windows keep working. Disable the toggle to restore the previous mode. This does not lock/unlock Android or bypass the keyguard. The last remote window restores the original display state; a dedicated server cleanup process also restores an awake panel after an unexpected owner failure.
+- Active mirroring can move between verified USB and Wi-Fi routes without staying bound to the disconnected USB endpoint.
+- Notification replies retain drafts on disconnect, rejection and timeout. With the updated Helper, the draft clears only after Android accepts the action. Acceptance is not delivery confirmation from a messaging service. Redundant empty group summaries are hidden without removing actionable content.
+- The first file selection tolerates macOS permission metadata changes only after byte-for-byte integrity verification. Android can remove completed/cancelled entries from transfer history without deleting originals or received files.
+- S24 checks covered two app windows, resizing and mapped clicks, display-off operation and restoration, route handoff, real synthetic notification replies, PNG copy/paste in both directions and a SHA-256-verified file round trip. Both APK and DMG are rebuilt; no byte-reproducibility claim is made.
 
 ### Known limits
 
@@ -102,8 +110,16 @@ S24 показали уменьшение максимальной паузы с
 исправлены чтение кадров, опережение отправки и порядок жестов. Он остаётся
 экспериментальным режимом.
 
-В этом обновлении Wi-Fi пересобраны DMG и встроенные нативные ресурсы. Подписанный
-APK побайтово совпадает с предыдущей загрузкой технического обновления.
+Обновление Wi-Fi пересобрало DMG и встроенные нативные ресурсы. Описанное ниже
+обновление приёмки пересобирает оба установщика.
+
+### Выключение экрана и обновление приёмки
+
+- **«Выключать экран телефона при удалённом использовании»** включено по умолчанию для каждого устройства. Физический дисплей гаснет, а трансляция и отдельные окна продолжают работать. Выключение переключателя возвращает прежний режим. Это не блокирует и не разблокирует Android, PIN не обходится. Закрытие последнего окна восстанавливает исходное состояние; отдельный процесс очистки также включает бодрствующий дисплей при аварии владельца сеанса.
+- Открытая трансляция переключается между проверенными маршрутами USB и Wi-Fi, не оставаясь привязанной к отключённому USB.
+- При разрыве связи, отказе или тайм-ауте ответа сохраняется черновик. С обновлённым Helper он очищается после принятия действия Android. Это не подтверждение доставки сообщения адресату. Пустые дубли сводных уведомлений скрываются без потери действий.
+- Первая отправка файла учитывает изменение метаданных разрешений macOS только после полной проверки содержимого. На Android завершённые и отменённые записи можно убрать из истории, сохранив исходники и полученные файлы.
+- На S24 проверены два окна приложений, размеры и клики, работа с погашенным дисплеем и восстановление, смена маршрута, реальные тестовые ответы на уведомления, PNG в обе стороны и передача файла с проверкой SHA-256. Пересобраны APK и DMG; побайтовая воспроизводимость не заявляется.
 
 ### Известные ограничения
 

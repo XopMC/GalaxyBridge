@@ -52,7 +52,7 @@ enum OutgoingFileTransferError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalid: String(localized: "FILE_INVALID")
-        case .changed: String(localized: "FILE_CONTENT_MISMATCH")
+        case .changed: String(localized: "FILE_SOURCE_CHANGED")
         case .storage: String(localized: "FILE_TRANSFER_FAILED")
         }
     }
@@ -61,6 +61,11 @@ enum OutgoingFileTransferError: Error, LocalizedError {
 /// Invoke on an IO worker. A transfer reads an immutable private snapshot,
 /// never the user-selected pathname again; records survive normal application
 /// exit and are only restored for the same authenticated peer key.
+enum OutgoingSnapshotIOBoundary: Sendable {
+    case snapshotCreated
+    case sourceVerificationRead
+}
+
 struct OutgoingFileTransferStore: Sendable {
     static let maximumSize: UInt64 = 10 * 1024 * 1024 * 1024
     static func peerFingerprint(identityKey: Data, tlsFingerprint: Data, pairedAt: Date) -> Data {
@@ -70,10 +75,12 @@ struct OutgoingFileTransferStore: Sendable {
         return Data(SHA256.hash(data: domain))
     }
     let root: URL
-    init(root: URL? = nil) {
+    private let testingIOBoundary: (@Sendable (OutgoingSnapshotIOBoundary) -> Void)?
+    init(root: URL? = nil, testingIOBoundary: (@Sendable (OutgoingSnapshotIOBoundary) -> Void)? = nil) {
         let app = Bundle.main.bundleIdentifier == "com.xopmc.GalaxyBridge.internal" ? "GalaxyBridgeInternal" : "GalaxyBridge"
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(app).appendingPathComponent("OutgoingTransfers")
+        self.testingIOBoundary = testingIOBoundary
     }
 
     func prepare(deviceID: String, peerFingerprint: Data, sourceURL: URL) throws -> OutgoingFileTransfer {
@@ -107,9 +114,21 @@ struct OutgoingFileTransferStore: Sendable {
             }
             try output.synchronize()
         }
-        guard try Stamp(fd) == before else { throw OutgoingFileTransferError.changed }
+        testingIOBoundary?(.snapshotCreated)
+        let afterSnapshot = try Stamp(fd)
+        guard afterSnapshot == before || afterSnapshot.matchesIdentitySizeAndModification(before) else {
+            throw OutgoingFileTransferError.changed
+        }
         guard chmod(snapshot.path, 0o400) == 0 else { throw OutgoingFileTransferError.storage }
         let digest = try Self.digest(snapshot, expectedSize: before.size)
+        if afterSnapshot != before {
+            // NSOpenPanel may add com.apple.macl after the descriptor was
+            // pinned. Permit ctime-only drift only after proving the private
+            // snapshot and the stable, fully re-read source still agree.
+            let sourceDigest = try Self.digestPinnedSource(input, expected: afterSnapshot,
+                testingIOBoundary: testingIOBoundary)
+            guard sourceDigest == digest else { throw OutgoingFileTransferError.changed }
+        }
         let transfer = OutgoingFileTransfer(id: id, deviceID: deviceID, peerFingerprint: peerFingerprint,
             relativeName: sourceURL.lastPathComponent, size: before.size,
             mimeType: UTType(filenameExtension: sourceURL.pathExtension)?.preferredMIMEType ?? "application/octet-stream",
@@ -259,8 +278,29 @@ struct OutgoingFileTransferStore: Sendable {
         guard try Stamp(fd) == before else { throw OutgoingFileTransferError.changed }
         return Data(hash.finalize())
     }
+    private static func digestPinnedSource(_ file: FileHandle, expected: Stamp,
+        testingIOBoundary: (@Sendable (OutgoingSnapshotIOBoundary) -> Void)?) throws -> Data {
+        let fd = file.fileDescriptor
+        guard try Stamp(fd) == expected else { throw OutgoingFileTransferError.changed }
+        try file.seek(toOffset: 0)
+        var hash = SHA256(), count: UInt64 = 0
+        while count < expected.size {
+            try Task.checkCancellation()
+            let bytes = try file.read(upToCount: Int(min(1024 * 1024, expected.size - count))) ?? Data()
+            guard !bytes.isEmpty else { throw OutgoingFileTransferError.changed }
+            hash.update(data: bytes)
+            count += UInt64(bytes.count)
+            testingIOBoundary?(.sourceVerificationRead)
+        }
+        guard try Stamp(fd) == expected else { throw OutgoingFileTransferError.changed }
+        return Data(hash.finalize())
+    }
     private struct Stamp: Equatable {
         let device: Int32, inode: UInt64, size: UInt64, modified: Int64, modifiedNS: Int64, changed: Int64, changedNS: Int64
+        func matchesIdentitySizeAndModification(_ other: Stamp) -> Bool {
+            device == other.device && inode == other.inode && size == other.size &&
+                modified == other.modified && modifiedNS == other.modifiedNS
+        }
         init(_ fd: Int32) throws {
             var info = stat()
             guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size >= 0 else { throw OutgoingFileTransferError.invalid }

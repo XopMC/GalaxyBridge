@@ -84,6 +84,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var activeRecordings: [ActiveRecordingSummary] = []
     @Published private(set) var notificationsByDevice: [String: [BridgeNotificationRow]] = [:]
     private var notificationSnapshotReconciliation = NotificationSnapshotReconciliation()
+    @Published private(set) var notificationActions = NotificationActionState()
+    private var notificationActionTimeouts: [String: Task<Void, Never>] = [:]
+    private var notificationActionCleanup: Task<Void, Never>?
+    private var notificationActionSavedRows: [NotificationActionIdentity: BridgeNotificationRow] = [:]
     @Published private(set) var fileTransferStatus: [String: String] = [:]
     @Published private(set) var incomingFilesByDevice: [String: [IncomingFileRow]] = [:]
     @Published private(set) var smsByDevice: [String: [BridgeSMSRow]] = [:]
@@ -128,6 +132,24 @@ final class AppModel: ObservableObject {
     private var companionConnectionBootstrap: CompanionConnectionBootstrap?
 #if !GALAXYBRIDGE_APP_STORE
     private var scrcpySessions: [String: ScrcpySession] = [:]
+    @Published private(set) var phoneDisplayPrivacyStatuses: [String: PhoneDisplayPrivacyStatus] = [:]
+    @Published private var phonePrivacyPreferences = (UserDefaults.standard.dictionary(forKey: "PhoneDisplayPrivacyByDevice") as? [String: Bool]) ?? [:]
+    private var phonePrivacyLeases: [UUID: (deviceID: String, serial: String)] = [:]
+    private var primaryPhonePrivacyLeases: [ObjectIdentifier: UUID] = [:]
+    private var phonePrivacyManualPower: [String: Bool] = [:]
+    private var phonePrivacyUpdates: [String: Task<Void, Never>] = [:]
+    private var phonePrivacyUpdateTickets: [String: UUID] = [:]
+    private var phonePrivacyRoutes: [String: String] = [:]
+    private var phonePrivacyAliases: [String: String] = [:]
+    private lazy var phoneDisplayPrivacy: PhoneDisplayPrivacyCoordinator = {
+        let coordinator = PhoneDisplayPrivacyCoordinator { serial in
+            ScrcpyDisplayPowerSession(serial: serial, adb: try ADBClient())
+        }
+        coordinator.statusHandler = { [weak self] id, status in
+            self?.phoneDisplayPrivacyStatuses[id] = status
+        }
+        return coordinator
+    }()
     private let companionTunnels = ADBCompanionTunnelCoordinator()
     private var companionTunnelLeases: [String: ADBCompanionTunnelLease] = [:]
     private var companionTunnelDesired: [String: (scope: String, serial: String)] = [:]
@@ -136,6 +158,7 @@ final class AppModel: ObservableObject {
     private var enhancedSubscriptions: [ObjectIdentifier: Set<AnyCancellable>] = [:]
     private var enhancedRetirements: [UUID: Task<Void, Never>] = [:]
     private var unsettledEnhancedRetirements: [UUID: ScrcpySession] = [:]
+    private var enhancedRetirementDeviceIDs: [UUID: String] = [:]
     private var enhancedReconnectTokens: [String: UUID] = [:]
     private var clipboardSessions: [String: ScrcpyClipboardSession] = [:]
     private var clipboardReconnectAttempts: [String: Int] = [:]
@@ -304,7 +327,10 @@ final class AppModel: ObservableObject {
                         notificationID: response.notificationID,
                         actionID: response.actionID,
                         reply: response.reply,
-                        dismiss: response.dismiss
+                        dismiss: response.dismiss,
+                        composeID: response.reply == nil ? "" : UUID().uuidString.lowercased(),
+                        replyPackageName: response.packageName,
+                        replyAppLabel: response.appLabel
                     )
                 }
             }
@@ -574,6 +600,8 @@ final class AppModel: ObservableObject {
             await session.stopAndWaitForCleanup()
         }
         for retirement in retiringEnhancedSessions { await retirement.value }
+        for update in Array(phonePrivacyUpdates.values) { await update.value }
+        await phoneDisplayPrivacy.stopAndWait()
 #endif
         if case let .failure(error) = await cameraRetirement.wait() {
             // The publication service also logs this before termination replies.
@@ -625,6 +653,11 @@ final class AppModel: ObservableObject {
         do { try clientSetup.forget(deviceID: deviceID) }
         catch { lastError = String(localized: "CLIENT_SETUP_SAVE_FAILED") }
         primaryScreenDemand.revoke(deviceID)
+#if !GALAXYBRIDGE_APP_STORE
+        for (leaseID, lease) in Array(phonePrivacyLeases) where lease.deviceID == deviceID {
+            releasePhoneDisplaySession(leaseID)
+        }
+#endif
         recordingVideoSources.removeValue(forKey: deviceID)
         recordingAudioSources.removeValue(forKey: deviceID)
 #if !GALAXYBRIDGE_APP_STORE
@@ -684,6 +717,11 @@ final class AppModel: ObservableObject {
             companionAuthenticationBlockedPeerIDs.remove(peerID)
 
             notificationsByDevice.removeValue(forKey: deviceID)
+            let notificationRequestIDs = notificationActions.pending.values.filter { $0.identity.deviceID == deviceID }.map(\.requestID)
+            notificationRequestIDs.forEach { notificationActionTimeouts.removeValue(forKey: $0)?.cancel() }
+            notificationActions.forget(deviceID: deviceID)
+            notificationActionSavedRows = notificationActionSavedRows.filter { $0.key.deviceID != deviceID }
+            maintainNotificationActions()
             notificationSnapshotReconciliation.forget(deviceID: deviceID)
             smsByDevice.removeValue(forKey: deviceID)
             callByDevice.removeValue(forKey: deviceID)
@@ -973,6 +1011,12 @@ final class AppModel: ObservableObject {
         guard terminationAdmission.admitsWork, primaryScreenDemand.canStart(device.id) else { return }
         guard device.transport != .companionLAN, device.isReady else { return }
         if let existing = scrcpySessions[device.id] {
+            if let serial = device.adbSerial, serial != existing.serial,
+               let route = verifiedEnhancedRetirementRoute(deviceID: device.id, captureSerial: existing.serial) {
+                existing.installVerifiedCleanupRoute(route)
+                retireEnhancedScreenSession(deviceID: device.id)
+                return
+            }
             if case .failed = existing.state { scheduleEnhancedReconnect(deviceID: device.id, session: existing) }
             return
         }
@@ -984,11 +1028,12 @@ final class AppModel: ObservableObject {
             let preservePhoneDisplay = Bundle.main.bundleIdentifier == "com.xopmc.GalaxyBridge.internal"
                 && ProcessInfo.processInfo.arguments.contains("--keep-phone-display-on")
             let session = ScrcpySession(serial: serial, adb: try ADBClient(),
-                automaticDisplayManagement: !preservePhoneDisplay,
+                automaticDisplayManagement: !preservePhoneDisplay && !phoneDisplayPrivacyEnabled(deviceID: device.id) && phonePrivacyManualPower[device.id] == nil,
                 primaryDiagnosticsEnabled: primaryMediaDiagnosticsEnabled,
                 clipboardPollingEnabled: false,
                 quicSelection: quicWirelessSelection(for: device))
             scrcpySessions[device.id] = session
+            primaryPhonePrivacyLeases[ObjectIdentifier(session)] = UUID()
             var subscriptions = Set<AnyCancellable>()
             bindEnhancedNativeFrames(session, deviceID: device.id)
             session.clipboardEventHandler = { [weak self, weak session] update in
@@ -1028,6 +1073,7 @@ final class AppModel: ObservableObject {
                 )
                 switch state {
                 case .preparing:
+                    self.releasePrimaryPhonePrivacy(session)
                     self.videoSurfaces[targetID]?.clearFrame()
                 case .streaming:
                     self.enhancedReconnectAttempts[targetID] = 0
@@ -1036,10 +1082,12 @@ final class AppModel: ObservableObject {
                     self.syncGamepadsToSelectedSession()
                     self.loadEnhancedDisplays(deviceID: targetID, serial: serial)
                 case .failed:
+                    self.releasePrimaryPhonePrivacy(session)
                     self.cancelAudioVerification(deviceID: targetID)
                     self.clientSetup.invalidate(deviceID: targetID)
                     self.scheduleEnhancedReconnect(deviceID: targetID, session: session)
                 case .stopped:
+                    self.releasePrimaryPhonePrivacy(session)
                     self.cancelAudioVerification(deviceID: targetID)
                 default:
                     break
@@ -1051,6 +1099,9 @@ final class AppModel: ObservableObject {
             session.$screenInterlockPresentation.sink { [weak self, weak session] presentation in
                 guard let self, let session, let targetID = self.activeEnhancedDeviceID(session) else { return }
                 self.enhancedScreenInterlocks[targetID] = presentation
+                if presentation == .mirroring, let lease = self.primaryPhonePrivacyLeases[ObjectIdentifier(session)] {
+                    self.phoneDisplaySessionReady(deviceID: targetID, serial: session.serial, leaseID: lease)
+                }
             }.store(in: &subscriptions)
             enhancedSubscriptions[ObjectIdentifier(session)] = subscriptions
             session.start(captureTarget: enhancedCaptureTargets[device.id] ?? .display(id: 0))
@@ -1114,6 +1165,8 @@ final class AppModel: ObservableObject {
         enhancedReconnectAttempts.removeValue(forKey: deviceID)
         detachGamepads(from: deviceID)
         guard let session = scrcpySessions.removeValue(forKey: deviceID) else { return }
+        releasePrimaryPhonePrivacy(session)
+        primaryPhonePrivacyLeases.removeValue(forKey: ObjectIdentifier(session))
         enhancedSubscriptions.removeValue(forKey: ObjectIdentifier(session))
         enhancedStates[deviceID] = .stopped
         _ = mediaTransportDispatchGate(for: deviceID).update(enhancedState: .stopped)
@@ -1122,6 +1175,7 @@ final class AppModel: ObservableObject {
 
     private func retireEnhancedScreenSession(_ session: ScrcpySession, deviceID: String) {
         let permit = primaryScreenDemand.beginRetirement(deviceID)
+        enhancedRetirementDeviceIDs[permit] = deviceID
         // Stop closes transport/frame admission before returning; the async
         // barrier settles resource acquisition and native work before restart.
         session.stop()
@@ -1129,6 +1183,9 @@ final class AppModel: ObservableObject {
         enhancedRetirements[permit] = Task { [weak self] in
             await session.stopAndWaitForCleanup()
             guard let self else { return }
+            if let failure = session.displayRestorationFailure {
+                self.phoneDisplayPrivacyStatuses[deviceID] = .failed(failure)
+            }
             self.enhancedRetirements.removeValue(forKey: permit)
             guard session.cleanupPhysicallySettled else {
                 self.unsettledEnhancedRetirements[permit] = session
@@ -1138,6 +1195,7 @@ final class AppModel: ObservableObject {
             guard let canonicalID = self.primaryScreenDemand.finishRetirement(permit),
                   self.terminationAdmission.admitsWork,
                   let device = self.row(id: canonicalID) else { return }
+            self.enhancedRetirementDeviceIDs.removeValue(forKey: permit)
             self.ensureEnhancedSession(for: device)
         }
     }
@@ -1145,6 +1203,7 @@ final class AppModel: ObservableObject {
     private func releasePhysicallySettledEnhancedRetirements() {
         for (permit, session) in unsettledEnhancedRetirements where session.cleanupPhysicallySettled {
             unsettledEnhancedRetirements.removeValue(forKey: permit)
+            enhancedRetirementDeviceIDs.removeValue(forKey: permit)
             _ = primaryScreenDemand.finishRetirement(permit)
         }
     }
@@ -1531,9 +1590,126 @@ final class AppModel: ObservableObject {
 
     func setDisplayPower(deviceID: String, on: Bool) {
 #if !GALAXYBRIDGE_APP_STORE
-        scrcpySessions[deviceID]?.sendControl(ScrcpyControlMessage.setDisplayPower(on: on))
+        let id = canonicalPhonePrivacyID(deviceID)
+        phonePrivacyManualPower[id] = on
+        requestPhoneDisplayPrivacyUpdate(deviceID: id)
 #endif
     }
+
+#if !GALAXYBRIDGE_APP_STORE
+    func phoneDisplayPrivacyEnabled(deviceID: String) -> Bool {
+        phonePrivacyPreferences[canonicalPhonePrivacyID(deviceID)] ?? true
+    }
+
+    func setPhoneDisplayPrivacy(_ enabled: Bool, deviceID: String) {
+        let id = canonicalPhonePrivacyID(deviceID)
+        phonePrivacyPreferences[id] = enabled
+        UserDefaults.standard.set(phonePrivacyPreferences, forKey: "PhoneDisplayPrivacyByDevice")
+        phonePrivacyManualPower.removeValue(forKey: id)
+        requestPhoneDisplayPrivacyUpdate(deviceID: id)
+    }
+
+    func phoneDisplaySessionReady(deviceID: String, serial: String, leaseID: UUID) {
+        let id = canonicalPhonePrivacyID(deviceID)
+        guard phonePrivacyLeases[leaseID] == nil, terminationAdmission.admitsWork else { return }
+        phonePrivacyLeases[leaseID] = (id, serial)
+        phonePrivacyRoutes[id] = row(id: id)?.isReady == true ? row(id: id)?.adbSerial : nil
+        phoneDisplayPrivacy.acquireLease(deviceID: id, leaseID: leaseID)
+        requestPhoneDisplayPrivacyUpdate(deviceID: id)
+    }
+
+    func releasePhoneDisplaySession(_ leaseID: UUID) {
+        guard let lease = phonePrivacyLeases.removeValue(forKey: leaseID) else { return }
+        phoneDisplayPrivacy.releaseLease(deviceID: lease.deviceID, leaseID: leaseID)
+        if !phonePrivacyLeases.values.contains(where: { $0.deviceID == lease.deviceID }) {
+            phonePrivacyManualPower.removeValue(forKey: lease.deviceID)
+        }
+    }
+
+    private func releasePrimaryPhonePrivacy(_ session: ScrcpySession) {
+        if let lease = primaryPhonePrivacyLeases[ObjectIdentifier(session)] { releasePhoneDisplaySession(lease) }
+    }
+
+    private func canonicalPhonePrivacyID(_ id: String) -> String { phonePrivacyAliases[id] ?? id }
+
+    private func requestPhoneDisplayPrivacyUpdate(deviceID: String) {
+        let preceding = phonePrivacyUpdates[deviceID]
+        let ticket = UUID()
+        phonePrivacyUpdateTickets[deviceID] = ticket
+        phonePrivacyUpdates[deviceID] = Task { [weak self] in
+            await preceding?.value
+            guard let self, self.phonePrivacyUpdateTickets[deviceID] == ticket else { return }
+            let ready = self.row(id: deviceID)
+            let serial = ready?.adbSerial ?? self.phonePrivacyLeases.values.first(where: { $0.deviceID == deviceID })?.serial
+            guard let serial else { return }
+            let requested = self.phoneDisplayPrivacyEnabled(deviceID: deviceID)
+            let manualPower = self.phonePrivacyManualPower[deviceID]
+            let reachable = ready?.isReady == true && ready?.transport != .companionLAN
+            do {
+                if requested || manualPower != nil || !reachable {
+                    try await self.scrcpySessions[deviceID]?.setAutomaticDisplayManagement(false)
+                }
+                self.phoneDisplayPrivacy.setEnabled(requested && reachable, deviceID: deviceID, serial: serial)
+                if reachable, let manualPower {
+                    self.phoneDisplayPrivacy.setManualPower(on: manualPower, deviceID: deviceID, serial: serial)
+                }
+                await self.phoneDisplayPrivacy.waitForSettlement(deviceID: deviceID)
+                if case .failed = self.phoneDisplayPrivacy.status(deviceID: deviceID) { return }
+                if !requested, manualPower == nil, reachable {
+                    try await self.scrcpySessions[deviceID]?.setAutomaticDisplayManagement(true)
+                }
+            } catch {
+                self.phoneDisplayPrivacyStatuses[deviceID] = .failed(String(describing: error))
+            }
+            if self.phonePrivacyUpdateTickets[deviceID] == ticket {
+                self.phonePrivacyUpdates.removeValue(forKey: deviceID)
+                self.phonePrivacyUpdateTickets.removeValue(forKey: deviceID)
+            }
+        }
+    }
+
+    private func migratePhoneDisplayPrivacy(from oldID: String, to newID: String) {
+        phonePrivacyAliases[oldID] = newID
+        if phonePrivacyPreferences[newID] == nil, let preference = phonePrivacyPreferences[oldID] {
+            phonePrivacyPreferences[newID] = preference
+            UserDefaults.standard.set(phonePrivacyPreferences, forKey: "PhoneDisplayPrivacyByDevice")
+        }
+        let migrating = phonePrivacyLeases.filter { $0.value.deviceID == oldID }
+        guard !migrating.isEmpty else { return }
+        let oldUpdate = phonePrivacyUpdates[oldID], newUpdate = phonePrivacyUpdates[newID]
+        for (leaseID, lease) in migrating { phonePrivacyLeases[leaseID] = (newID, lease.serial) }
+        phonePrivacyManualPower[newID] = phonePrivacyManualPower.removeValue(forKey: oldID)
+        phonePrivacyUpdates[newID] = Task { [weak self] in
+            await oldUpdate?.value
+            await newUpdate?.value
+            guard let self else { return }
+            for leaseID in migrating.keys {
+                self.phoneDisplayPrivacy.releaseLease(deviceID: oldID, leaseID: leaseID)
+            }
+            await self.phoneDisplayPrivacy.waitForSettlement(deviceID: oldID)
+            if case let .failed(message) = self.phoneDisplayPrivacy.status(deviceID: oldID) {
+                self.phoneDisplayPrivacyStatuses[newID] = .failed(message)
+                return
+            }
+            for leaseID in migrating.keys where self.phonePrivacyLeases[leaseID]?.deviceID == newID {
+                self.phoneDisplayPrivacy.acquireLease(deviceID: newID, leaseID: leaseID)
+            }
+            self.requestPhoneDisplayPrivacyUpdate(deviceID: newID)
+        }
+    }
+
+    private func reconcilePhoneDisplayPrivacyRoutes() {
+        let ids = Set(phonePrivacyLeases.values.map(\.deviceID)).union(phonePrivacyRoutes.keys)
+        for id in ids {
+            let device = row(id: id)
+            let route = device?.isReady == true && device?.transport != .companionLAN ? device?.adbSerial : nil
+            if phonePrivacyRoutes[id] != route {
+                phonePrivacyRoutes[id] = route
+                requestPhoneDisplayPrivacyUpdate(deviceID: id)
+            }
+        }
+    }
+#endif
 
     func rotateDevice(deviceID: String) {
 #if !GALAXYBRIDGE_APP_STORE
@@ -1797,7 +1973,14 @@ final class AppModel: ObservableObject {
 
     func notifications(for deviceID: String) -> [BridgeNotificationRow] {
         let muted = mutedPackages(for: deviceID)
-        return notificationsByDevice[deviceID, default: []].filter { !muted.contains($0.packageName) }
+        var rows = notificationsByDevice[deviceID, default: []]
+        let liveIDs = Set(rows.map(\.id))
+        // A phone may remove its notification before its result reaches us. Keep an
+        // unresolved draft accessible rather than losing it with the disappearing card.
+        for (identity, row) in notificationActionSavedRows where identity.deviceID == deviceID && !liveIDs.contains(row.id) {
+            if !notificationActions.entry(identity).draft.isEmpty && !rows.contains(where: { $0.id == row.id }) { rows.append(row) }
+        }
+        return rows.filter { !muted.contains($0.packageName) }
     }
 
     func mutedPackages(for deviceID: String) -> Set<String> {
@@ -1819,20 +2002,152 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func canSendNotificationAction(deviceID: String) -> Bool {
+        companionControl(for: deviceID) != nil
+    }
+
+    func notificationActionEntry(deviceID: String, notificationID: String, actionID: String, composeID: String = "") -> NotificationActionEntry {
+        notificationActions.entry(.init(deviceID: deviceID, notificationID: notificationID, actionID: actionID, composeID: composeID))
+    }
+
+    func notificationComposeIDs(deviceID: String, notificationID: String, actionID: String) -> [String] {
+        let native = notificationActions.entries.filter {
+            $0.key.deviceID == deviceID && $0.key.notificationID == notificationID && $0.key.actionID == actionID &&
+                !$0.key.composeID.isEmpty && (!$0.value.draft.isEmpty || $0.value.phase == .pending)
+        }.keys.map(\.composeID).sorted()
+        return [""] + native
+    }
+
+    func notificationSavedReplyActionIDs(deviceID: String, notificationID: String) -> [String] {
+        Set(notificationActions.entries.filter {
+            $0.key.deviceID == deviceID && $0.key.notificationID == notificationID && !$0.value.draft.isEmpty
+        }.keys.map(\.actionID)).sorted()
+    }
+
+    func notificationActionIsPending(deviceID: String, notificationID: String) -> Bool {
+        notificationActions.pending.values.contains { $0.identity.deviceID == deviceID && $0.identity.notificationID == notificationID }
+    }
+
+    func notificationActionHasRemovedDraft(deviceID: String, notificationID: String, actionID: String, composeID: String = "") -> Bool {
+        let identity = NotificationActionIdentity(deviceID: deviceID, notificationID: notificationID, actionID: actionID, composeID: composeID)
+        return notificationActions.isOrphan(identity) && !notificationActions.entry(identity).draft.isEmpty
+    }
+
+    func setNotificationReply(_ text: String, deviceID: String, notificationID: String, actionID: String, composeID: String = "") {
+        let identity = NotificationActionIdentity(deviceID: deviceID, notificationID: notificationID, actionID: actionID, composeID: composeID)
+        if !notificationActions.setDraft(text, for: identity) { lastError = String(localized: "NOTIFICATION_ACTION_BUSY") }
+        if !text.isEmpty, notificationActions.entries[identity] != nil,
+           let row = notificationsByDevice[deviceID]?.first(where: { $0.id == notificationID }) {
+            notificationActionSavedRows[identity] = row
+        }
+        if text.isEmpty && notificationActions.entry(identity).phase != .pending { notificationActionSavedRows.removeValue(forKey: identity) }
+        maintainNotificationActions()
+    }
+
+    private func maintainNotificationActions() {
+        notificationActions.expireOrphans(now: ProcessInfo.processInfo.systemUptime)
+        notificationActionSavedRows = notificationActionSavedRows.filter {
+            notificationActions.entries[$0.key] != nil && !notificationActions.entry($0.key).draft.isEmpty
+        }
+        for id in Array(notificationActionTimeouts.keys) where notificationActions.pending[id] == nil {
+            notificationActionTimeouts.removeValue(forKey: id)?.cancel()
+        }
+        notificationActionCleanup?.cancel()
+        notificationActionCleanup = nil
+        if let deadline = notificationActions.nextOrphanDeadline {
+            let delay = max(0, deadline - ProcessInfo.processInfo.systemUptime)
+            notificationActionCleanup = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+                self?.maintainNotificationActions()
+            }
+        }
+    }
+
+    private func retireNotificationActions(companionID: String, generation: UInt64) {
+        let ids = notificationActions.disconnect(companionID: companionID, generation: generation)
+        ids.forEach { notificationActionTimeouts.removeValue(forKey: $0)?.cancel() }
+        maintainNotificationActions()
+    }
+
+    @discardableResult
     func performNotificationAction(
         deviceID: String,
         notificationID: String,
         actionID: String,
         reply: String? = nil,
-        dismiss: Bool = false
-    ) {
-        guard let control = companionControl(for: deviceID) else { return }
+        dismiss: Bool = false,
+        composeID: String = "",
+        replyPackageName: String? = nil,
+        replyAppLabel: String? = nil
+    ) -> Bool {
+        let identity = NotificationActionIdentity(deviceID: deviceID, notificationID: notificationID, actionID: actionID, composeID: composeID)
+        // Native Notification Center replies enter here without a preceding binding write.
+        // Admit their independent draft before any route/generation/pending guard can reject it.
+        if let reply {
+            guard notificationActions.setDraft(reply, for: identity) else {
+                lastError = String(localized: "NOTIFICATION_ACTION_BUSY")
+                return false
+            }
+            if let row = notificationsByDevice[deviceID]?.first(where: { $0.id == notificationID }) {
+                notificationActionSavedRows[identity] = row
+            } else if notificationActionSavedRows[identity] == nil {
+                notificationActionSavedRows[identity] = BridgeNotificationRow(
+                    id: notificationID, packageName: replyPackageName ?? "",
+                    appLabel: replyAppLabel ?? String(localized: "NOTIFICATIONS"), title: "", body: "",
+                    postedAt: Date(), actions: [.init(id: actionID, title: String(localized: "REPLY"), acceptsText: true)],
+                    appIconPNG: nil
+                )
+            }
+            maintainNotificationActions()
+        }
+        guard let control = companionControl(for: deviceID), let companionID = companionID(for: deviceID),
+              let generation = companionRecoverySupervisor.currentGeneration(companionID: companionID) else {
+            if notificationActions.entries[identity] != nil && notificationActions.entry(identity).phase != .pending {
+                notificationActions.localFailure(identity: identity)
+            }
+            lastError = String(localized: "PHONE_CONNECTION_HINT")
+            return false
+        }
         var action = GBNotificationAction()
         action.notificationID = notificationID
         action.actionID = actionID
         action.replyText = reply ?? ""
         action.dismiss = dismiss
-        do { try control.sendNotificationAction(action) } catch { lastError = error.localizedDescription }
+        let requestID = UUID().uuidString.lowercased()
+        let supportsResults = control.supportsNotificationActionResults
+        guard notificationActions.begin(identity: identity, companionID: companionID, generation: generation,
+            requestID: requestID, draft: reply ?? "", supportsResults: supportsResults) != nil else {
+            if notificationActions.entries[identity] != nil && notificationActions.entry(identity).phase != .pending {
+                notificationActions.localFailure(identity: identity)
+            }
+            lastError = String(localized: "NOTIFICATION_ACTION_BUSY")
+            return false
+        }
+        if let row = notificationsByDevice[deviceID]?.first(where: { $0.id == notificationID }), reply != nil {
+            notificationActionSavedRows[identity] = row
+        }
+        maintainNotificationActions()
+        // Legacy peers cannot acknowledge. Preserve their draft and explicitly show that state.
+        action.requestID = supportsResults ? requestID : ""
+        do {
+            try control.sendNotificationAction(action)
+            if supportsResults {
+                notificationActionTimeouts[requestID] = Task { [weak self] in
+                    do { try await Task.sleep(for: .seconds(10)) } catch { return }
+                    guard let self else { return }
+                    _ = self.notificationActions.fail(requestID: requestID, unknown: true)
+                    self.notificationActionTimeouts.removeValue(forKey: requestID)
+                    self.maintainNotificationActions()
+                }
+            }
+            return true
+        } catch {
+            _ = notificationActions.fail(requestID: requestID, unknown: false)
+            notificationActions.localFailure(identity: identity)
+            maintainNotificationActions()
+            lastError = error.localizedDescription
+            return false
+        }
     }
 
 #if !GALAXYBRIDGE_APP_STORE
@@ -2462,10 +2777,55 @@ final class AppModel: ObservableObject {
         }
 #if !GALAXYBRIDGE_APP_STORE
         reconcileEnhancedClipboardSessions()
+        reconcileEnhancedPrimaryRoutes()
+        reconcilePhoneDisplayPrivacyRoutes()
 #endif
     }
 
 #if !GALAXYBRIDGE_APP_STORE
+    private func verifiedEnhancedRetirementRoute(deviceID: String, captureSerial: String) -> VerifiedEnhancedRetirementRoute? {
+        guard let device = row(id: deviceID), device.isReady, device.transport != .companionLAN,
+              let serial = device.adbSerial,
+              device.transport != .wirelessADB || validatedWirelessSerials.contains(serial),
+              let capture = try? ADBBindingStore().record(for: captureSerial),
+              let destination = try? ADBBindingStore().record(for: serial),
+              let peers = try? PairedPeerStore().peers(),
+              let peer = peers.first(where: { "device:\($0.deviceID)" == deviceID }),
+              ADBBindingStore().isVerified(serial: captureSerial, peer: peer),
+              ADBBindingStore().isVerified(serial: serial, peer: peer) else { return nil }
+        return VerifiedEnhancedRetirementRoute(logicalDeviceID: deviceID, captureSerial: captureSerial,
+            routeSerial: serial, captureBindingDeviceID: capture.deviceID, routeBindingDeviceID: destination.deviceID,
+            captureIdentity: capture.identityPublicKeySHA256, routeIdentity: destination.identityPublicKeySHA256,
+            routeCurrentlyVerified: true)
+    }
+
+    private func reconcileEnhancedPrimaryRoutes() {
+        guard terminationAdmission.admitsWork else { return }
+        releasePhysicallySettledEnhancedRetirements()
+        for (permit, session) in Array(unsettledEnhancedRetirements) where enhancedRetirements[permit] == nil {
+            guard let deviceID = enhancedRetirementDeviceIDs[permit], let device = row(id: deviceID), device.isReady else { continue }
+            if let route = verifiedEnhancedRetirementRoute(deviceID: deviceID, captureSerial: session.serial) {
+                session.installVerifiedCleanupRoute(route)
+            } else if device.adbSerial == session.serial {
+                session.retryOwnedCleanup()
+            } else { continue }
+            enhancedRetirements[permit] = Task { [weak self] in
+                await session.waitForScheduledCleanup()
+                guard let self else { return }
+                self.enhancedRetirements.removeValue(forKey: permit)
+                guard session.cleanupPhysicallySettled else { return }
+                self.unsettledEnhancedRetirements.removeValue(forKey: permit)
+                self.enhancedRetirementDeviceIDs.removeValue(forKey: permit)
+                guard let canonicalID = self.primaryScreenDemand.finishRetirement(permit),
+                      self.terminationAdmission.admitsWork, let current = self.row(id: canonicalID) else { return }
+                self.ensureEnhancedSession(for: current)
+            }
+        }
+        for device in devices where primaryScreenDemand.hasDemand(device.id) {
+            ensureEnhancedSession(for: device)
+        }
+    }
+
     /// Keeps one low-bandwidth control-only clipboard channel per reachable ADB
     /// phone. Its lifetime follows device connectivity, never a mirror window.
     private func reconcileEnhancedClipboardSessions() {
@@ -3070,6 +3430,13 @@ final class AppModel: ObservableObject {
             companionID: companionID,
             generation: generation
         ) {
+            if channel == .control {
+                switch state {
+                case .failed, .authenticationRejected, .disconnected:
+                    retireNotificationActions(companionID: companionID, generation: generation)
+                default: break
+                }
+            }
             switch state {
             case .connected:
                 if channel == .files {
@@ -3179,6 +3546,7 @@ final class AppModel: ObservableObject {
         companionID: String,
         generation: CompanionLogicalSessionRecoverySupervisor.Generation
     ) -> Bool {
+        retireNotificationActions(companionID: companionID, generation: generation)
         retireCamera(companionID: companionID, generation: generation)
         let peerID = companionClients[companionID]?.control.peer.deviceID
 #if !GALAXYBRIDGE_APP_STORE
@@ -3277,6 +3645,12 @@ final class AppModel: ObservableObject {
             guard self.primaryScreenDemand.canStart(deviceID),
                   self.row(id: deviceID)?.isReady == true else {
                 self.scheduleEnhancedReconnect(deviceID: deviceID, session: session)
+                return
+            }
+            if let current = self.row(id: deviceID), current.adbSerial != session.serial,
+               let route = self.verifiedEnhancedRetirementRoute(deviceID: deviceID, captureSerial: session.serial) {
+                session.installVerifiedCleanupRoute(route)
+                self.retireEnhancedScreenSession(deviceID: deviceID)
                 return
             }
             session.start()
@@ -3392,6 +3766,14 @@ final class AppModel: ObservableObject {
         envelope: GBEnvelope
     ) {
         switch envelope.payload {
+        case let .notificationActionResult(result):
+            if notificationActions.resolve(requestID: result.requestID, notificationID: result.notificationID,
+                actionID: result.actionID, companionID: companionID, generation: generation,
+                accepted: result.accepted, errorCode: result.errorCode) {
+                notificationActionTimeouts.removeValue(forKey: result.requestID)?.cancel()
+                if !result.accepted { lastError = String(localized: "NOTIFICATION_ACTION_FAILED") }
+                maintainNotificationActions()
+            }
         case let .notificationSnapshot(snapshot):
             if !snapshot.complete {
                 notificationSnapshotReconciliation.begin(deviceID: deviceID)
@@ -3406,9 +3788,15 @@ final class AppModel: ObservableObject {
                 }
                 if let active = notificationSnapshotReconciliation.activeIDs(deviceID: deviceID) {
                     macNotifications.reconcile(deviceID: deviceID, activeNotificationIDs: active)
+                    notificationActions.reconcile(deviceID: deviceID, activeNotificationIDs: active,
+                        now: ProcessInfo.processInfo.systemUptime)
+                    maintainNotificationActions()
                 }
             }
         case let .notificationEvent(event):
+            notificationActions.observe(deviceID: deviceID, notificationID: event.notificationID,
+                removed: event.removed, now: ProcessInfo.processInfo.systemUptime)
+            maintainNotificationActions()
             notificationSnapshotReconciliation.observe(
                 deviceID: deviceID, notificationID: event.notificationID, removed: event.removed
             )
@@ -3592,6 +3980,7 @@ final class AppModel: ObservableObject {
         case .cameraStream: "CAPABILITY_CAMERA_STREAM"
         case .virtualDisplay: "CAPABILITY_VIRTUAL_DISPLAY"
         case .recording: "CAPABILITY_RECORDING"
+        case .notificationActionResults: "CAPABILITY_NOTIFICATION_ACTION_RESULTS"
         case .UNRECOGNIZED: nil
         }
     }
@@ -3602,6 +3991,7 @@ final class AppModel: ObservableObject {
         let oldID = "adb:\(record.adbSerial)"
         let newID = "device:\(record.deviceID)"
         guard oldID != newID else { return }
+        migratePhoneDisplayPrivacy(from: oldID, to: newID)
         if let surface = videoSurfaces.removeValue(forKey: oldID), videoSurfaces[newID] == nil { videoSurfaces[newID] = surface }
         if let surface = cameraSurfaces.removeValue(forKey: oldID), cameraSurfaces[newID] == nil { cameraSurfaces[newID] = surface }
         if let state = enhancedStates.removeValue(forKey: oldID), enhancedStates[newID] == nil { enhancedStates[newID] = state }
@@ -3610,6 +4000,9 @@ final class AppModel: ObservableObject {
         }
         enhancedSessionDiagnostics.migrate(from: oldID, to: newID)
         primaryScreenDemand.migrate(from: oldID, to: newID)
+        for permit in enhancedRetirementDeviceIDs.keys where enhancedRetirementDeviceIDs[permit] == oldID {
+            enhancedRetirementDeviceIDs[permit] = newID
+        }
         recordings.migrate(from: oldID, to: newID)
         if let source = recordingVideoSources.removeValue(forKey: oldID), recordingVideoSources[newID] == nil {
             recordingVideoSources[newID] = source

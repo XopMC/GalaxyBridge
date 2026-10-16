@@ -152,9 +152,8 @@ source app used for timing; the installed executable matches the DMG exactly.
 The installed package reconnected to the existing S24 pairing and displayed the
 phone over Wireless ADB with USB detached at the host. Both scroll directions
 were checked visually in the main mirror and a separate Android Settings window;
-a direct mouse swipe and navigation clicks worked. The public APK is unchanged
-from the preceding maintenance upload: this update's runtime fixes are in the Mac
-app and its bundled native resources.
+a direct mouse swipe and navigation clicks worked. That Wi-Fi upload retained its preceding APK. The subsequent acceptance update
+below rebuilds both APK and DMG.
 
 Fresh checks passed: **136 Swift tests in 15 suites**, the actual AppKit input
 mapping spec, bounded Metal redraw recovery, Downloads scope persistence,
@@ -163,6 +162,40 @@ checks and the four pacing-horizon regressions plus related transport gates.
 The publication scanner passed 928 source files; all eleven language catalogs
 per platform passed key coverage. This does not replace independent hardware,
 linguistic or clean-Mac acceptance.
+
+## Display privacy and functional acceptance update
+
+Fresh source-app checks, followed by installing the packaged app from its DMG.
+The packaged app also displayed Settings and accepted a mouse swipe over Wi-Fi
+with the physical display OFF; closing the mirror restored ON. Its nested
+signatures and Applications link passed, and the installed executable matches
+the DMG. The signed APK updated the existing Helper without replacing pairing:
+
+| Area | Fresh evidence | Limits |
+| --- | --- | --- |
+| Physical display | Default enabled; primary mirror receives clicks while SurfaceFlinger reports physical OFF; Settings and Clock share one owner; closing only one keeps OFF; closing the last restores ON; disabling restores the previous mode | Panel power control, not Android keyguard locking; no PIN bypass |
+| Failure recovery | Killing only the verified session-owned server restores the awake panel; UI changes to failure; explicit Retry hides it again; unique JAR and forward ownership checks preserve shared/unrelated resources | An unreachable phone prevents immediate remote reconciliation; no continuous hardware-button wake monitoring claim |
+| Route migration | Active USB mirror resumes over verified Wireless ADB after host detach; clicks arrive; reattach returns to USB and clicks work | One S24/network; not a roaming or multi-phone matrix |
+| App windows | Settings and Clock simultaneously; landscape/portrait resize and mapped Stop/Reset clicks; closing one preserves the other and display lease | Arbitrary third-party app layouts are not certified |
+| Replies | Real synthetic RemoteInput gets exact Unicode once; invalidated PendingIntent reports failure and retains draft; explicit retry succeeds; offline Send preserves draft | Android acceptance is not service delivery; OS Notification Center inline UI unavailable to automation, covered by actual-entrypoint/inert-transport tests instead |
+| Notification groups | Empty redundant summary suppressed while distinct/actionable content remains; unchanged ranking updates avoid repeated icon conversion | OEM/custom notification layouts need wider coverage |
+| Image clipboard | Neutral phone PNG pasted in Preview; a distinct copied Preview PNG pasted visibly on Android with exact receipt hash; original Mac clipboard restored | Fresh Mac screenshot creation could not be exercised through available UI automation; actual Samsung Gallery screenshot transfer was verified in the earlier checks above |
+| Files | Fresh first-selection 87,808-byte file passes after the macOS access metadata change; real Android file-picker send back matches SHA-256; live 512 MiB transfer cancelled after 24 MiB with no destination partial | Other providers/filesystems require their own matrix |
+| File history | Final signed APK normal UI removes only our two completed QA receipts; original and published files are separate | Active/cancellation-fenced entries cannot be forgotten |
+| Camera | Actual front-camera image; main/front requests; Stop clears preview, reopen works; accurate preview-only UI | No Apple-provisioned virtual webcam in Direct; every FPS/resolution/reconnect combination has not been hardware certified |
+| Other UI | Russian system language, default-on toggle, About 0.1.1, setup feature list, SMS notice and cancel-safe removal confirmation inspected | No destructive re-pairing of the user's live device; independent clean Mac still outstanding |
+
+The new reply protocol is additive and capability-negotiated. Legacy peers keep
+unconfirmed drafts rather than claiming success. Pending replies and their timers
+are bounded; revision and session fences protect edits and reconnects. No
+background retry silently resends a reply.
+
+Full Swift validation passed **136 tests / 15 suites**. Final Android DirectDebug
+and InternalDebug passed **278 / 282 tests**, with the companion-core suite also
+passing. Focused ownership, route-handoff, notification, camera policy and file
+integrity checks passed. Eleven catalogs per platform passed key coverage (307
+Mac UI keys, three permission keys, 110 Android keys). Build success is kept
+separate from the hardware limits above.
 
 ## Remaining acceptance work
 

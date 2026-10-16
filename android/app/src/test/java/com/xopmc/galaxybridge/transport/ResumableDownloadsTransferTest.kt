@@ -8,6 +8,41 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ResumableDownloadsTransferTest {
+    @Test fun diagnosticDistinguishesStreamingMismatchWithoutExposingContent() = fixture { f ->
+        val events = mutableListOf<DownloadVerificationDiagnostic>()
+        val receiver = ResumableDownloadsTransfer(f.storage, f.journal, verificationDiagnostic = events::add)
+        val m = manifest("diagnostic", "correct".toByteArray())
+        receiver.accept("owner", m)
+        val result = receiver.append("owner", SafIncomingChunk(m.transferId, 0, "WRONG!!".toByteArray()))
+        assertEquals("sha256_mismatch", result.result.failureReason)
+        assertEquals(DownloadVerificationStage.STREAMING_FINAL, events.single().stage)
+        assertEquals(false, events.single().digestEqual)
+        assertEquals(7L, events.single().observedBytes)
+        assertTrue(f.storage.current!!.pending)
+    }
+
+    @Test fun diagnosticDistinguishesProviderReadbackAndCannotChangeWireFailure() = fixture { f ->
+        val events = mutableListOf<DownloadVerificationDiagnostic>()
+        val corruptedReadback = object : PendingDownloadStorage by f.storage {
+            override fun hashPrefix(item: PendingDownload, length: Long, digest: MessageDigest): Boolean {
+                if (length == 0L) return f.storage.hashPrefix(item, length, digest)
+                digest.update(ByteArray(length.toInt()))
+                return true
+            }
+        }
+        val receiver = ResumableDownloadsTransfer(corruptedReadback, f.journal, verificationDiagnostic = {
+            events.add(it)
+            throw IllegalStateException("observer failure must be isolated")
+        })
+        val bytes = "correct".toByteArray(); val m = manifest("readback", bytes)
+        receiver.accept("owner", m)
+        assertEquals("sha256_mismatch", receiver.append("owner", SafIncomingChunk(m.transferId, 0, bytes)).result.failureReason)
+        assertEquals(DownloadVerificationStage.PROVIDER_DIGEST, events.single().stage)
+        assertEquals(true, events.single().readComplete)
+        assertEquals(false, events.single().digestEqual)
+        assertTrue(f.storage.current!!.pending)
+    }
+
     @Test fun restartTruncatesOnlyUnacknowledgedOwnedTailAndResumesWithLinearHashing() = fixture { f ->
         val data = ByteArray(2 * 1024 * 1024 + 9) { (it % 251).toByte() }
         val m = manifest("resume", data)

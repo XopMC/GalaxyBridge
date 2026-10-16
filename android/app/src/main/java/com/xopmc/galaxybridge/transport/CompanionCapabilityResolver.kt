@@ -23,6 +23,7 @@ internal object CompanionCapabilityResolver {
             Capability.CAPABILITY_CLIPBOARD_WRITE,
             // App-owned MediaStore Downloads need no SAF tree or storage permission on API 31+.
             Capability.CAPABILITY_FILES,
+            Capability.CAPABILITY_NOTIFICATION_ACTION_RESULTS,
         )
         val unavailable = linkedMapOf<String, String>()
 
