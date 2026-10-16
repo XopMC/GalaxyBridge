@@ -21,6 +21,7 @@ all phones, networks, applications, or a zero-latency experience.
 | First pairing | Bonjour's willSet notification made the model read the previous discovery snapshot | Notify after committing the snapshot; actual publisher regression and clean S24 pairing connect without restarting either app |
 | Android identity | Concurrent first access could create different keys or device IDs | Process-wide synchronization, synchronous ID persistence and five concurrent/persistence regressions; existing IDs are retained |
 | Quit | Waiting for protected Downloads access could prevent termination indefinitely | Independent ten-second cleanup deadline; hanging-work/late-completion regressions and normal installed-app exit check |
+| Disconnected mirror | A removed device row left a blank borderless window without a visible close control | Full-size dark unavailable state with a close button bound to its own hosting window; visually verified that closing it keeps the main window open |
 | Catalog refresh | Refresh replaced useful tiles with an empty loading panel; obsolete route completion could strand loading | Preserve tiles, serialize requests, reject obsolete results and reload after a USB/Wi-Fi route change |
 | QUIC launch | Native ADB child lacked the owned key directory and private server endpoint, causing SIGABRT | Child launch uses the same explicit environment/endpoint as regular ADB; real private-server regression and on-device producer start |
 | QUIC temporary files | Retired sessions left native executables and producer JARs on the phone | Exact session-owned paths are removed after physical retirement; partial-launch rollback tests and an S24 open/close check (two files while running, zero after close) |
@@ -71,6 +72,29 @@ input responses measured 109–218 ms versus 131–537 ms. First frame remained
 5.12 seconds. These sequential S24 measurements justify retaining this small
 profile correction, not a general no-lag claim or QUIC default promotion. Experimental QUIC and the
 public Wireless ADB route must be evaluated separately.
+
+### Follow-up Wireless ADB endurance check
+
+The source-built 0.1.1 Direct executable was copied to an Internal QA identity
+to select only the Wireless ADB alias while the USB cable remained attached.
+The video producer's live ADB command used that wireless endpoint. The public
+H.264 profile was retained, with QUIC and the experimental Wi-Fi lock disabled.
+Normal packaged installation and pairing were checked separately above.
+
+- Continuous motion ran for **331.19 seconds** without a disconnect. There were
+  16867 distinct presentation intervals, about **51.27 frames/s** after the first
+  frame at 2.207 seconds. Maximum receive/presentation gaps were **201.3/233.3 ms**;
+  decoder callback latency stayed below 4.46 ms. Occasional visible pauses remain.
+- Thirty-one process samples over 300 seconds measured **140.9–153.6 MiB RSS**,
+  ending at 152.2 MiB, and 11.7–22.1% CPU. Memory settled after warmup in this
+  sample; this does not establish absence of leaks over hours. Diagnostics were on.
+- A subsequent static response fixture received all **12 controlled clicks**.
+  Input-to-visible-change latency was **85.0–193.8 ms**, with no expired probes
+  or control failures. The coarse p95 histogram bucket was at most 250 ms; twelve
+  samples do not establish a population percentile or a hard latency bound.
+- After explicitly disconnecting and reconnecting the same Wireless ADB alias,
+  the still-open mirror resumed and accepted another click. The transport was
+  restored manually; automatic recovery across network roaming is still unproven.
 
 ## Remaining acceptance work
 

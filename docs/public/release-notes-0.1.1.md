@@ -24,6 +24,9 @@ QUIC session files are removed after normal retirement and partial launch failur
 First pairing now observes the committed discovery snapshot immediately; concurrent
 Android identity creation is serialized. A protected-folder permission wait can
 no longer delay requested application termination indefinitely.
+If a device disappears, its mirror now shows a readable unavailable state and
+a close button instead of a blank borderless window. A follow-up 331-second
+Wireless ADB motion run completed without disconnects; occasional pauses remain.
 
 The experimental QUIC path retains its existing transport. Its native child now
 uses the owned ADB environment and endpoint; AVC requests constant bitrate,
@@ -63,6 +66,9 @@ See [audit evidence and validation limits](production-audit.md).
 После первой привязки Mac сразу читает актуальный список найденных устройств;
 параллельное создание идентификатора и ключей Android синхронизировано. Ожидание
 доступа к защищённой папке больше не может бесконечно задерживать выход приложения.
+При исчезновении устройства окно трансляции показывает понятное сообщение
+и кнопку закрытия вместо пустого окна без рамки. Дополнительный 331-секундный
+прогон Wireless ADB прошёл без разрывов; отдельные паузы картинки сохраняются.
 
 Экспериментальный QUIC сохраняет прежний транспорт. Дочерний процесс получает
 параметры встроенного ADB, а кодировщик AVC использует постоянный битрейт, как

@@ -5,13 +5,51 @@ import SwiftUI
 struct PresentedDeviceMirror: View {
     let lease: UUID
     @ObservedObject var model: AppModel
+    @StateObject private var missingWindowTarget = MirrorWindowTarget()
 
     var body: some View {
         if let device = model.row(id: model.primaryMirrorDeviceID(for: lease)) {
             DeviceMirrorWindow(device: device)
                 .environmentObject(model)
         } else {
-            ContentUnavailableView("NO_DEVICE", systemImage: "iphone.slash")
+            ContentUnavailableView {
+                Label("NO_DEVICE", systemImage: "iphone.slash")
+            } actions: {
+                Button("CLOSE") { missingWindowTarget.window?.close() }
+                    .buttonStyle(.bordered)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .preferredColorScheme(.dark)
+            .background(.black)
+            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .ignoresSafeArea()
+            .background(MirrorWindowReference(target: missingWindowTarget))
+        }
+    }
+}
+
+/// The unavailable surface has no device header, so its close action resolves
+/// only the window hosting this view. It must never close another key window.
+private struct MirrorWindowReference: NSViewRepresentable {
+    let target: MirrorWindowTarget
+
+    func makeNSView(context: Context) -> ReferenceView {
+        let view = ReferenceView(frame: .zero)
+        view.target = target
+        return view
+    }
+
+    func updateNSView(_ view: ReferenceView, context: Context) {
+        view.target = target
+        target.window = view.window
+    }
+
+    final class ReferenceView: NSView {
+        weak var target: MirrorWindowTarget?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            target?.window = window
         }
     }
 }
