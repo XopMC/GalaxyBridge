@@ -1,130 +1,37 @@
-# Galaxy Bridge 0.1.1 — prerelease
+# Galaxy Bridge 0.1.1
 
-[Download](https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.1) · [English](#english) · [Русский](#russian)
+[English](#english) | [Русский](#russian) · [Download](https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.1)
+
+![Phone screen and a separate Android app on Mac / Экран телефона и отдельное окно приложения на Mac](../../assets/screenshots/workspace.png)
 
 <a id="english"></a>
 
 ## English
 
-This maintenance prerelease fixes the macOS 26 crash that occurred when the QR pairing sheet opened. The Direct macOS application now loads localizations from its application bundle instead of SwiftPM's generated resource bundle.
+This preview improves pairing, wireless connection and everyday use.
 
-Wireless ADB discovery now resolves Android's Bonjour `.local` endpoints to private IPv4 addresses and tries an already-trusted connection service before asking for a six-digit pairing code. The setup sheet searches the local network instead of incorrectly waiting for the phone's code screen.
+- Fixed the QR pairing crash on macOS and improved Wi-Fi phone discovery.
+- Added copied-image clipboard sharing in both directions, including from other phone apps.
+- Improved the app catalog and handling of disconnected app windows.
+- Notification replies keep your draft when sending fails.
+- The phone display stays off by default during remote use and turns back on when the last window closes. This does not lock Android.
 
-Android-to-Mac clipboard sync now uses a bounded capture-free agent inside the bundled scrcpy server. The Mac launches it under the already-authorized ADB shell, so it can poll the current Android clipboard while Gallery or another app is in front. Text and copied PNG images are forwarded without a Galaxy Bridge keyboard and without the Share menu. Sensitive clips are ignored.
+Install both the DMG and APK. Requires macOS 14+ on Apple Silicon and Samsung Android 12+; initial debugging authorization is required. See [installation](https://github.com/XopMC/GalaxyBridge/blob/main/docs/public/install.md).
 
-The release includes a rebuilt drag-to-Applications DMG for **macOS 14+ / Apple Silicon** and a signed Direct APK for **Android 12+**. ADB remains included in the Mac app. The QR pairing screen was opened successfully from the packaged macOS app during release validation.
-
-### Maintenance update
-
-The refreshed 0.1.1 builds fix repeated clipboard copies and background image
-reads, bound notification queues and reconcile missed removals after reconnect,
-retain removable offline devices, and keep catalog tiles visible during refresh.
-Camera controls fit the selected language and describe phone-camera preview.
-QUIC session files are removed after normal retirement and partial launch failure.
-First pairing now observes the committed discovery snapshot immediately; concurrent
-Android identity creation is serialized. A protected-folder permission wait can
-no longer delay requested application termination indefinitely.
-If a device disappears, its mirror now shows a readable unavailable state and
-a close button instead of a blank borderless window. A follow-up 331-second
-Wireless ADB motion run completed without disconnects; occasional pauses remain.
-
-The experimental QUIC path retains its existing transport. Its native child now
-uses the owned ADB environment and endpoint; AVC requests constant bitrate,
-matching the Wireless ADB profile. In the tested S24 runs this improved sustained
-presentation and input timing; occasional stalls remain. QUIC remains opt-in.
-See [audit evidence and validation limits](production-audit.md).
-
-### Wi-Fi and input update
-
-The bundled private ADB server now enables negotiated Burst Mode. At the same
-1920-max / 60 fps target / 6 Mbps profile, sequential S24 motion checks reduced
-the maximum presentation gap from 317 ms (258 s run) to 125 ms (93 s run).
-All twelve measured clicks arrived in 83–216 ms. Network jitter remains; these
-figures are observations, not universal limits. Precise trackpad scrolling now
-uses the Mac's system-adjusted direction. Metal redraws recover when a drawable
-is temporarily unavailable. QUIC keeps its architecture and receives bounded
-intake, pacing and gesture-order fixes; it remains opt-in.
-
-The Wi-Fi update rebuilt the DMG and bundled native resources. The current
-acceptance update below rebuilds both installers.
-
-### Screen privacy and acceptance update
-
-- **Turn off phone display during remote use** is enabled by default for each device. It switches off the physical panel while the mirror and separate app windows keep working. Disable the toggle to restore the previous mode. This does not lock/unlock Android or bypass the keyguard. The last remote window restores the original display state; a dedicated server cleanup process also restores an awake panel after an unexpected owner failure.
-- Active mirroring can move between verified USB and Wi-Fi routes without staying bound to the disconnected USB endpoint.
-- Notification replies retain drafts on disconnect, rejection and timeout. With the updated Helper, the draft clears only after Android accepts the action. Acceptance is not delivery confirmation from a messaging service. Redundant empty group summaries are hidden without removing actionable content.
-- The first file selection tolerates macOS permission metadata changes only after byte-for-byte integrity verification. Android can remove completed/cancelled entries from transfer history without deleting originals or received files.
-- S24 checks covered two app windows, resizing and mapped clicks, display-off operation and restoration, route handoff, real synthetic notification replies, PNG copy/paste in both directions and a SHA-256-verified file round trip. Both APK and DMG are rebuilt; no byte-reproducibility claim is made.
-
-### Known limits
-
-- Wi-Fi reliability, clean-Mac installation, and the wider hardware matrix still need validation.
-- File reception uses an explicit Downloads folder chooser and remembers the selection. A neutral phone→Mac→phone round trip passed exact-byte verification after restart.
-- Android requires the user to enable Developer options/Wireless debugging and approve the initial ADB pairing. A regular APK cannot enable these protected system settings itself.
-- Full SMS history/direct sending and virtual webcam activation are not included.
-- The Mac app is ad-hoc signed and not Apple-notarized.
+Wi-Fi and app compatibility vary. Full SMS support and a virtual webcam are still unavailable. The Mac app is locally signed without Apple notarization.
 
 <a id="russian"></a>
 
 ## Русский
 
-В этом техническом предварительном выпуске исправлено падение macOS 26 при открытии окна QR-сопряжения. Приложение Direct для macOS теперь загружает локализации из бандла приложения, а не из сгенерированного SwiftPM пакета ресурсов.
+В этом предварительном выпуске улучшены сопряжение, подключение по Wi-Fi и повседневная работа.
 
-Поиск Wireless ADB теперь преобразует Android Bonjour-адреса `.local` в локальный IPv4 и сначала пробует уже доверенный сервис подключения. Шестизначный код запрашивается только для нового сопряжения; окно настройки больше не утверждает, что ждёт экран кода на телефоне.
+- Исправлено падение QR-сопряжения на macOS, улучшен поиск телефона по Wi-Fi.
+- Добавлен обмен скопированными изображениями в обе стороны, в том числе из других приложений телефона.
+- Улучшены каталог приложений и поведение окон при потере связи.
+- Если ответ на уведомление не отправился, черновик сохраняется.
+- Дисплей телефона по умолчанию гаснет при удалённой работе и включается после закрытия последнего окна. Состояние блокировки Android не меняется.
 
-Для передачи буфера Android → Mac добавлен ограниченный по размеру агент внутри встроенного scrcpy-сервера. Mac запускает его в уже разрешённом ADB shell, поэтому он опрашивает текущий буфер Android, даже когда открыта «Галерея» или другое приложение. Текст и скопированные PNG передаются без клавиатуры Galaxy Bridge и без меню «Поделиться». Чувствительные данные буфера игнорируются.
+Установите DMG и APK. Нужны macOS 14+ на Apple Silicon и Samsung с Android 12+; при первом подключении подтвердите доступ для отладки. Подробнее — в [инструкции](https://github.com/XopMC/GalaxyBridge/blob/main/docs/public/install.md#russian).
 
-В выпуск входят заново собранный DMG с переносом приложения в «Программы» для **macOS 14+ / Apple Silicon** и подписанный Direct APK для **Android 12+**. ADB по-прежнему встроен в приложение для Mac. В ходе проверки выпуска QR-экран был успешно открыт из упакованного приложения macOS.
-
-### Обновление сборок
-
-В обновлённых сборках 0.1.1 исправлены повторное копирование в буфер и фоновое
-чтение изображений. Очереди уведомлений ограничены, пропущенные удаления
-восстанавливаются после переподключения. Ранее добавленные устройства остаются
-доступны для удаления без сети, а каталог сохраняет плитки при обновлении.
-Элементы управления камерой адаптируются к языку и описывают предпросмотр камеры
-телефона.
-Временные файлы QUIC удаляются после штатного завершения и ошибки подготовки сеанса.
-После первой привязки Mac сразу читает актуальный список найденных устройств;
-параллельное создание идентификатора и ключей Android синхронизировано. Ожидание
-доступа к защищённой папке больше не может бесконечно задерживать выход приложения.
-При исчезновении устройства окно трансляции показывает понятное сообщение
-и кнопку закрытия вместо пустого окна без рамки. Дополнительный 331-секундный
-прогон Wireless ADB прошёл без разрывов; отдельные паузы картинки сохраняются.
-
-Экспериментальный QUIC сохраняет прежний транспорт. Дочерний процесс получает
-параметры встроенного ADB, а кодировщик AVC использует постоянный битрейт, как
-в Wireless ADB. В проведённых проверках на S24 это улучшило плавность и задержку
-управления; отдельные паузы остаются. QUIC по-прежнему включается отдельно.
-Подробнее — [результаты аудита и границы проверки](production-audit.md).
-
-### Обновление Wi-Fi и управления
-
-Встроенный приватный сервер ADB теперь включает согласуемый Burst Mode. При
-прежних 1920 пикселях, целевых 60 кадрах/с и 6 Мбит/с последовательные проверки
-S24 показали уменьшение максимальной паузы с 317 мс (258 секунд) до 125 мс
-(93 секунды). Все 12 измеренных кликов дошли за 83–216 мс. Это результаты
-конкретных прогонов, а не универсальная гарантия: колебания сети остаются.
-Прокрутка трекпадом следует системному направлению Mac, а Metal повторяет
-отрисовку при временно недоступной поверхности. Архитектура QUIC сохранена;
-исправлены чтение кадров, опережение отправки и порядок жестов. Он остаётся
-экспериментальным режимом.
-
-Обновление Wi-Fi пересобрало DMG и встроенные нативные ресурсы. Описанное ниже
-обновление приёмки пересобирает оба установщика.
-
-### Выключение экрана и обновление приёмки
-
-- **«Выключать экран телефона при удалённом использовании»** включено по умолчанию для каждого устройства. Физический дисплей гаснет, а трансляция и отдельные окна продолжают работать. Выключение переключателя возвращает прежний режим. Это не блокирует и не разблокирует Android, PIN не обходится. Закрытие последнего окна восстанавливает исходное состояние; отдельный процесс очистки также включает бодрствующий дисплей при аварии владельца сеанса.
-- Открытая трансляция переключается между проверенными маршрутами USB и Wi-Fi, не оставаясь привязанной к отключённому USB.
-- При разрыве связи, отказе или тайм-ауте ответа сохраняется черновик. С обновлённым Helper он очищается после принятия действия Android. Это не подтверждение доставки сообщения адресату. Пустые дубли сводных уведомлений скрываются без потери действий.
-- Первая отправка файла учитывает изменение метаданных разрешений macOS только после полной проверки содержимого. На Android завершённые и отменённые записи можно убрать из истории, сохранив исходники и полученные файлы.
-- На S24 проверены два окна приложений, размеры и клики, работа с погашенным дисплеем и восстановление, смена маршрута, реальные тестовые ответы на уведомления, PNG в обе стороны и передача файла с проверкой SHA-256. Пересобраны APK и DMG; побайтовая воспроизводимость не заявляется.
-
-### Известные ограничения
-
-- Надёжность Wi-Fi, установка на чистый Mac и расширенная матрица устройств ещё требуют проверки.
-- Для приёма файлов добавлен выбор «Загрузок» через системное окно с сохранением выбора. Нейтральный файл прошёл проверку телефон→Mac→телефон после перезапуска с совпадением всех байтов.
-- Android требует вручную включить параметры разработчика/Wireless debugging и подтвердить первое ADB-сопряжение. Обычный APK не может сам включить защищённые системные настройки.
-- Полная история SMS, прямая отправка SMS и активация виртуальной веб-камеры пока не входят в выпуск.
-- Приложение для Mac имеет локальную ad-hoc подпись и не нотарифицировано Apple.
+Работа Wi-Fi и совместимость зависят от устройства и приложений. Полной работы с SMS и виртуальной веб-камеры пока нет. У Mac-приложения локальная подпись без нотарификации Apple.

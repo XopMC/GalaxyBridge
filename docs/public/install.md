@@ -26,7 +26,6 @@ ADB is bundled; installing Homebrew, Android SDK, or a separate ADB package is u
 2. Open Galaxy Bridge, select the features you want, and grant their requested access. Declining a permission can leave that feature unavailable without blocking unrelated features.
 3. For screen mirroring, enable Developer options and USB debugging, connect a data-capable USB cable, and approve the Mac’s debugging request on the phone.
 4. Follow the pairing instructions in the apps for notifications, clipboard, and file transfers. Keep both devices on a mutually reachable local network for Companion features.
-5. Test each selected feature on the connected devices. A granted permission or a connection indicator alone is not proof that a feature works.
 
 Use the system language or the operating system’s per-app language setting. Ten languages are included, with separate Simplified and Traditional Chinese catalogs and English fallback.
 
@@ -40,7 +39,7 @@ Use the system language or the operating system’s per-app language setting. Te
 | No audio in a recording | Some phone/app combinations cannot provide audio; the app indicates video-only recording. |
 | File transfer interrupted | Reconnect and use the transfer’s retry/resume controls; wait for cancellation confirmation before assuming it completed. |
 
-Received files appear in **Downloads** on Mac and **Download/GalaxyBridge** on Android. Wi-Fi acceptance and clean-Mac validation are still incomplete; report reproducible problems using the [bug template](https://github.com/XopMC/GalaxyBridge/issues/new/choose). Do not include pairing codes, keys, notification text, or personal files.
+Received files appear in **Downloads** on Mac and **Download/GalaxyBridge** on Android. If something fails, [report a bug](https://github.com/XopMC/GalaxyBridge/issues/new/choose) with the steps to reproduce it. Leave out pairing codes and personal content.
 
 <a id="russian"></a>
 
@@ -66,7 +65,6 @@ ADB уже встроен: для использования готового п
 2. Откройте Galaxy Bridge, выберите нужные возможности и предоставьте запрошенный доступ. Отказ от разрешения может отключить эту функцию, не мешая остальным.
 3. Для трансляции экрана включите режим разработчика и отладку по USB, подключите кабель с передачей данных и подтвердите запрос отладки для Mac на телефоне.
 4. Следуйте подсказкам сопряжения в приложениях для уведомлений, буфера обмена и файлов. Для функций Companion устройства должны видеть друг друга в локальной сети.
-5. Проверьте каждую выбранную функцию на подключённых устройствах. Одно выданное разрешение или индикатор подключения ещё не подтверждают её работу.
 
 Приложения используют системный язык или язык, выбранный для приложения средствами ОС. Включены десять языков, отдельные каталоги упрощённого и традиционного китайского; резервный язык — английский.
 
@@ -80,4 +78,4 @@ ADB уже встроен: для использования готового п
 | В записи нет звука | Некоторые сочетания телефона и приложения не передают звук; Galaxy Bridge сообщает о записи только видео. |
 | Передача файла прервалась | Подключитесь снова и используйте повтор/возобновление; дождитесь подтверждения отмены, прежде чем считать её завершённой. |
 
-Файлы сохраняются в **«Загрузки»** на Mac и **Download/GalaxyBridge** на Android. Проверки Wi-Fi и чистого Mac ещё не завершены; воспроизводимые проблемы можно описать через [шаблон ошибки](https://github.com/XopMC/GalaxyBridge/issues/new/choose). Не прикладывайте коды сопряжения, ключи, содержимое уведомлений и личные файлы.
+Файлы сохраняются в **«Загрузки»** на Mac и **Download/GalaxyBridge** на Android. Если что-то не работает, [сообщите об ошибке](https://github.com/XopMC/GalaxyBridge/issues/new/choose) и опишите, как её повторить. Коды сопряжения и личные данные прикладывать не нужно.

@@ -1,7 +1,7 @@
 <div align="center">
   <img src="assets/icon.png" width="128" height="128" alt="Galaxy Bridge icon">
   <h1>Galaxy Bridge</h1>
-  <p>Your Samsung phone, at home on your Mac.<br>Ваш Samsung — рядом с вами на Mac.</p>
+  <p>Your Samsung phone on your Mac.<br>Ваш Samsung на Mac.</p>
   <p>
     <a href="https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.1"><img alt="0.1.1 prerelease" src="https://img.shields.io/badge/version-0.1.1%20prerelease-orange"></a>
     <img alt="macOS 14 or later" src="https://img.shields.io/badge/macOS-14%2B-blue">
@@ -9,84 +9,69 @@
     <img alt="Android 12 or later" src="https://img.shields.io/badge/Android-12%2B-3DDC84">
     <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-green"></a>
   </p>
-  <p><a href="#english">English</a> · <a href="#russian">Русский</a></p>
+  <p><a href="#english"><strong>English</strong></a> | <a href="#russian"><strong>Русский</strong></a></p>
   <p><a href="https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.1">Download / Скачать 0.1.1</a></p>
 </div>
+
+<p align="center">
+  <img src="assets/screenshots/workspace.png" width="960" alt="Galaxy Bridge: phone screen and a separate Android app window on Mac">
+</p>
+
+<details>
+  <summary>App catalog on Mac / Каталог приложений на Mac</summary>
+  <p><img src="assets/screenshots/app-windows.png" width="960" alt="Galaxy Bridge app catalog alongside the phone screen on the Mac desktop"></p>
+</details>
 
 <a id="english"></a>
 
 ## English
 
-### Overview
+Galaxy Bridge connects your Samsung phone to your Mac. Use phone apps alongside your Mac apps, answer notifications, copy text and images, and move files between devices. Everything connects locally, without an account or cloud relay.
 
-Galaxy Bridge connects a Samsung Android phone to a Mac for screen control, audio, notifications, clipboard, and file transfers. It works locally, without an account or cloud relay. A shared One UI-inspired icon and system-language interfaces keep both apps familiar.
-
-**0.1.1 is a prerelease** for Apple Silicon Macs and Samsung Android phones. It fixes the macOS 26 QR crash, Wireless ADB discovery of `.local` phone endpoints, and Android-to-Mac image clipboard sync. See the [release notes](docs/public/release-notes-0.1.1.md) and [audit evidence](docs/public/production-audit.md).
-
-The 0.1.2 source candidate adds nearby connection and optional internet sharing. See the [setup guide and hardware acceptance requirements](docs/public/direct-connectivity.md); the 0.1.1 downloads remain unchanged until the new release is accepted.
-
-### Screenshots
-
-| Phone screen on macOS | Android helper | File transfer |
-|:---:|:---:|:---:|
-| ![Phone screen on macOS](assets/screenshots/macos.png) | ![Android helper](assets/screenshots/android.png) | ![File transfer](assets/screenshots/files.png) |
+**0.1.1 is an early preview.** Requires **macOS 14+ on Apple Silicon** and a **Samsung phone with Android 12+**.
 
 ### Features
 
-- **Phone screen on your Mac:** USB or Wireless ADB mirroring with mouse and keyboard control, phone audio, and Mac-side recording. Audio availability depends on the phone and app.
-- **Phone display privacy:** enabled by default during remote use; turn it off per device to restore the previous mode. This controls the physical display, not the Android lock screen.
-- **Separate app windows:** choose a phone app in the catalog to open it in its own Mac window through ADB; compatibility depends on the Android app.
-- **Notifications:** read phone notifications and use actions or replies when Android makes them available.
-- **Clipboard:** synchronize text and copied images in both directions. Android-to-Mac polling runs through the already-authorized ADB shell; Galaxy Bridge does not install a keyboard and does not require the Share menu.
-- **Files in both directions:** resumable transfers with integrity checks; receive into Mac Downloads or the phone’s `Download/GalaxyBridge` folder.
-- **Choose your features:** saved setup choices and permissions requested for the features you select.
-- **Ready for everyday installation:** ADB is included in the Mac app; users do not need Homebrew or the Android SDK.
-- **System language:** English, Russian, German, French, Spanish, Portuguese, Arabic, Chinese (Simplified/Traditional), Japanese, and Korean, with English fallback. Translation review by native speakers is welcome.
+- Mirror the phone over USB or Wireless ADB and control it with your mouse and keyboard.
+- Open phone apps in separate Mac windows.
+- Play phone audio on the Mac and record the screen.
+- Share text and copied images through the clipboard; transfer files in both directions.
+- Read notifications and reply when the original notification supports it.
+- Keep the physical phone display off during remote use. Enabled by default; this does not lock Android.
 
-### Download and install
+The apps follow your system language, with English as a fallback. ADB is included in the Mac app.
 
-1. Download the **DMG and APK** from [release 0.1.1](https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.1).
-2. Open the DMG and drag **Galaxy Bridge** into **Applications**. Install the APK on your Android phone.
-3. Open both apps, choose the features you want, and follow pairing and permission prompts. Android requires one initial approval for USB debugging or Wireless debugging; previously paired Wi-Fi devices connect automatically when discoverable.
+### Download and start
 
-Requires **macOS 14+ on Apple Silicon** and **Android 12+**. The Mac download is ad-hoc signed and **not notarized by Apple**; see [installation and troubleshooting](docs/public/install.md) for the per-app Gatekeeper procedure. Android permissions and debugging authorization remain under your control.
+[Download DMG](https://github.com/XopMC/GalaxyBridge/releases/download/0.1.1/GalaxyBridge-0.1.1-macOS-arm64.dmg) · [Download APK](https://github.com/XopMC/GalaxyBridge/releases/download/0.1.1/GalaxyBridge-0.1.1-direct.apk) · [Release notes](docs/public/release-notes-0.1.1.md)
 
-### Build
+1. Open the DMG, drag Galaxy Bridge to **Applications**, and install the APK on your phone.
+2. Enable **USB debugging** in Android Developer options, connect a USB cable, and approve the Mac on your phone.
+3. Open the phone Helper and scan the pairing QR from the Mac app. For wireless use, follow **Wi-Fi setup** in the Mac app.
 
-The public source provides a CMake entry point for the Swift, Kotlin, and Rust components. Install the [build prerequisites](docs/public/build.md), then run:
+The Mac app is locally signed and not Apple-notarized. See the [installation guide](docs/public/install.md) for first launch and permissions.
+
+### Limitations
+
+Some apps block screen capture or audio, and app-window compatibility varies. Full SMS history, direct SMS sending and a virtual webcam are not available yet.
+
+### Build from source
+
+Install the [build prerequisites](docs/public/build.md), then run:
 
 ```sh
 cmake --preset macos-arm64-release
 cmake --build --preset macos-arm64-release --target native macos-app android-apk
 ```
 
-Use `package` for distribution artifacts. The `check` target builds native prerequisites and runs source tests without installing apps or operating a phone. See the [build guide](docs/public/build.md) for signing inputs, output paths, and validation limits.
-
-### Limitations
-
-- **Validation is still incomplete:** Wi-Fi reliability, clean-Mac installation, long runs, and the wider device matrix remain to be verified.
-- **Full SMS history/direct sending and virtual webcam activation are not included in 0.1.1.** Notification replies depend on Android exposing a reply action.
-- **Audio and app-window compatibility vary** by phone and application; some recordings contain video only.
-- **No Apple notarization:** the Mac download uses an ad-hoc signature. Intel Macs are not supported by this release.
-
 ### TODO
 
-- [ ] Complete Wi-Fi interruption/recovery and sustained-use testing.
-- [ ] Validate installation on a clean Mac without development tools and expand the device matrix.
-- [ ] Review translations with native speakers and independently validate the public source-build artifacts.
-- [ ] Implement full SMS support and finish virtual webcam distribution in future releases.
+- [ ] Simpler Wi-Fi setup and better reconnection.
+- [ ] Finish nearby connection and optional internet sharing for 0.1.2.
+- [ ] Improve app compatibility and translations.
+- [ ] Full SMS support and a virtual webcam.
 
-Follow the [roadmap](docs/public/roadmap.md) or contribute a focused test result or fix through the [contributing guide](CONTRIBUTING.md).
-
-### License and author
-
-Bug reports, focused fixes, device testing, and translation improvements are welcome. Start with [contributing](CONTRIBUTING.md), [build instructions](docs/public/build.md), or the [roadmap](docs/public/roadmap.md). Please keep personal content and credentials out of issues.
-
-Galaxy Bridge’s own code is available under the [MIT License](LICENSE). Third-party components retain their [respective licenses](third_party/LICENSES.md).
-
-Created by **Mikhail Khoroshavin ([XopMC](https://github.com/XopMC))**. Galaxy Bridge is an independent project and is not affiliated with Samsung or Apple.
-
-[Back to top](#english) · [Русский ↓](#russian)
+[Contributions](CONTRIBUTING.md), bug reports and translation fixes are welcome.
 
 ---
 
@@ -94,73 +79,57 @@ Created by **Mikhail Khoroshavin ([XopMC](https://github.com/XopMC))**. Galaxy B
 
 ## Русский
 
-### Обзор
+Galaxy Bridge связывает Samsung с Mac. Открывайте приложения телефона рядом с приложениями Mac, отвечайте на уведомления, копируйте текст и изображения, передавайте файлы между устройствами. Подключение работает локально, без аккаунта и облачного сервера.
 
-Galaxy Bridge связывает Samsung на Android с Mac: управление экраном телефона, звук, уведомления, буфер обмена и передача файлов. Всё работает локально, без аккаунта и облачного ретранслятора. Общая иконка в духе One UI и интерфейс на системном языке объединяют оба приложения.
-
-**0.1.1 — предварительный выпуск** для Mac с Apple Silicon и телефонов Samsung на Android. Исправлены падение macOS 26 при открытии QR-сопряжения, поиск `.local`-адресов телефона через Wireless ADB и передача изображений из буфера Android на Mac. Подробнее — в [заметках к выпуску](docs/public/release-notes-0.1.1.md#russian) и [результатах аудита](docs/public/production-audit.md).
-
-Кандидат 0.1.2 из исходников добавляет подключение поблизости и необязательную раздачу интернета. Настройка и условия аппаратной приёмки описаны в [руководстве](docs/public/direct-connectivity.md#russian); файлы 0.1.1 сохраняются до приёмки нового выпуска.
-
-### Скриншоты
-
-| Экран телефона на macOS | Помощник Android | Передача файлов |
-|:---:|:---:|:---:|
-| ![Экран телефона на macOS](assets/screenshots/macos.png) | ![Помощник Android](assets/screenshots/android.png) | ![Передача файлов](assets/screenshots/files.png) |
+**0.1.1 — предварительный выпуск.** Нужны **macOS 14+ на Apple Silicon** и **Samsung с Android 12+**.
 
 ### Возможности
 
-- **Экран телефона на Mac:** трансляция через USB или Wireless ADB, управление мышью и клавиатурой, звук телефона и запись на Mac. Доступность звука зависит от телефона и приложения.
-- **Выключение дисплея телефона:** включено по умолчанию во время удалённого использования; переключатель устройства возвращает прежний режим. PIN-блокировка Android не меняется.
-- **Отдельные окна приложений:** выберите приложение телефона в каталоге, чтобы открыть его в собственном окне Mac через ADB; совместимость зависит от приложения Android.
-- **Уведомления:** просмотр уведомлений телефона, действия и ответы, когда их предоставляет Android.
-- **Буфер обмена:** синхронизация текста и скопированных изображений в обе стороны. Опрос Android выполняется через уже разрешённый ADB shell; Galaxy Bridge не устанавливает клавиатуру и не требует меню «Поделиться».
-- **Файлы в обе стороны:** передача с возобновлением и проверкой целостности; полученные файлы сохраняются в «Загрузки» на Mac или `Download/GalaxyBridge` на телефоне.
-- **Выбор возможностей:** сохранение настроек и запрос разрешений для выбранных функций.
-- **Обычная установка:** ADB встроен в приложение для Mac; пользователю не нужны Homebrew и Android SDK.
-- **Системный язык:** английский, русский, немецкий, французский, испанский, португальский, арабский, китайский (упрощённый/традиционный), японский и корейский. Для остальных языков используется английский. Приветствуем проверку переводов носителями языка.
+- Трансляция экрана по USB или Wireless ADB с управлением мышью и клавиатурой.
+- Приложения телефона в отдельных окнах Mac.
+- Звук телефона на Mac и запись экрана.
+- Общий буфер для текста и скопированных изображений, передача файлов в обе стороны.
+- Просмотр уведомлений и ответы, если исходное уведомление их поддерживает.
+- Выключение физического дисплея телефона при удалённой работе. Включено по умолчанию; Android при этом не блокируется.
 
-### Скачать и установить
+Приложения используют системный язык, а если перевода нет — английский. ADB уже встроен в приложение для Mac.
 
-1. Скачайте **DMG и APK** со страницы [выпуска 0.1.1](https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.1).
-2. Откройте DMG и перенесите **Galaxy Bridge** в **«Программы»**. Установите APK на телефон.
-3. Откройте оба приложения, выберите нужные функции и следуйте подсказкам сопряжения и разрешений. Android требует один раз подтвердить отладку по USB или Wireless debugging; ранее сопряжённый Wi-Fi-телефон подключается автоматически, когда доступен в сети.
+### Скачать и запустить
 
-Требуются **macOS 14+ на Apple Silicon** и **Android 12+**. Приложение для Mac имеет локальную ad-hoc подпись и **не нотарифицировано Apple**; порядок разрешения запуска конкретного приложения описан в [инструкции](docs/public/install.md#russian). Системные разрешения Android и доступ для отладки остаются под вашим контролем.
+[Скачать DMG](https://github.com/XopMC/GalaxyBridge/releases/download/0.1.1/GalaxyBridge-0.1.1-macOS-arm64.dmg) · [Скачать APK](https://github.com/XopMC/GalaxyBridge/releases/download/0.1.1/GalaxyBridge-0.1.1-direct.apk) · [Что нового](docs/public/release-notes-0.1.1.md#russian)
 
-### Сборка
+1. Откройте DMG, перенесите Galaxy Bridge в **«Программы»** и установите APK на телефон.
+2. Включите **отладку по USB** в настройках разработчика Android, подключите кабель и подтвердите доступ для Mac на телефоне.
+3. Откройте Helper на телефоне и отсканируйте QR сопряжения из приложения Mac. Для работы без кабеля пройдите **настройку Wi-Fi** в приложении Mac.
 
-В публичных исходниках есть единая точка входа CMake для компонентов на Swift, Kotlin и Rust. Установите [зависимости](docs/public/build.md#russian), затем выполните:
+У приложения для Mac локальная подпись без нотарификации Apple. Первый запуск и разрешения описаны в [инструкции по установке](docs/public/install.md#russian).
+
+### Ограничения
+
+Некоторые приложения запрещают захват экрана или звука; работа в отдельных окнах тоже зависит от приложения. Полной истории SMS, прямой отправки SMS и виртуальной веб-камеры пока нет.
+
+### Сборка из исходников
+
+Установите [зависимости](docs/public/build.md#russian), затем выполните:
 
 ```sh
 cmake --preset macos-arm64-release
 cmake --build --preset macos-arm64-release --target native macos-app android-apk
 ```
 
-Цель `package` подготавливает установочные файлы. Цель `check` собирает необходимые нативные компоненты и запускает проверки исходников без установки приложений и действий на телефоне. [Инструкция по сборке](docs/public/build.md#russian) описывает параметры подписи, каталоги результатов и границы проверки.
-
-### Ограничения
-
-- **Проверка ещё не завершена:** предстоит подтвердить надёжность Wi-Fi, установку на чистый Mac, длительную работу и расширенную матрицу устройств.
-- **Полная история SMS, прямая отправка SMS и активация виртуальной веб-камеры не входят в 0.1.1.** Ответ на уведомление зависит от наличия действия ответа в Android.
-- **Звук и совместимость отдельных окон зависят** от телефона и приложения; некоторые записи содержат только видео.
-- **Нотарификации Apple нет:** у приложения для Mac локальная ad-hoc подпись. Intel Mac в этом выпуске не поддерживается.
-
 ### TODO
 
-- [ ] Завершить проверки обрывов и восстановления Wi-Fi, а также длительной работы.
-- [ ] Проверить установку на чистый Mac без инструментов разработчика и расширить матрицу устройств.
-- [ ] Проверить переводы с носителями языка и независимо проверить артефакты публичной сборки исходников.
-- [ ] Реализовать полноценную работу с SMS и довести распространение виртуальной веб-камеры в будущих выпусках.
+- [ ] Упростить настройку Wi-Fi и улучшить переподключение.
+- [ ] Доделать подключение поблизости и необязательную раздачу интернета для 0.1.2.
+- [ ] Улучшить совместимость приложений и переводы.
+- [ ] Добавить полноценную работу с SMS и виртуальную веб-камеру.
 
-Следите за [планами](docs/public/roadmap.md#russian) или присылайте результаты проверок и небольшие исправления по [правилам участия](CONTRIBUTING.md).
+Буду рад [участию в разработке](CONTRIBUTING.md), сообщениям об ошибках и исправлениям переводов.
 
-### Лицензия и автор
+---
 
-Будем рады сообщениям об ошибках, небольшим исправлениям, проверкам на устройствах и улучшениям переводов. Начните с [участия в разработке](CONTRIBUTING.md), [инструкции по сборке](docs/public/build.md#russian) или [планов](docs/public/roadmap.md#russian). Не добавляйте в обращения личное содержимое и секреты.
+Author / Автор: **Mikhail Khoroshavin / Михаил Хорошавин ([XopMC](https://github.com/XopMC))** · [Telegram](https://t.me/xopmc)
 
-Собственный код Galaxy Bridge распространяется по [лицензии MIT](LICENSE). Для сторонних компонентов действуют [их лицензии](third_party/LICENSES.md).
+[MIT License](LICENSE) · [Third-party licenses / Лицензии компонентов](third_party/LICENSES.md)
 
-Автор — **Михаил Хорошавин ([XopMC](https://github.com/XopMC))**. Galaxy Bridge — независимый проект, не связанный с Samsung или Apple.
-
-[К началу русского раздела](#russian) · [English ↑](#english)
+Independent project, not affiliated with Samsung or Apple. / Независимый проект, не связанный с Samsung или Apple.
