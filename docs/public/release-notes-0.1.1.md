@@ -2,7 +2,7 @@
 
 [English](#english) | [Русский](#russian) · [Download](https://github.com/XopMC/GalaxyBridge/releases/tag/0.1.1)
 
-![Phone screen and a separate Android app on Mac / Экран телефона и отдельное окно приложения на Mac](../../assets/screenshots/workspace.png)
+<p align="center"><img src="../../assets/screenshots/workspace.png" width="840" alt="Phone screen and a separate Android app on Mac / Экран телефона и отдельное окно приложения на Mac"></p>
 
 <a id="english"></a>
 

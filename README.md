@@ -32,7 +32,7 @@ Galaxy Bridge connects your Samsung phone to your Mac. Use phone apps alongside 
 
 ### Features
 
-- Mirror the phone over USB or Wireless ADB and control it with your mouse and keyboard.
+- Mirror the phone over USB or Wi-Fi and control it with your mouse and keyboard.
 - Open phone apps in separate Mac windows.
 - Play phone audio on the Mac and record the screen.
 - Share text and copied images through the clipboard; transfer files in both directions.
@@ -47,7 +47,7 @@ The apps follow your system language, with English as a fallback. ADB is include
 
 1. Open the DMG, drag Galaxy Bridge to **Applications**, and install the APK on your phone.
 2. Enable **USB debugging** in Android Developer options, connect a USB cable, and approve the Mac on your phone.
-3. Open the phone Helper and scan the pairing QR from the Mac app. For wireless use, follow **Wi-Fi setup** in the Mac app.
+3. Open Galaxy Bridge on your phone and scan the pairing QR from the Mac app. For wireless use, follow **Wi-Fi setup** in the Mac app.
 
 The Mac app is locally signed and not Apple-notarized. See the [installation guide](docs/public/install.md) for first launch and permissions.
 
@@ -67,7 +67,7 @@ cmake --build --preset macos-arm64-release --target native macos-app android-apk
 ### TODO
 
 - [ ] Simpler Wi-Fi setup and better reconnection.
-- [ ] Finish nearby connection and optional internet sharing for 0.1.2.
+- [ ] Finish connecting without a shared Wi-Fi network and sharing the phone’s internet.
 - [ ] Improve app compatibility and translations.
 - [ ] Full SMS support and a virtual webcam.
 
@@ -85,7 +85,7 @@ Galaxy Bridge связывает Samsung с Mac. Открывайте прило
 
 ### Возможности
 
-- Трансляция экрана по USB или Wireless ADB с управлением мышью и клавиатурой.
+- Трансляция экрана по USB или Wi-Fi с управлением мышью и клавиатурой.
 - Приложения телефона в отдельных окнах Mac.
 - Звук телефона на Mac и запись экрана.
 - Общий буфер для текста и скопированных изображений, передача файлов в обе стороны.
@@ -100,7 +100,7 @@ Galaxy Bridge связывает Samsung с Mac. Открывайте прило
 
 1. Откройте DMG, перенесите Galaxy Bridge в **«Программы»** и установите APK на телефон.
 2. Включите **отладку по USB** в настройках разработчика Android, подключите кабель и подтвердите доступ для Mac на телефоне.
-3. Откройте Helper на телефоне и отсканируйте QR сопряжения из приложения Mac. Для работы без кабеля пройдите **настройку Wi-Fi** в приложении Mac.
+3. Откройте Galaxy Bridge на телефоне и отсканируйте QR сопряжения из приложения Mac. Для работы без кабеля пройдите **настройку Wi-Fi** в приложении Mac.
 
 У приложения для Mac локальная подпись без нотарификации Apple. Первый запуск и разрешения описаны в [инструкции по установке](docs/public/install.md#russian).
 
@@ -120,7 +120,7 @@ cmake --build --preset macos-arm64-release --target native macos-app android-apk
 ### TODO
 
 - [ ] Упростить настройку Wi-Fi и улучшить переподключение.
-- [ ] Доделать подключение поблизости и необязательную раздачу интернета для 0.1.2.
+- [ ] Доделать подключение без общей сети Wi-Fi и режим модема.
 - [ ] Улучшить совместимость приложений и переводы.
 - [ ] Добавить полноценную работу с SMS и виртуальную веб-камеру.
 
