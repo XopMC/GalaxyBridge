@@ -117,4 +117,9 @@
     <string name="internet_sharing">Compartir Internet</string>
     <string name="internet_enable">Compartir Internet</string>
     <string name="internet_disable">Dejar de compartir Internet</string>
+    <string name="nearby_permission_required">Permite el acceso a los dispositivos cercanos en Ajustes y vuelve a intentarlo.</string>
+    <string name="nearby_starting">Iniciando la búsqueda de dispositivos cercanos…</string>
+    <string name="nearby_discovery_ready">La búsqueda de dispositivos cercanos está activada. Conéctate desde tu Mac.</string>
+    <string name="nearby_unavailable">No se pudo iniciar la búsqueda. Comprueba el Bluetooth y el acceso a los dispositivos cercanos y vuelve a intentarlo.</string>
+    <string name="qr_camera_unavailable">No se pudo iniciar la cámara. Cierra otras apps que usen la cámara y vuelve a intentarlo.</string>
 </resources>

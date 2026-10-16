@@ -26,12 +26,13 @@ class NearbyBlePeripheral(
     private val isForegroundOwner: () -> Boolean,
     private val sessionFactory: (connectionID: String) -> NearbyGattSession,
     private val onError: (String) -> Unit,
+    private val onStarted: () -> Unit = {},
 ) : AutoCloseable {
     private val context = context.applicationContext
     private val handler = Handler(Looper.getMainLooper())
     private val manager = this.context.getSystemService(BluetoothManager::class.java)
-    @Volatile var isRunningRequested: Boolean = false
-        private set
+    private val lifecycle = NearbyAdvertisingLifecycle()
+    val isRunningRequested: Boolean get() = lifecycle.isRunningRequested
     private var server: BluetoothGattServer? = null
     private var advertiseCallback: AdvertiseCallback? = null
     private var generation = 0L
@@ -47,22 +48,24 @@ class NearbyBlePeripheral(
     }
 
     fun start() {
-      isRunningRequested = true
+      // Reserve the queued start so another service refresh cannot enqueue a duplicate.
+      lifecycle.begin(available = true)
       handler.post {
-        if (!isForegroundOwner()) { isRunningRequested = false; onError("foreground_owner_required"); return@post }
+        if (!isForegroundOwner()) { lifecycle.stop(); onError("foreground_owner_required"); return@post }
         stopInternal()
-        isRunningRequested = true
         val token = ++generation
         try {
             val adapter = manager.adapter
-            if (adapter == null || !adapter.isEnabled || !adapter.isMultipleAdvertisementSupported) {
+            if (!lifecycle.begin(adapter != null && adapter.isEnabled && adapter.isMultipleAdvertisementSupported)) {
                 onError("ble_advertising_unavailable"); return@post
             }
             val callback = object : BluetoothGattServerCallback() {
                 override fun onServiceAdded(status: Int, service: BluetoothGattService) { handler.post {
                     if (token != generation) return@post
                     if (status != BluetoothGatt.GATT_SUCCESS) { onError("ble_service_failed"); stopInternal(); return@post }
-                    advertise(token)
+                    runCatching { advertise(token) }.onFailure {
+                        onError("ble_advertise_start_failed"); stopInternal()
+                    }
                 } }
                 override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) { handler.post {
                     if (token != generation) return@post
@@ -139,6 +142,9 @@ class NearbyBlePeripheral(
         val advertiser = manager.adapter?.bluetoothLeAdvertiser ?: run { onError("ble_advertising_unavailable"); stopInternal(); return }
         val hint = ByteArray(8).also(SecureRandom()::nextBytes)
         val callback = object : AdvertiseCallback() {
+            override fun onStartSuccess(settingsInEffect: AdvertiseSettings) { handler.post {
+                if (token == generation && isForegroundOwner()) onStarted()
+            } }
             override fun onStartFailure(errorCode: Int) { handler.post {
                 if (token == generation) { onError("ble_advertise_failed_$errorCode"); stopInternal() }
             } }
@@ -170,7 +176,7 @@ class NearbyBlePeripheral(
     }
     private fun removePeer(device: BluetoothDevice) { peers.remove(device)?.let { peer -> peer.expiry?.let(handler::removeCallbacks); runCatching { peer.session.close() }; peer.chunks.clear() } }
     private fun stopInternal() {
-        isRunningRequested = false
+        lifecycle.stop()
         ++generation
         advertiseCallback?.let { callback -> runCatching { manager.adapter?.bluetoothLeAdvertiser?.stopAdvertising(callback) } }
         advertiseCallback = null
@@ -178,7 +184,10 @@ class NearbyBlePeripheral(
         runCatching { server?.close() }
         server = null
     }
-    override fun close() { isRunningRequested = false; handler.post(::stopInternal) }
+    override fun close() {
+        lifecycle.stop()
+        if (Looper.myLooper() == handler.looper) stopInternal() else handler.post(::stopInternal)
+    }
     companion object {
         val SERVICE_UUID: UUID = UUID.fromString("6e5a0001-6b47-4b8f-8f41-54f4a681e602")
         val RX_UUID: UUID = UUID.fromString("6e5a0002-6b47-4b8f-8f41-54f4a681e602")

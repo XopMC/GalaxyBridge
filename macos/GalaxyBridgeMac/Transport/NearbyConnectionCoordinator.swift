@@ -117,6 +117,10 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
         beginConnect(deviceID: deviceID, automatic: false)
     }
 
+    func isConnectionRequested(deviceID: String) -> Bool {
+        requested.contains(deviceID) || autoTickets[deviceID] != nil
+    }
+
     func autoConnectIfUnassociated(deviceID: String) {
         guard location.authorizationStatus == .authorizedAlways,
               peers().contains(where: { $0.deviceID == deviceID }), !requested.contains(deviceID), autoTickets[deviceID] == nil else { return }
@@ -512,6 +516,22 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
         guard admitsTrustedSession(session) else { throw NearbyTransportFailure.authentication }
         switch envelope.payload {
         case let .directLinkStatus(status):
+            switch NearbyDirectStatusReceipt.classify(requestID: status.requestID,
+                expectedRequestID: session.confirmation?.requestID ?? session.requestID,
+                state: status.state, errorCode: status.errorCode) {
+            case .ignore: return
+            case let .failure(code):
+                // This is an authenticated rejection by the requested phone,
+                // not an unrelated BLE candidate worth probing again.
+                if let id = session.deviceID {
+                    requested.remove(id); tried.removeValue(forKey: id)
+                    targetDeadlines.removeValue(forKey: id)?.cancel()
+                }
+                // retire() remains the sole owner of any confirmation waiter.
+                fail(session, code: code)
+                return
+            case .process: break
+            }
             if let confirmation = session.confirmation {
                 guard status.requestID == confirmation.requestID else { return }
                 session.confirmation = nil; confirmation.timeout.cancel()
@@ -658,7 +678,9 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
                   try PairingTranscript.verify(signatureDER: ack.transcriptSignature,
                     transcript: PairingTranscript.makeCommitAcknowledgement(commitTranscript: transcript, commitSignature: signature),
                     publicKeyX963: staged.peer.identityPublicKey) else { throw NearbyTransportFailure.authentication }
-            session.peer = try peerStore.promote(deviceID: ack.deviceID, sessionID: offer.sessionID)
+            let promotedPeer = try peerStore.promote(deviceID: ack.deviceID, sessionID: offer.sessionID)
+            session.peer = promotedPeer
+            CompanionLifecycleEvents.pairingStored(promotedPeer)
             self.offer = nil; nearbyPairingURI = nil; offerExpiry?.cancel(); offerExpiry = nil
             onPairingCommitted(); update(session, .idle)
             // Pairing proves trust only. Creating/joining a network requires a

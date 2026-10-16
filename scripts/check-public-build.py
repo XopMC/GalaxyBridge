@@ -65,6 +65,13 @@ for script in ['test-nearby-connectivity-policy.sh', 'test-nearby-bootstrap-cryp
                'test-macos-internet-sharing-lifecycle.sh',
                'test-macos-nearby-preparation.sh', 'test-internet-tunnel-lifecycle.sh']:
     run(['bash', ROOT / 'scripts' / script])
+for script in ['test-macos-connectivity-presentation.sh', 'test-macos-nearby-status-dispatch.sh',
+               'test-macos-nearby-pairing-promotion.sh',
+               'test-macos-app-window-frame-publication.sh',
+               'test-macos-clipboard-conversion.sh',
+               'test-macos-clipboard-conversion-integration.sh',
+               'test-macos-notification-cache-maintenance.sh']:
+    run(['bash', ROOT / 'scripts' / script])
 for script in ['test-nearby-bootstrap-interop.py', 'test-network-test-guardian.py']:
     run([sys.executable, ROOT / 'scripts' / script])
 # Rust tests compile the source crates; do not depend on frozen release binaries.

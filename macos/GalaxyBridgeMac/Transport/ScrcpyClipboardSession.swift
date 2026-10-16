@@ -24,6 +24,8 @@ final class ScrcpyClipboardSession {
     }
 
     let serial: String
+    var clipboardTrustGeneration: UUID { generation }
+    var clipboardTrustPeer: PairedPeer? { shellLease?.context.peer }
     private let adb: ADBClient
     private let shellProvider: ShellCapabilityBridgeProvider?
     private var shellLease: ShellCapabilityBridgeLease?
@@ -49,7 +51,7 @@ final class ScrcpyClipboardSession {
     private(set) var usesClipboardOccurrences = false
     private var injectedEchoes = ScrcpyInjectedClipboardEchoSuppressor(capacity: 16)
 
-    var clipboardEventHandler: (@Sendable (ScrcpyClipboardUpdate) -> Void)?
+    var clipboardEventHandler: (@MainActor @Sendable (ScrcpyClipboardUpdate) -> Void)?
 
     init(
         serial: String,

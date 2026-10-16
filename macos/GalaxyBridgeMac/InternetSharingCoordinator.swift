@@ -96,23 +96,31 @@ final class InternetSharingCoordinator: ObservableObject {
     }
     func receive(_ status: GBInternetSharingStatus, deviceID: String, control: CompanionTLSClient) {
         guard let device = sessions[deviceID], device.control === control, status.leaseID == device.leaseID else { return }
-        devices[deviceID]?.upstream = status.upstream
-        devices[deviceID]?.bytesSent = status.bytesSent; devices[deviceID]?.bytesReceived = status.bytesReceived
         if status.enabled { device.timeout?.cancel(); device.timeout = nil }
         let changed = device.upstream != status.upstream
         let wasHealthy = device.healthy
+        let waitingForUpstream = status.enabled && ["no_validated_upstream", "vpn_upstream_unavailable", "upstream_binding_failed", "native_gateway_unavailable"].contains(status.errorCode)
+        var presentation = devices[deviceID] ?? .init(enabled: true, key: "INTERNET_WAITING")
+        presentation.upstream = status.upstream
+        presentation.bytesSent = status.bytesSent; presentation.bytesReceived = status.bytesReceived
+        if waitingForUpstream || changed { presentation.key = "INTERNET_WAITING" }
+        if devices[deviceID] != presentation { devices[deviceID] = presentation }
         device.upstream = status.upstream
         if changed || !status.errorCode.isEmpty {
             device.preparationGeneration = UUID(); device.preparation?.cancel(); device.preparation = nil
             device.preparingRelay?.stop(); device.preparingRelay = nil
         }
-        if status.enabled && ["no_validated_upstream", "vpn_upstream_unavailable", "upstream_binding_failed", "native_gateway_unavailable"].contains(status.errorCode) {
-            device.healthy = false; devices[deviceID]?.key = "INTERNET_WAITING"; updateHealth()
+        if waitingForUpstream {
+            device.healthy = false; updateHealth()
             if wasHealthy { scheduleRebuild() }
             return
         }
         if changed { device.healthy = false; updateHealth(); scheduleRebuild() }
-        guard status.enabled, status.errorCode.isEmpty else { fail(deviceID: deviceID, device: device, key: "INTERNET_FAILED"); return }
+        guard status.enabled, status.errorCode.isEmpty else {
+            fail(deviceID: deviceID, device: device, key: status.errorCode == "internet_sharing_not_allowed"
+                ? "INTERNET_PHONE_PERMISSION_REQUIRED" : "INTERNET_FAILED")
+            return
+        }
         guard !device.healthy, device.preparation == nil else { return }
         let preparation = UUID(); device.preparationGeneration = preparation
         device.preparation = Task { [weak self, weak device] in
@@ -171,7 +179,8 @@ final class InternetSharingCoordinator: ObservableObject {
                 return VerifiedGateway(id: id, device: device, preparation: device.preparationGeneration, relay: relay)
             }
             let fixedPeer = self.knownPeers[self.selection]
-            let desired = fixedPeer != nil && !snapshot.contains(where: { $0.device.control.peer.deviceID == fixedPeer }) ? [] : snapshot
+            let fixed = self.selection != "automatic" && self.selection != "balanced"
+            let desired = fixed && (fixedPeer == nil || !snapshot.contains(where: { $0.device.control.peer.deviceID == fixedPeer })) ? [] : snapshot
             do {
                 try Task.checkCancellation()
                 if desired.isEmpty { await self.driver.stop() }
@@ -208,11 +217,30 @@ final class InternetSharingCoordinator: ObservableObject {
             }
         }
     }
-    private func updateHealth() { driver.setHealthyPeers(Set(sessions.values.filter(\.healthy).map { $0.control.peer.deviceID })) }
+    private func updateHealth() {
+        let fixed = selection != "automatic" && selection != "balanced"
+        let healthy = sessions.values.filter { $0.healthy && (!fixed || $0.control.peer.deviceID == knownPeers[selection]) }
+        driver.setHealthyPeers(Set(healthy.map { $0.control.peer.deviceID }))
+    }
     private func updatePolicy() {
         if selection == "balanced" { driver.updatePolicy(.balanced) }
+        else if selection == "automatic" { driver.updatePolicy(.automatic) }
         else if let peer = knownPeers[selection], let slot = driver.gatewayDeviceIDs.firstIndex(where: { $0 == peer }) { driver.updatePolicy(.fixed(slot)) }
-        else { driver.updatePolicy(.automatic) }
+        else {
+            // Keep new flows and DNS closed while the selected peer has no slot.
+            // A fixed choice must never temporarily fall back to another phone.
+            driver.setHealthyPeers([]); driver.updatePolicy(.fixed(0))
+        }
+        updateHealth()
+    }
+    func isSelectableGateway(deviceID: String) -> Bool {
+        wanted.contains(deviceID) || devices[deviceID]?.enabled == true || (selection == deviceID && knownPeers[deviceID] != nil)
+    }
+    func forget(deviceID: String) {
+        disable(deviceID: deviceID)
+        knownPeers.removeValue(forKey: deviceID)
+        devices.removeValue(forKey: deviceID)
+        if selection == deviceID { selection = "automatic" }
     }
     private func fail(deviceID: String, device: Device, key: String) {
         guard sessions[deviceID] === device else { return }

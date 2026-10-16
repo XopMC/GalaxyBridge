@@ -11,7 +11,7 @@ import sys
 root, temp = map(Path, sys.argv[1:])
 source = (root / 'macos/GalaxyBridgeMac/AppModel.swift').read_text()
 start = source.index('    func canSendNotificationAction(deviceID: String)')
-end = source.index('\n#if !GALAXYBRIDGE_APP_STORE\n    func authorizeIncomingDownloads', start)
+end = source.index('\n#if !GALAXYBRIDGE_APP_STORE\n', start)
 listing_start = source.index('    func notifications(for deviceID: String)')
 listing_end = source.index('    func mutedPackages(for deviceID: String)', listing_start)
 boundaries = '''import Foundation

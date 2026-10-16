@@ -35,6 +35,7 @@ swiftc -swift-version 6 -typecheck -I "$tmp" -I "$modules" \
   "$root/macos/GalaxyBridgeMac/Transport/NearbyTransportPrimitives.swift" \
   "$root/macos/GalaxyBridgeMac/Transport/NearbyWiFiAssociation.swift" \
   "$root/macos/GalaxyBridgeMac/Transport/NearbyTLSProbe.swift" \
+  "$root/macos/GalaxyBridgeMac/Transport/CompanionLifecycleEvents.swift" \
   "$root/macos/GalaxyBridgeMac/Security/KeychainIdentityStore.swift" \
   "$root/macos/GalaxyBridgeMac/Security/PairedPeerStore.swift" \
   "$root/macos/GalaxyBridgeMac/Security/SecureRecordPersistence.swift" \

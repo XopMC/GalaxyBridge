@@ -21,6 +21,18 @@ final class ContentCacheMaintenanceCoordinator: @unchecked Sendable {
         let generation: UUID
         let revision: UInt64
     }
+    /// Pairing lifetime only. Ordinary cache mutations do not revoke this token.
+    struct ClipboardTrustToken: Equatable, Sendable {
+        let deviceID: String
+        let generation: UUID
+    }
+    private struct ClipboardTrustValidation {
+        let fingerprint: Data?
+        let identity: Data?
+        var isValidated = false
+        var evaluatedRoutes: Set<String>?
+        var approvedRoutes: Set<String> = []
+    }
     struct Restoration: Sendable {
         let token: RestoreToken
         let notifications: [CachedContentRecord]
@@ -57,6 +69,7 @@ final class ContentCacheMaintenanceCoordinator: @unchecked Sendable {
     private let automatic: Bool
     private var slots: [Key: Slot] = [:]
     private var generations: [String: UUID] = [:]
+    private var clipboardTrustValidation: [String: ClipboardTrustValidation] = [:]
     private var revisions: [String: UInt64] = [:]
     private var restores: [String: RestoreRequest] = [:]
     private var revocations: Set<String> = []
@@ -86,7 +99,9 @@ final class ContentCacheMaintenanceCoordinator: @unchecked Sendable {
     private var executingBytes = 0
     private var executingNamespace: Namespace?
 
-    init(storage: Storage? = nil, maxSlots: Int = 512, maxBytes: Int = 8 * 1024 * 1024,
+    // Keep the original 8 MiB history reserve alongside maximum-sized clipboard
+    // fanout to three phones. The mailbox remains bounded, including active IO.
+    init(storage: Storage? = nil, maxSlots: Int = 512, maxBytes: Int = 24 * 1024 * 1024,
          maxKeyBytes: Int = 1024 * 1024, retryDelays: [TimeInterval] = [1, 2, 5, 10, 30],
          automatic: Bool = true, now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          report: @escaping @Sendable (Notice) -> Void = { _ in }) {
@@ -96,11 +111,18 @@ final class ContentCacheMaintenanceCoordinator: @unchecked Sendable {
     }
 
     func remove(_ key: Key) { admit(key, payload: nil, removal: true) }
-    func store(_ key: Key, payload: Data) { admit(key, payload: payload, removal: false) }
+    func store(_ key: Key, payload: Data, clipboardTrust: ClipboardTrustToken? = nil) {
+        admit(key, payload: payload, removal: false, clipboardTrust: clipboardTrust)
+    }
 
-    private func admit(_ key: Key, payload: Data?, removal: Bool) {
+    private func admit(_ key: Key, payload: Data?, removal: Bool, clipboardTrust: ClipboardTrustToken? = nil) {
         lock.lock()
         guard !stopped, !closing else { lock.unlock(); return }
+        if let clipboardTrust,
+           clipboardTrust.deviceID != key.deviceID || generations[key.deviceID] != clipboardTrust.generation
+                || clipboardTrustValidation[key.deviceID]?.isValidated == false {
+            lock.unlock(); return
+        }
         guard !disabled.contains(key.namespace) else { lock.unlock(); return }
         if generations[key.deviceID] == nil && generations.count >= maxSlots {
             disabled.insert(key.namespace)
@@ -135,7 +157,8 @@ final class ContentCacheMaintenanceCoordinator: @unchecked Sendable {
 
     /// Called synchronously at promotion/revoke, including same-key re-pairing.
     /// An executing old mutation finishes before new writes on the serial owner.
-    func invalidateDevice(_ deviceID: String, occurrence: UUID = UUID(), revoke: Bool = false) {
+    func invalidateDevice(_ deviceID: String, occurrence: UUID = UUID(), revoke: Bool = false,
+                          clipboardFingerprint: Data? = nil, clipboardIdentity: Data? = nil) {
         lock.lock()
         guard !stopped, !closing else { lock.unlock(); return }
         if generations[deviceID] == nil && generations.count >= maxSlots {
@@ -143,6 +166,8 @@ final class ContentCacheMaintenanceCoordinator: @unchecked Sendable {
             lock.unlock(); report(Notice(namespace: .notifications, outcome: .capacity)); return
         }
         generations[deviceID] = occurrence
+        clipboardTrustValidation[deviceID] = ClipboardTrustValidation(fingerprint: revoke ? nil : clipboardFingerprint,
+            identity: revoke ? nil : clipboardIdentity)
         revisions[deviceID, default: 0] &+= 1
         slots = slots.filter { $0.key.deviceID != deviceID }
         if revoke { revocations.insert(deviceID) }
@@ -162,6 +187,52 @@ final class ContentCacheMaintenanceCoordinator: @unchecked Sendable {
     func isCurrent(_ token: RestoreToken) -> Bool {
         lock.lock(); defer { lock.unlock() }
         return currentLocked(token)
+    }
+
+    func clipboardTrustToken(deviceID: String) -> ClipboardTrustToken? {
+        lock.withLock {
+            guard !stopped, !closing, generations[deviceID] != nil || generations.count < maxSlots,
+                  clipboardTrustValidation[deviceID]?.isValidated != false else { return nil }
+            return ClipboardTrustToken(deviceID: deviceID, generation: generationLocked(deviceID))
+        }
+    }
+
+    func isCurrent(_ token: ClipboardTrustToken, routeID: String? = nil, sourceIdentity: Data? = nil) -> Bool {
+        lock.withLock {
+            guard !stopped, !closing, generations[token.deviceID] == token.generation else { return false }
+            guard let state = clipboardTrustValidation[token.deviceID] else { return true }
+            guard state.isValidated else { return false }
+            if let routeID { return state.approvedRoutes.contains(routeID) }
+            return sourceIdentity != nil && state.identity == sourceIdentity
+        }
+    }
+
+    /// Revalidation runs only after a model reconciliation and only when its
+    /// route generations changed. No keychain work is added to clipboard polls.
+    func clipboardValidationToken(deviceID: String, fingerprint: Data, routes: Set<String>) -> ClipboardTrustToken? {
+        lock.withLock {
+            guard !stopped, !closing, let state = clipboardTrustValidation[deviceID],
+                  state.fingerprint == fingerprint, state.evaluatedRoutes != routes,
+                  let generation = generations[deviceID], routes.count <= 3 else { return nil }
+            return ClipboardTrustToken(deviceID: deviceID, generation: generation)
+        }
+    }
+
+    func validateClipboardRoutes(_ token: ClipboardTrustToken, fingerprint: Data,
+                                 evaluated: Set<String>, approved: Set<String>) {
+        lock.withLock {
+            guard !stopped, !closing, generations[token.deviceID] == token.generation,
+                  var state = clipboardTrustValidation[token.deviceID], state.fingerprint == fingerprint,
+                  evaluated.count <= 3, approved.isSubset(of: evaluated) else { return }
+            state.evaluatedRoutes = evaluated
+            state.approvedRoutes = approved
+            state.isValidated = true
+            clipboardTrustValidation[token.deviceID] = state
+        }
+    }
+
+    func reevaluateClipboardRoutes(deviceID: String) {
+        lock.withLock { clipboardTrustValidation[deviceID]?.evaluatedRoutes = nil }
     }
 
     func shouldRestore(_ key: Key) -> Bool {

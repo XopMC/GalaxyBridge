@@ -23,6 +23,7 @@ enum InternetTunnelDriverState {case idle,starting,running,failed(String)}
     @Published var state=InternetTunnelDriverState.idle
     var gatewayDeviceIDs:[String?]=[nil,nil];var totalFlowStarted:[UInt64]=[0,0]
     var starts:[[String]]=[];var active:Set<String>=[];var policy:InternetGatewaySelectionPolicy = .automatic
+    var healthyPeers:Set<String>=[]
     var startGate:TestGate?;var activeStarts=0;var maximumConcurrentStarts=0;var stops=0
     init(){Self.last=self}
     func start(gatewayRelays:[PairedInternetRelay],userApproved:Bool)async throws{
@@ -39,7 +40,7 @@ enum InternetTunnelDriverState {case idle,starting,running,failed(String)}
     }
     func stop()async{stops+=1;active=[];gatewayDeviceIDs=[nil,nil];state = .idle}
     func updatePolicy(_ value:InternetGatewaySelectionPolicy){policy=value}
-    func setHealthyPeers(_ ids:Set<String>){}
+    func setHealthyPeers(_ ids:Set<String>){healthyPeers=ids}
     func uninstallHelper()async throws{}
 }
 @MainActor final class PairedInternetRelay {
@@ -76,6 +77,62 @@ enum InternetTunnelDriverState {case idle,starting,running,failed(String)}
         c.receive(status,deviceID:id,control:control)
     }
     @MainActor static func main()async throws{
+        InternetGatewayProbe.reset()
+        do {
+            let c=InternetSharingCoordinator(),a=CompanionTLSClient("A")
+            c.setEnabled(true,deviceID:"A",control:a)
+            var denied=GBInternetSharingStatus();denied.leaseID=a.sent[0].leaseID;denied.errorCode="internet_sharing_not_allowed"
+            c.receive(denied,deviceID:"A",control:a)
+            precondition(c.devices["A"]?.key == "INTERNET_PHONE_PERMISSION_REQUIRED" && c.devices["A"]?.enabled == false,
+                "Denied phone consent must explain how to recover instead of reporting a generic gateway failure")
+            precondition(a.sent.last?.enabled == false && a.sent.last?.leaseID == denied.leaseID,
+                "Consent denial must retire the exact gateway lease")
+            await c.stop()
+        }
+        InternetGatewayProbe.reset()
+        do {
+            let c=InternetSharingCoordinator(),a=CompanionTLSClient("A")
+            c.setEnabled(true,deviceID:"A",control:a);ready(c,a,id:"A");await settle(100)
+            c.selection="never-enabled-B"
+            precondition(InternetTunnelDriver.last.policy != .automatic && InternetTunnelDriver.last.healthyPeers.isEmpty,
+                "An unresolved fixed phone must close new flows immediately, before asynchronous tunnel retirement")
+            await settle(100)
+            precondition(InternetTunnelDriver.last.active.isEmpty,
+                "An unresolved fixed phone must fail closed instead of routing through another phone")
+            await c.stop()
+        }
+        InternetGatewayProbe.reset()
+        do {
+            let c=InternetSharingCoordinator(),a=CompanionTLSClient("A"),b=CompanionTLSClient("B")
+            precondition(!c.isSelectableGateway(deviceID:"A"),"Never-enabled phones must not appear as usable fixed gateways")
+            c.setEnabled(true,deviceID:"A",control:a);c.setEnabled(true,deviceID:"B",control:b)
+            ready(c,a,id:"A");ready(c,b,id:"B");await settle(100)
+            precondition(c.isSelectableGateway(deviceID:"A") && c.isSelectableGateway(deviceID:"B"))
+            c.selection="A";await settle(100)
+            precondition(InternetTunnelDriver.last.healthyPeers == ["A"],"Fixed policy must constrain DNS and new-flow health to the selected phone")
+            c.forget(deviceID:"A");await settle(100)
+            precondition(c.selection == "automatic" && c.devices["A"] == nil && !c.isSelectableGateway(deviceID:"A"))
+            precondition(InternetTunnelDriver.last.active == ["B"] && c.devices["B"]?.key == "INTERNET_READY",
+                "Forgetting the fixed phone must leave a valid policy and usable sharing through the remaining phone")
+            await c.stop()
+        }
+        InternetGatewayProbe.reset()
+        do {
+            let c=InternetSharingCoordinator(),a=CompanionTLSClient("A")
+            c.setEnabled(true,deviceID:"A",control:a);ready(c,a,id:"A");await settle(100)
+            var publications=0
+            let observation=c.$devices.dropFirst().sink { _ in publications += 1 }
+            var status=GBInternetSharingStatus();status.enabled=true;status.leaseID=a.sent[0].leaseID
+            status.upstream="wifi";status.bytesSent=17;status.bytesReceived=29
+            c.receive(status,deviceID:"A",control:a)
+            precondition(publications == 1,"One status must publish its upstream and both counters as one presentation")
+            c.receive(status,deviceID:"A",control:a)
+            precondition(publications == 1,"An unchanged heartbeat must not invalidate the device workspace")
+            status.upstream="cellular";c.receive(status,deviceID:"A",control:a)
+            precondition(c.devices["A"]?.key == "INTERNET_WAITING",
+                "Changing upstream must withdraw readiness until fresh probes complete")
+            observation.cancel();await c.stop()
+        }
         InternetGatewayProbe.reset()
         do {
             let c=InternetSharingCoordinator(),control=CompanionTLSClient("vpn-phone")
@@ -156,6 +213,6 @@ enum InternetTunnelDriverState {case idle,starting,running,failed(String)}
             precondition(c.devices["A"]?.key != "INTERNET_READY","HTTPS success without a native TUN flow increase must not claim tunnel acceptance")
             await c.stop()
         }
-        print("PASS actual internet coordinator: intent/handoff/offline stop, serialized two-peer probes, verified-only topology, stable fixed slots, stale failure fence, default-route native-flow proof")
+        print("PASS actual internet coordinator: phone-consent guidance/lease cleanup, fail-closed fixed selection, selected-peer forget, coalesced heartbeat presentation, intent/handoff/offline stop, serialized two-peer probes, verified-only topology, stable fixed slots, stale failure fence, default-route native-flow proof")
     }
 }

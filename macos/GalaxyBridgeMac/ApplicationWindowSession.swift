@@ -68,8 +68,9 @@ final class ApplicationWindowSession: ObservableObject {
             self.handlePresentation(.controlReady)
             self.deliverResize(self.resizeDeliveryState.controlBecameReady())
         }
-        scrcpy.clipboardEventHandler = { update in
-            Task { @MainActor in clipboardEventHandler(update) }
+        scrcpy.clipboardEventHandler = { [weak self] update in
+            guard let self, !self.closed else { return }
+            clipboardEventHandler(update)
         }
         scrcpy.ownedDecodedFrameHandler = { [weak self] frame in
             guard let self, !self.closed, frame.isAdmitted else {
@@ -79,7 +80,7 @@ final class ApplicationWindowSession: ObservableObject {
             if let frameAspectRatio = ApplicationWindowVideoGeometry.aspectRatio(
                 pixelWidth: CVPixelBufferGetWidth(frame.pixelBuffer),
                 pixelHeight: CVPixelBufferGetHeight(frame.pixelBuffer)
-            ) {
+            ), frameAspectRatio != self.aspectRatio {
                 self.aspectRatio = frameAspectRatio
             }
             self.surface.present(frame.pixelBuffer, presentationTime: frame.presentationTime,

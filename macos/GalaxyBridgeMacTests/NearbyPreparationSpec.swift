@@ -1,9 +1,10 @@
 import Foundation
+import Combine
 
 private enum SpecFailure: Error { case failed(String) }
 enum ShellCapabilityBridgeFailure: Error { case unavailable, operationFailed }
-struct DeviceRow { var id = "device:phone"; var adbSerial: String? = "verified-usb" }
-struct CompanionControl { let peer = "paired-phone" }
+struct DeviceRow { var id = "device:phone"; var adbSerial: String? = "verified-usb"; var isReady = true }
+struct CompanionControl { let peer = "paired-phone"; var authenticatedSessionID = "session"; var supportsShellBridge = true }
 struct ADBClient {}
 @MainActor struct ADBBindingStore {
     static var verified = true
@@ -27,9 +28,15 @@ struct ADBClient {}
 }
 @MainActor final class Provider {
     var refreshResults = [false, true]
-    func refresh() async -> Bool { refreshResults.isEmpty ? false : refreshResults.removeFirst() }
+    var refreshCalls = 0
+    func refresh() async -> Bool { refreshCalls += 1; return refreshResults.isEmpty ? false : refreshResults.removeFirst() }
 }
 @MainActor final class EventLog { var values: [String] = [] }
+@MainActor final class PreparationGate {
+    private var waiter: CheckedContinuation<Void, Never>?
+    func wait() async { await withCheckedContinuation { waiter = $0 } }
+    func release() { waiter?.resume(); waiter = nil }
+}
 @MainActor final class NearbyConnection {
     let log: EventLog
     var connections: [String] = []
@@ -43,9 +50,11 @@ struct ADBClient {}
     let log: EventLog
     var settled = true
     var suspendCalls = 0
+    var gate: PreparationGate?
     init(log: EventLog) { self.log = log }
     func suspendForRouteChange(deviceID: String) async -> Suspension {
         suspendCalls += 1; log.values.append("suspend")
+        if let gate { await gate.wait() }
         return Suspension(windows: [.init()], settled: settled)
     }
     func resumeAfterRouteChange(_ windows: [RouteResume], device: DeviceRow, model: AppModel) { log.values.append("resume") }
@@ -63,11 +72,11 @@ struct ADBClient {}
     func waitForSettlement(deviceID: String) async { log.values.append("privacy-settle") }
     func status(deviceID: String) -> Status { fails ? .failed : .idle }
 }
-@MainActor final class AppModel {
+@MainActor final class AppModel: ObservableObject {
     struct TerminationAdmission { var admitsWork = true }
     let log = EventLog()
     var terminationAdmission = TerminationAdmission()
-    var nearbyPreparationTasks: [String: Task<Void, Never>] = [:]
+    // ACTUAL_PREPARATION_TASK_STORAGE
     var nearbyPreparationTickets: [String: UUID] = [:]
     var preparingDirectDevices = Set<String>()
     var requestedDirectDevices = Set<String>()
@@ -79,21 +88,32 @@ struct ADBClient {}
     var clipboardSessions: [String: ClipboardSession] = [:]
     var device = DeviceRow()
     var provider: Provider? = Provider()
+    var control: CompanionControl? = .init()
+    var devices: [DeviceRow] { [device] }
+    var shellProbeTasks: [String: Task<Void, Never>] = [:]
+    var shellProbeSessions: [String: String] = [:]
     var lastError: String?
     lazy var nearbyConnection = NearbyConnection(log: log)
     lazy var applicationWindowCoordinator: ApplicationWindowCoordinator? = ApplicationWindowCoordinator(log: log)
     lazy var phoneDisplayPrivacy = PhoneDisplayPrivacy(log: log)
     func row(id: String) -> DeviceRow? { device }
     func shellBridgeProvider(deviceID: String) -> Provider? { provider }
-    func companionControl(for deviceID: String) -> CompanionControl? { .init() }
+    func companionControl(for deviceID: String) -> CompanionControl? { control }
+    func canConnectNearby(deviceID: String) -> Bool { true }
+    func nearbyAutoConnect(deviceID: String) -> Bool { false }
     func reconcileEnhancedClipboardSessions() {}
     func reconcilePhoneDisplayPrivacyRoutes() {}
     func ensureEnhancedSessionForPrimaryDemand(for device: DeviceRow) {}
+    func reconcileEnhancedPrimaryRoutes() {}
+    func loadApplicationCatalog(deviceID: String, force: Bool) {}
     func retireEnhancedScreenSession(deviceID: String) { log.values.append("screen-retire") }
     func begin(automatic: Bool, connect: Bool) {
         prepareNearbyConnection(deviceID: "device:phone", automatic: automatic, connectAfterPreparation: connect)
     }
+    func probe() { reconcileShellCapabilities() }
     // ACTUAL_NEARBY_PREPARATION
+    // ACTUAL_PREPARATION_PRESENTATION
+    // ACTUAL_SHELL_RECONCILIATION
 }
 private extension String {
     func removingPrefix(_ prefix: String) -> String? { hasPrefix(prefix) ? String(dropFirst(prefix.count)) : nil }
@@ -114,6 +134,35 @@ private extension String {
         ShellCapabilityBridgeActivation.calls = 0
     }
     @MainActor static func main() async throws {
+        reset()
+        let oldHelper = AppModel(); oldHelper.control?.supportsShellBridge = false
+        oldHelper.probe()
+        await oldHelper.shellProbeTasks["device:phone"]?.value
+        try expect(oldHelper.provider?.refreshCalls == 0,
+            "An old Helper without negotiated shell protocol must not receive unsolicited STATUS requests")
+
+        reset()
+        let preparing = AppModel(), gate = PreparationGate()
+        preparing.provider?.refreshResults = [true]
+        preparing.applicationWindowCoordinator?.gate = gate
+        preparing.clipboardSessions["device:phone"] = ClipboardSession(log: preparing.log)
+        var publications = 0
+        let observation = preparing.objectWillChange.sink { publications += 1 }
+        preparing.begin(automatic: false, connect: true)
+        let work = preparing.nearbyPreparationTasks["device:phone"]
+        for _ in 0..<40 { await Task.yield() }
+        try expect(preparing.nearbyIsPreparing(deviceID: "phone") && publications > 0,
+            "Preparation must publish a cancelable state before Bluetooth begins")
+        work?.cancel()
+        try expect(preparing.nearbyIsPreparing(deviceID: "device:phone"),
+            "Cancellation must retain admission until suspended owners settle")
+        gate.release(); await work?.value
+        try expect(!preparing.nearbyIsPreparing(deviceID: "phone") && publications >= 2,
+            "Settlement must publish the end of preparation")
+        try expect(preparing.log.values == ["suspend", "screen-retire", "clipboard-stop", "privacy-settle", "resume"],
+            "Cancellation must settle and restore advanced owners without starting Bluetooth")
+        observation.cancel()
+
         reset()
         ShellCapabilityBridgeActivation.outcome = .failure
         let failedActivation = AppModel()
@@ -165,6 +214,6 @@ private extension String {
             "Privacy retirement failure must remain terminal instead of entering basic fallback")
         try expect(privacyFailure.nearbyPreparationTasks.isEmpty && privacyFailure.preparingDirectDevices.isEmpty,
             "Failure must retire its preparation admission")
-        print("PASS actual nearby preparation: optional activation/refresh/authority failure fallback, cancellation, preparation-only mode, ordered owner migration and terminal settlement failures; no ADB or network")
+        print("PASS actual nearby preparation: old-Helper probe gate, published pre-BLE cancellation/owner settlement, optional activation/refresh/authority failure fallback, preparation-only mode, ordered owner migration and terminal settlement failures; no ADB or network")
     }
 }

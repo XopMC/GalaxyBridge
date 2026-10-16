@@ -29,6 +29,21 @@ struct NearbyLeaseReceipt {
     }
 }
 
+/// Used only after AEAD, envelope identity and current trust validation.
+enum NearbyDirectStatusReceipt {
+    enum Outcome: Equatable { case ignore, process, failure(String) }
+    static func classify(requestID: String, expectedRequestID: String, state: String, errorCode: String) -> Outcome {
+        guard !expectedRequestID.isEmpty, requestID == expectedRequestID else { return .ignore }
+        guard state == "failed", !errorCode.isEmpty else { return .process }
+        let bytes = errorCode.utf8
+        guard bytes.count <= 128, let first = bytes.first, (97...122).contains(first),
+              bytes.allSatisfy({ (97...122).contains($0) || (48...57).contains($0) || $0 == 95 }) else {
+            return .failure("nearby_request_failed")
+        }
+        return .failure(errorCode)
+    }
+}
+
 struct NearbyLeaseRenewalState {
     private var lastConfirmed: ContinuousClock.Instant
     init(confirmedAt: ContinuousClock.Instant) { lastConfirmed = confirmedAt }

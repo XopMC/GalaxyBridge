@@ -30,13 +30,18 @@ enum MacClipboardPayloadPolicy {
         "com.agilebits.onepassword.private",
     ]
 
+    static func isEligible(pasteboardTypes: [String], hasDestination: Bool) -> Bool {
+        guard hasDestination else { return false }
+        let normalizedTypes = Set(pasteboardTypes.map { $0.lowercased() })
+        return excludedPasteboardTypes.isDisjoint(with: normalizedTypes)
+    }
+
     static func candidate(
         pasteboardTypes: [String],
         text: String?,
         png: Data?
     ) -> MacClipboardPayloadCandidate? {
-        let normalizedTypes = Set(pasteboardTypes.map { $0.lowercased() })
-        guard excludedPasteboardTypes.isDisjoint(with: normalizedTypes) else { return nil }
+        guard isEligible(pasteboardTypes: pasteboardTypes, hasDestination: true) else { return nil }
 
         if let png {
             guard !png.isEmpty, png.count <= maximumImageBytes else { return nil }

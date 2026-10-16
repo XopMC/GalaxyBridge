@@ -139,7 +139,7 @@ final class AppModel: ObservableObject {
     private var shellPreferredDevices = Set<String>()
     private var requestedDirectDevices = Set<String>()
     private var preparingDirectDevices = Set<String>()
-    private var nearbyPreparationTasks: [String: Task<Void, Never>] = [:]
+    @Published private var nearbyPreparationTasks: [String: Task<Void, Never>] = [:]
     private var nearbyPreparationTickets: [String: UUID] = [:]
     private struct NearbyReleasePending {
         let receipt: NearbyLeaseReceipt
@@ -223,8 +223,11 @@ final class AppModel: ObservableObject {
     private var clipboardHub = ClipboardHubState()
     private var seenClipboardChangeIDs = Set<String>()
     private var lastPasteboardChangeCount = NSPasteboard.general.changeCount
+    private var clipboardPasteboard: NSPasteboard { .general }
+    private let clipboardConversion = MacClipboardConversionWorker()
 #if !GALAXYBRIDGE_APP_STORE
     private var clipboardSequence: UInt64 = 1
+    private var clipboardVerifiedADBIdentities: [String: Data] = [:]
 #endif
     private var pendingTransfers: [String: OutgoingFileTransfer] = [:]
     private let outgoingFileStore = OutgoingFileTransferStore()
@@ -257,8 +260,6 @@ final class AppModel: ObservableObject {
         }
     })
 #endif
-    private var contentCache: EncryptedContentCache?
-    private var contentCacheLastInitializationAttempt: Date?
     private var restoredCacheDeviceIDs = Set<String>()
     private lazy var cacheMaintenance = ContentCacheMaintenanceCoordinator(report: { [weak self] notice in
         guard notice.outcome != .durable else { return }
@@ -311,6 +312,27 @@ final class AppModel: ObservableObject {
     private(set) lazy var internetSharing = InternetSharingCoordinator()
 
     @Published var isNearbyPairingPresented = false
+    func nearbyIsPreparing(deviceID: String) -> Bool {
+        let id = deviceID.hasPrefix("device:") ? deviceID : "device:" + deviceID
+        return nearbyPreparationTasks[id] != nil
+    }
+    func nearbyConnectionHint(deviceID: String) -> String? {
+        guard let id = companionID(for: deviceID), companionStates[id] == .connected,
+              let control = companionClients[id]?.control else { return nil }
+        return control.connectivityCapabilities.nearbyConnectionHint
+    }
+    func canConnectNearby(deviceID: String) -> Bool {
+        canRevokePairing(deviceID: deviceID) && nearbyConnectionHint(deviceID: deviceID) == nil
+    }
+    func internetSharingAvailabilityKey(deviceID: String) -> String? {
+        guard let id = companionID(for: deviceID), companionStates[id] == .connected,
+              let control = companionClients[id]?.control else { return "INTERNET_PHONE_OFFLINE" }
+        return control.connectivityCapabilities.internetSharingAvailabilityKey
+    }
+    private func nearbyPairingCommitted() {
+        isNearbyPairingPresented = false
+        mergeDevices()
+    }
     @Published private var nearbyAutoPreferences = (UserDefaults.standard.dictionary(forKey: "NearbyAutoConnectByDevice") as? [String: Bool]) ?? [:]
     func nearbyAutoConnect(deviceID: String) -> Bool { nearbyAutoPreferences[deviceID] ?? false }
     func setNearbyAutoConnect(_ enabled: Bool, deviceID: String) {
@@ -331,7 +353,7 @@ final class AppModel: ObservableObject {
     private(set) lazy var nearbyConnection: NearbyConnectionCoordinator = NearbyConnectionCoordinator(
         peers: { (try? PairedPeerStore().peers()) ?? [] },
         onDescriptor: { [weak self] descriptor in self?.acceptNearbyDescriptor(descriptor) },
-        onPairingCommitted: { [weak self] in self?.mergeDevices() },
+        onPairingCommitted: { [weak self] in self?.nearbyPairingCommitted() },
         onReleaseLease: { [weak self] deviceID, leaseID in
             guard let self else { return false }
             let released = await self.exchangeNearbyLease(deviceID: deviceID, leaseID: leaseID, confirmed: false)
@@ -429,7 +451,7 @@ final class AppModel: ObservableObject {
 
     func shellBridgeProvider(deviceID: String) -> ShellCapabilityBridgeProvider? {
         if let existing = shellProviders[deviceID] { return existing }
-        guard companionControl(for: deviceID) != nil else { return nil }
+        guard companionControl(for: deviceID)?.supportsShellBridge == true else { return nil }
         let hostID = UserDefaults.standard.string(forKey: "com.xopmc.GalaxyBridge.host-id") ?? ""
         let provider = ShellCapabilityBridgeProvider(hostID: hostID, control: { [weak self] in self?.companionControl(for: deviceID) })
         shellProviders[deviceID] = provider
@@ -455,7 +477,7 @@ final class AppModel: ObservableObject {
     }
     private func prepareNearbyConnection(deviceID: String, automatic: Bool, connectAfterPreparation: Bool = true) {
         let id = deviceID.hasPrefix("device:") ? deviceID : "device:" + deviceID
-        guard terminationAdmission.admitsWork, nearbyPreparationTasks[id] == nil else { return }
+        guard terminationAdmission.admitsWork, nearbyPreparationTasks[id] == nil, canConnectNearby(deviceID: id) else { return }
         let ticket = UUID(); nearbyPreparationTickets[id] = ticket
         requestedDirectDevices.insert(id)
         nearbyPreparationTasks[id] = Task { [weak self] in
@@ -546,7 +568,8 @@ final class AppModel: ObservableObject {
     private func reconcileShellCapabilities() {
         guard terminationAdmission.admitsWork else { return }
         for device in devices where device.isReady {
-            guard let control = companionControl(for: device.id), let provider = shellBridgeProvider(deviceID: device.id),
+            guard let control = companionControl(for: device.id), control.supportsShellBridge,
+                  let provider = shellBridgeProvider(deviceID: device.id),
                   shellProbeTasks[device.id] == nil else { continue }
             let key = control.authenticatedSessionID + "|" + (device.adbSerial ?? "")
             guard shellProbeSessions[device.id] != key else { continue }
@@ -601,7 +624,11 @@ final class AppModel: ObservableObject {
             .sink { [cacheMaintenance] event in
                 guard let peer = event.object as? PairedPeer,
                       let occurrence = event.userInfo?["cachePromotionOccurrence"] as? UUID else { return }
-                cacheMaintenance.invalidateDevice("device:\(peer.deviceID)", occurrence: occurrence)
+                let fingerprint = OutgoingFileTransferStore.peerFingerprint(identityKey: peer.identityPublicKey,
+                    tlsFingerprint: peer.tlsCertificateSHA256, pairedAt: peer.pairedAt)
+                cacheMaintenance.invalidateDevice("device:\(peer.deviceID)", occurrence: occurrence,
+                    clipboardFingerprint: fingerprint, clipboardIdentity: ClipboardPeerIdentity.fingerprint(
+                        publicKey: peer.identityPublicKey, tlsFingerprint: peer.tlsCertificateSHA256))
             }
             .store(in: &cancellables)
         companionConnectionBootstrap = CompanionConnectionBootstrap { [weak self] peer in
@@ -864,6 +891,7 @@ final class AppModel: ObservableObject {
 
     func shutdownForApplicationTermination() async {
         guard terminationAdmission.begin() else { return }
+        clipboardConversion.stop()
 #if !GALAXYBRIDGE_APP_STORE
         for task in nearbyPreparationTasks.values { task.cancel() }
         for task in shellProbeTasks.values { task.cancel() }
@@ -967,7 +995,8 @@ final class AppModel: ObservableObject {
     func revokePairing(deviceID: String) {
         guard let peerID = deviceID.removingPrefix("device:") else { return }
 #if !GALAXYBRIDGE_APP_STORE
-        internetSharing.disable(deviceID: deviceID)
+        nearbyPreparationTasks[deviceID]?.cancel()
+        internetSharing.forget(deviceID: deviceID)
         nearbyConnection.revoke(deviceID: peerID)
         nearbyDirectEndpoints.removeValue(forKey: peerID)
         nearbyAutoPreferences.removeValue(forKey: deviceID)
@@ -1317,7 +1346,18 @@ final class AppModel: ObservableObject {
         lastError = message
     }
 
-    func acceptEnhancedClipboard(deviceID: String, changeID: String, content: Data) {
+    func enhancedClipboardIdentity(deviceID: String, serial: String) -> Data? {
+#if !GALAXYBRIDGE_APP_STORE
+        if serial.hasPrefix("shell:"), let peer = companionControl(for: deviceID)?.peer {
+            return ClipboardPeerIdentity.fingerprint(publicKey: peer.identityPublicKey, tlsFingerprint: peer.tlsCertificateSHA256)
+        }
+        return clipboardVerifiedADBIdentities[serial]
+#else
+        return nil
+#endif
+    }
+
+    func acceptEnhancedClipboard(deviceID: String, changeID: String, content: Data, sourceIdentity: Data? = nil) {
 #if !GALAXYBRIDGE_APP_STORE
         guard clipboardSessions[deviceID]?.usesClipboardOccurrences != true else { return }
 #endif
@@ -1326,7 +1366,8 @@ final class AppModel: ObservableObject {
             changeID: changeID,
             kind: .text,
             content: content,
-            sensitive: false
+            sensitive: false,
+            sourceIdentity: sourceIdentity
         )
     }
 
@@ -1377,17 +1418,11 @@ final class AppModel: ObservableObject {
             var subscriptions = Set<AnyCancellable>()
             bindEnhancedNativeFrames(session, deviceID: device.id)
             session.clipboardEventHandler = { [weak self, weak session] update in
-                Task { @MainActor in
-                    guard let self, let session, let targetID = self.activeEnhancedDeviceID(session) else { return }
-                    guard self.clipboardSessions[targetID]?.usesClipboardOccurrences != true else { return }
-                    self.acceptRemoteClipboard(
-                        deviceID: targetID,
-                        changeID: update.changeID,
-                        kind: update.kind == .png ? .png : .text,
-                        content: update.content,
-                        sensitive: false
-                    )
-                }
+                guard let self, let session, let targetID = self.activeEnhancedDeviceID(session) else { return }
+                guard self.clipboardSessions[targetID]?.usesClipboardOccurrences != true else { return }
+                self.acceptRemoteClipboard(deviceID: targetID, changeID: update.changeID,
+                    kind: update.kind == .png ? .png : .text, content: update.content, sensitive: false,
+                    sourceRouteID: "screen:" + session.clipboardTrustGeneration.uuidString)
             }
             session.$state.sink { [weak self, weak session] state in
                 guard let self, let session, let targetID = self.activeEnhancedDeviceID(session) else { return }
@@ -1416,6 +1451,7 @@ final class AppModel: ObservableObject {
                     self.releasePrimaryPhonePrivacy(session)
                     self.videoSurfaces[targetID]?.clearFrame()
                 case .streaming:
+                    if serial.hasPrefix("shell:") { self.cacheMaintenance.reevaluateClipboardRoutes(deviceID: targetID) }
                     self.enhancedReconnectAttempts[targetID] = 0
                     self.enhancedReconnectTasks.removeValue(forKey: targetID)?.cancel()
                     self.detachGamepads(from: targetID)
@@ -2491,6 +2527,8 @@ final class AppModel: ObservableObject {
     }
 
 #if !GALAXYBRIDGE_APP_STORE
+    var hasIncomingDownloadsSelection: Bool { incomingDownloadsAccess.hasSelection }
+
     func authorizeIncomingDownloads() {
         guard terminationAdmission.admitsWork else { return }
         let panel = NSOpenPanel()
@@ -2502,6 +2540,7 @@ final class AppModel: ObservableObject {
         panel.message = String(localized: "FILES_RECEIVE_AUTHORIZE_HINT")
         guard panel.runModal() == .OK, let url = panel.url, terminationAdmission.admitsWork else { return }
         do {
+            objectWillChange.send()
             try incomingDownloadsAccess.grant(url)
             lastError = nil
         } catch {
@@ -2859,20 +2898,6 @@ final class AppModel: ObservableObject {
         do { try control.sendCall(call) } catch { lastError = error.localizedDescription }
     }
 
-    /// Re-attempts creation after a temporarily locked Keychain, while avoiding
-    /// a tight retry loop from Bonjour and pasteboard updates.
-    private func availableContentCache(now: Date = Date()) -> EncryptedContentCache? {
-        if let contentCache { return contentCache }
-        if let lastAttempt = contentCacheLastInitializationAttempt,
-           now.timeIntervalSince(lastAttempt) < 5 {
-            return nil
-        }
-        contentCacheLastInitializationAttempt = now
-        let cache = try? EncryptedContentCache()
-        contentCache = cache
-        return cache
-    }
-
     /// Restores history only for identities that are still paired. Restored
     /// clipboard records seed loop suppression but never overwrite the user's
     /// current Mac pasteboard or emit a companion message.
@@ -3025,6 +3050,7 @@ final class AppModel: ObservableObject {
         }
 #if !GALAXYBRIDGE_APP_STORE
         let bindingStore = ADBBindingStore()
+        clipboardVerifiedADBIdentities.removeAll(keepingCapacity: true)
         var qaSelectedLogicalID: String?
         for adbRow in adbRows {
             let serial = adbRow.adbSerial
@@ -3037,6 +3063,10 @@ final class AppModel: ObservableObject {
                 guard let serial, let persistedPeer else { return false }
                 return bindingStore.isVerified(serial: serial, peer: persistedPeer)
             }()
+            if hasPersistentlyVerifiedBinding, let serial, let persistedPeer {
+                clipboardVerifiedADBIdentities[serial] = ClipboardPeerIdentity.fingerprint(publicKey: persistedPeer.identityPublicKey,
+                    tlsFingerprint: persistedPeer.tlsCertificateSHA256)
+            }
             let matchingPeers = peers.filter { peer in
                 rowsByID["device:\(peer.deviceID)"] != nil &&
                     ADBDeviceNameMatching.matches(model: adbRow.name, companionName: peer.displayName)
@@ -3123,6 +3153,7 @@ final class AppModel: ObservableObject {
         reconcilePhoneDisplayPrivacyRoutes()
         reconcileShellCapabilities()
 #endif
+        revalidateClipboardTrust(for: peers)
     }
 
 #if !GALAXYBRIDGE_APP_STORE
@@ -3217,22 +3248,18 @@ final class AppModel: ObservableObject {
                 else { return }
                 self.clipboardReconnectTasks.removeValue(forKey: deviceID)?.cancel()
                 self.clipboardReconnectAttempts[deviceID] = 0
+                self.cacheMaintenance.reevaluateClipboardRoutes(deviceID: deviceID)
+                self.revalidateClipboardTrust(for: self.companionConnectionBootstrap?.peers(merging: []) ?? [])
             },
             failureHandler: { [weak self] failedSerial in
                 self?.handleEnhancedClipboardFailure(deviceID: deviceID, serial: failedSerial)
             }, shellProvider: serial.hasPrefix("shell:") ? shellProviders[deviceID] : nil
         )
         session.clipboardEventHandler = { [weak self, weak session] update in
-            Task { @MainActor in
-                guard let self, let session, self.clipboardSessions[deviceID] === session else { return }
-                self.acceptRemoteClipboard(
-                    deviceID: deviceID,
-                    changeID: update.changeID,
-                    kind: update.kind == .png ? .png : .text,
-                    content: update.content,
-                    sensitive: false
-                )
-            }
+            guard let self, let session, self.clipboardSessions[deviceID] === session else { return }
+            self.acceptRemoteClipboard(deviceID: deviceID, changeID: update.changeID,
+                kind: update.kind == .png ? .png : .text, content: update.content, sensitive: false,
+                sourceRouteID: "clipboard:" + session.clipboardTrustGeneration.uuidString)
         }
         clipboardSessions[deviceID] = session
         session.start()
@@ -4247,13 +4274,10 @@ final class AppModel: ObservableObject {
             // or mirror-control notification must not become a second writer.
             guard clipboardSessions[deviceID]?.usesClipboardOccurrences != true else { return }
 #endif
-            acceptRemoteClipboard(
-                deviceID: deviceID,
-                changeID: update.changeID,
-                kind: update.kind,
-                content: update.content,
-                sensitive: update.sensitive
-            )
+            guard let control = companionClients[companionID]?.control else { return }
+            acceptRemoteClipboard(deviceID: deviceID, changeID: update.changeID, kind: update.kind,
+                content: update.content, sensitive: update.sensitive,
+                sourceRouteID: "control:" + control.authenticatedSessionID)
         case let .capabilityUpdate(update):
 #if !GALAXYBRIDGE_APP_STORE
             if let control = companionClients[companionID]?.control {
@@ -4262,6 +4286,9 @@ final class AppModel: ObservableObject {
 #endif
             availableCapabilitiesByDevice[deviceID] = Set(update.available.compactMap(Self.capabilityCode))
             capabilityReasonsByDevice[deviceID] = update.unavailableReasons
+#if !GALAXYBRIDGE_APP_STORE
+            reconcileShellCapabilities()
+#endif
         case let .smsEvent(sms):
             var rows = smsByDevice[deviceID, default: []]
             rows.removeAll { $0.id == sms.messageID }
@@ -4387,6 +4414,7 @@ final class AppModel: ObservableObject {
         validatedWirelessSerials.insert(record.adbSerial)
         let oldID = "adb:\(record.adbSerial)"
         let newID = "device:\(record.deviceID)"
+        cacheMaintenance.reevaluateClipboardRoutes(deviceID: newID)
         guard oldID != newID else { return }
         migratePhoneDisplayPrivacy(from: oldID, to: newID)
         if let surface = videoSurfaces.removeValue(forKey: oldID), videoSurfaces[newID] == nil { videoSurfaces[newID] = surface }
@@ -4440,9 +4468,13 @@ final class AppModel: ObservableObject {
         changeID: String,
         kind: GBClipboardKind,
         content: Data,
-        sensitive: Bool
+        sensitive: Bool,
+        sourceRouteID: String? = nil,
+        sourceIdentity: Data? = nil
     ) {
-        guard terminationAdmission.admitsWork, row(id: deviceID) != nil, !sensitive else { return }
+        guard terminationAdmission.admitsWork, row(id: deviceID) != nil, !sensitive,
+              let trust = cacheMaintenance.clipboardTrustToken(deviceID: deviceID),
+              cacheMaintenance.isCurrent(trust, routeID: sourceRouteID, sourceIdentity: sourceIdentity) else { return }
         // Cached change IDs survive process restarts. Consult them before the
         // process-local hub so a reconnect cannot replay an old phone write
         // into the Mac pasteboard or fan it out to the other Galaxy devices.
@@ -4452,6 +4484,9 @@ final class AppModel: ObservableObject {
             changeID: changeID
         )
         guard case let .accept(revision) = decision else { return }
+        // Even a remote occurrence with identical bytes supersedes an older
+        // local conversion. It must not later echo as a new Mac copy.
+        clipboardConversion.invalidate()
 
         let pasteboard = NSPasteboard.general
         let verificationReceipt = clientSetupEvidenceReceipt(deviceID: deviceID, feature: .clipboard)
@@ -4478,12 +4513,8 @@ final class AppModel: ObservableObject {
             seenClipboardChangeIDs = [changeID]
         }
         lastPasteboardChangeCount = pasteboard.changeCount
-        try? availableContentCache()?.put(
-            deviceID: deviceID,
-            namespace: .clipboard,
-            itemID: changeID,
-            payload: content
-        )
+        cacheMaintenance.store(.init(deviceID: deviceID, namespace: .clipboard, itemID: changeID), payload: content,
+            clipboardTrust: trust)
         let hubChangeID = clipboardHub.outboundChangeID(revision: revision)
         broadcastClipboard(
             kind: kind,
@@ -4495,45 +4526,116 @@ final class AppModel: ObservableObject {
 
     private func publishClipboardIfChanged() {
         guard terminationAdmission.admitsWork else { return }
-        let pasteboard = NSPasteboard.general
-        guard pasteboard.changeCount != lastPasteboardChangeCount else { return }
-        lastPasteboardChangeCount = pasteboard.changeCount
-        let value = pasteboard.string(forType: .string)
-        let png = Self.pngData(from: pasteboard)
-        guard let candidate = MacClipboardPayloadPolicy.candidate(
-            pasteboardTypes: pasteboard.types?.map(\.rawValue) ?? [],
-            text: value,
-            png: png
-        ) else { return }
+        let pasteboard = clipboardPasteboard
+        let occurrence = pasteboard.changeCount
+        guard occurrence != lastPasteboardChangeCount else { return }
+        lastPasteboardChangeCount = occurrence
+        let types = pasteboard.types?.map(\.rawValue) ?? []
+        let recipients = clipboardRecipients(excluding: nil)
+        guard MacClipboardPayloadPolicy.isEligible(pasteboardTypes: types, hasDestination: !recipients.isEmpty) else {
+            clipboardConversion.invalidate()
+            return
+        }
+        let snapshot = MacClipboardSnapshot(occurrence: occurrence, pasteboardTypes: types,
+            text: pasteboard.string(forType: .string), image: Self.clipboardImageSource(from: pasteboard))
+        guard pasteboard.changeCount == occurrence else { clipboardConversion.invalidate(); return }
+        // Assign the hub revision at ingress, before background conversion,
+        // preserving ordering against remote clipboard occurrences.
+        let revision = clipboardHub.acceptMacChange()
+        clipboardConversion.submit(snapshot, hasDestination: true) { [weak self] result in
+            Task { @MainActor in self?.acceptConvertedClipboard(result, revision: revision, recipients: recipients) }
+        }
+    }
+
+    private func acceptConvertedClipboard(_ result: MacClipboardConversionWorker.Result, revision: UInt64,
+                                          recipients: [ClipboardRecipient]) {
+        guard terminationAdmission.admitsWork, clipboardConversion.isCurrent(result),
+              clipboardPasteboard.changeCount == result.occurrence else { return }
+        let candidate = result.candidate
         let kind: GBClipboardKind = switch candidate.kind {
         case .text: .text
         case .url: .url
         case .png: .png
         }
-        let revision = clipboardHub.acceptMacChange()
         broadcastClipboard(
             kind: kind,
             content: candidate.content,
             changeID: clipboardHub.outboundChangeID(revision: revision),
-            excluding: nil
+            excluding: nil,
+            recipients: recipients
         )
+    }
+
+    @MainActor
+    private struct ClipboardRecipient {
+        let deviceID: String
+        let peerFingerprint: Data?
+        let trust: ContentCacheMaintenanceCoordinator.ClipboardTrustToken
+        let companionSessionID: String?
+        let controlRouteID: String?
+        weak var control: CompanionTLSClient?
+#if !GALAXYBRIDGE_APP_STORE
+        var clipboardRouteID: String?
+        var screenRouteID: String?
+        weak var clipboardSession: ScrcpyClipboardSession?
+        weak var screenSession: ScrcpySession?
+#endif
+    }
+
+    /// Freeze occurrence recipients before conversion. Weak route identities do
+    /// not retain retired connections or permit a newly joined/re-paired phone
+    /// to acquire a copy from before its admission.
+    private func clipboardRecipients(excluding sourceDeviceID: String?) -> [ClipboardRecipient] {
+        ClipboardHubState.destinations(allConnectedDeviceIDs: devices.filter(\.isReady).map(\.id), excluding: sourceDeviceID)
+            .compactMap { deviceID in
+                guard let trust = cacheMaintenance.clipboardTrustToken(deviceID: deviceID) else { return nil }
+                let control = companionID(for: deviceID).flatMap { id in
+                    companionStates[id] == .connected ? companionClients[id]?.control : nil
+                }
+                let controlID = control.map { "control:" + $0.authenticatedSessionID }
+                let admittedControl = controlID.map { cacheMaintenance.isCurrent(trust, routeID: $0) } == true ? control : nil
+                var recipient = ClipboardRecipient(deviceID: deviceID, peerFingerprint: filePeerFingerprints[deviceID],
+                    trust: trust, companionSessionID: admittedControl?.authenticatedSessionID,
+                    controlRouteID: admittedControl == nil ? nil : controlID, control: admittedControl)
+                var hasRoute = admittedControl != nil
+#if !GALAXYBRIDGE_APP_STORE
+                if let session = clipboardSessions[deviceID] {
+                    let routeID = "clipboard:" + session.clipboardTrustGeneration.uuidString
+                    if cacheMaintenance.isCurrent(trust, routeID: routeID) {
+                        recipient.clipboardSession = session; recipient.clipboardRouteID = routeID
+                    }
+                }
+                if let session = scrcpySessions[deviceID] {
+                    let routeID = "screen:" + session.clipboardTrustGeneration.uuidString
+                    if cacheMaintenance.isCurrent(trust, routeID: routeID) {
+                        recipient.screenSession = session; recipient.screenRouteID = routeID
+                    }
+                }
+                hasRoute = hasRoute || recipient.clipboardSession != nil || recipient.screenSession != nil
+#endif
+                return hasRoute ? recipient : nil
+            }
     }
 
     private func broadcastClipboard(
         kind: GBClipboardKind,
         content: Data,
         changeID: String,
-        excluding sourceDeviceID: String?
+        excluding sourceDeviceID: String?,
+        recipients capturedRecipients: [ClipboardRecipient]? = nil
     ) {
-        let destinationIDs = ClipboardHubState.destinations(
-            allConnectedDeviceIDs: devices.filter(\.isReady).map(\.id),
-            excluding: sourceDeviceID
-        )
-        for deviceID in destinationIDs {
+        let recipients = capturedRecipients ?? clipboardRecipients(excluding: sourceDeviceID)
+        for recipient in recipients {
+            let deviceID = recipient.deviceID
+            guard deviceID != sourceDeviceID, row(id: deviceID)?.isReady == true,
+                  filePeerFingerprints[deviceID] == recipient.peerFingerprint else { continue }
             var delivered = false
-            if let companionID = companionID(for: deviceID),
+            if let control = recipient.control, let companionID = companionID(for: deviceID),
+               let routeID = recipient.controlRouteID,
+               cacheMaintenance.isCurrent(recipient.trust, routeID: routeID),
                companionStates[companionID] == .connected,
-               let control = companionClients[companionID]?.control {
+               companionClients[companionID]?.control === control,
+               control.authenticatedSessionID == recipient.companionSessionID {
                 var update = GBClipboardUpdate()
                 update.changeID = changeID
                 update.kind = kind
@@ -4552,14 +4654,22 @@ final class AppModel: ObservableObject {
             if !delivered,
                (kind == .text || kind == .url),
                let value = String(data: content, encoding: .utf8),
-               let clipboardSession = clipboardSessions[deviceID],
+               let clipboardSession = recipient.clipboardSession,
+               let routeID = recipient.clipboardRouteID,
+               "clipboard:" + clipboardSession.clipboardTrustGeneration.uuidString == routeID,
+               cacheMaintenance.isCurrent(recipient.trust, routeID: routeID),
+               clipboardSessions[deviceID] === clipboardSession,
                clipboardSession.setText(value, changeID: changeID) {
                 delivered = true
             }
             if !delivered,
                (kind == .text || kind == .url),
                let value = String(data: content, encoding: .utf8),
-               let session = scrcpySessions[deviceID] {
+               let session = recipient.screenSession,
+               let routeID = recipient.screenRouteID,
+               "screen:" + session.clipboardTrustGeneration.uuidString == routeID,
+               cacheMaintenance.isCurrent(recipient.trust, routeID: routeID),
+               scrcpySessions[deviceID] === session {
                 session.sendControl(
                     ScrcpyControlMessage.setClipboard(
                         sequence: clipboardSequence,
@@ -4572,22 +4682,61 @@ final class AppModel: ObservableObject {
             }
 #endif
             guard delivered else { continue }
-            try? availableContentCache()?.put(
-                deviceID: deviceID,
-                namespace: .clipboard,
-                itemID: changeID,
-                payload: content
-            )
+            cacheMaintenance.store(.init(deviceID: deviceID, namespace: .clipboard, itemID: changeID), payload: content,
+                clipboardTrust: recipient.trust)
         }
     }
 
-    nonisolated private static func pngData(from pasteboard: NSPasteboard) -> Data? {
-        if let png = pasteboard.data(forType: .png) { return png }
-        guard let image = NSImage(pasteboard: pasteboard),
-              let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff)
-        else { return nil }
-        return bitmap.representation(using: .png, properties: [:])
+    private func clipboardRouteIDs(deviceID: String) -> Set<String> {
+        var routes = Set<String>()
+        if let id = companionID(for: deviceID), companionStates[id] == .connected,
+           let control = companionClients[id]?.control { routes.insert("control:" + control.authenticatedSessionID) }
+#if !GALAXYBRIDGE_APP_STORE
+        if let session = clipboardSessions[deviceID] { routes.insert("clipboard:" + session.clipboardTrustGeneration.uuidString) }
+        if let session = scrcpySessions[deviceID] { routes.insert("screen:" + session.clipboardTrustGeneration.uuidString) }
+#endif
+        return routes
+    }
+
+    private func revalidateClipboardTrust(for peers: [PairedPeer]) {
+        for peer in peers {
+            let deviceID = "device:" + peer.deviceID
+            let fingerprint = OutgoingFileTransferStore.peerFingerprint(identityKey: peer.identityPublicKey,
+                tlsFingerprint: peer.tlsCertificateSHA256, pairedAt: peer.pairedAt)
+            guard filePeerFingerprints[deviceID] == fingerprint else { continue }
+            let evaluated = clipboardRouteIDs(deviceID: deviceID)
+            guard let trust = cacheMaintenance.clipboardValidationToken(deviceID: deviceID,
+                fingerprint: fingerprint, routes: evaluated) else { continue }
+            var approved = Set<String>()
+            let matches: (PairedPeer) -> Bool = {
+                $0.deviceID == peer.deviceID && $0.identityPublicKey == peer.identityPublicKey
+                    && $0.tlsCertificateSHA256 == peer.tlsCertificateSHA256
+            }
+            if let id = companionID(for: deviceID), companionStates[id] == .connected,
+               let control = companionClients[id]?.control, matches(control.peer) {
+                approved.insert("control:" + control.authenticatedSessionID)
+            }
+#if !GALAXYBRIDGE_APP_STORE
+            let bindings = ADBBindingStore()
+            if let session = clipboardSessions[deviceID],
+               session.clipboardTrustPeer.map(matches) ?? bindings.isVerified(serial: session.serial, peer: peer) {
+                approved.insert("clipboard:" + session.clipboardTrustGeneration.uuidString)
+            }
+            if let session = scrcpySessions[deviceID],
+               session.clipboardTrustPeer.map(matches) ?? bindings.isVerified(serial: session.serial, peer: peer) {
+                approved.insert("screen:" + session.clipboardTrustGeneration.uuidString)
+            }
+#endif
+            cacheMaintenance.validateClipboardRoutes(trust, fingerprint: fingerprint, evaluated: evaluated, approved: approved)
+        }
+    }
+
+    private static func clipboardImageSource(from pasteboard: NSPasteboard) -> MacClipboardImageSource? {
+        if let png = pasteboard.data(forType: .png) { return .png(png) }
+        let imageTypes = NSImage.imageTypes.map { NSPasteboard.PasteboardType($0) }
+        guard let type = pasteboard.availableType(from: imageTypes),
+              let data = pasteboard.data(forType: type) else { return nil }
+        return .encoded(data)
     }
 
     private func enqueueCompanionFilesEnvelope(

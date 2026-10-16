@@ -49,7 +49,7 @@ final class CompanionTLSClient: @unchecked Sendable {
     private let messageIDLock = NSLock()
     private let notificationActionCapabilityLock = NSLock()
     private var notificationActionResultsSupported = false
-    private var internetGatewaySupported = false
+    private var connectivityCapabilitiesState = CompanionConnectivityCapabilities()
     private let rawStreamID: String?
     private let rawCodec: String?
     private let rawReadyHandler: @Sendable () -> Void
@@ -58,8 +58,14 @@ final class CompanionTLSClient: @unchecked Sendable {
     private var rawUpgradeDecoder = RawChannelUpgradeDecoder()
 
     var supportsInternetGateway: Bool {
+        connectivityCapabilities.internetGateway
+    }
+
+    var supportsShellBridge: Bool { connectivityCapabilities.supportsShellBridge }
+
+    var connectivityCapabilities: CompanionConnectivityCapabilities {
         notificationActionCapabilityLock.lock(); defer { notificationActionCapabilityLock.unlock() }
-        return internetGatewaySupported
+        return connectivityCapabilitiesState
     }
 
     var supportsNotificationActionResults: Bool {
@@ -205,6 +211,7 @@ final class CompanionTLSClient: @unchecked Sendable {
     }
 
     func sendShellBridge(_ request: GBShellBridgeRequest) throws {
+        guard supportsShellBridge else { throw CocoaError(.featureUnsupported) }
         var envelope = baseEnvelope(); envelope.shellBridgeRequest = request; try send(envelope)
     }
 
@@ -406,7 +413,9 @@ final class CompanionTLSClient: @unchecked Sendable {
         if case let .capabilityUpdate(update)? = envelope.payload, channelKind == .control {
             notificationActionCapabilityLock.lock()
             notificationActionResultsSupported = update.available.contains(.notificationActionResults)
-            internetGatewaySupported = update.available.contains(.internetGateway)
+            connectivityCapabilitiesState = CompanionConnectivityCapabilities(negotiated: true,
+                nearbyLink: update.available.contains(.nearbyLink), internetGateway: update.available.contains(.internetGateway),
+                privilegedBridge: update.available.contains(.privilegedBridge), unavailableReasons: update.unavailableReasons)
             notificationActionCapabilityLock.unlock()
     }
         if case let .internetSharingStatus(status)? = envelope.payload,

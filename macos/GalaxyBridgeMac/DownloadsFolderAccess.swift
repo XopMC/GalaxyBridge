@@ -29,6 +29,9 @@ final class DownloadsFolderAccess {
     private var selectedURL: URL?
     private var scopeStarted = false
 
+    /// Configuration only: the actual receive operation still checks filesystem access.
+    var hasSelection: Bool { selectedURL != nil }
+
     init(
         downloads: URL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0],
         defaults: UserDefaults = .standard,

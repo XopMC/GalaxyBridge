@@ -117,4 +117,9 @@
     <string name="internet_sharing">インターネット共有</string>
     <string name="internet_enable">インターネットを共有</string>
     <string name="internet_disable">共有を停止</string>
+    <string name="nearby_permission_required">設定で付近のデバイスへのアクセスを許可してから、もう一度お試しください。</string>
+    <string name="nearby_starting">付近のデバイスの検出を開始中…</string>
+    <string name="nearby_discovery_ready">付近のデバイスの検出が有効です。Macから接続してください。</string>
+    <string name="nearby_unavailable">付近のデバイスの検出を開始できませんでした。Bluetoothと付近のデバイスへのアクセス権限を確認してから、もう一度お試しください。</string>
+    <string name="qr_camera_unavailable">カメラを起動できませんでした。カメラを使用している他のアプリを閉じてから、もう一度お試しください。</string>
 </resources>

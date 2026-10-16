@@ -15,10 +15,13 @@
 - Per-boot enhanced access over an ADB-activated Binder/FD bridge, with bounded requests, ordered media streams and exact child retirement.
 - Eleven system-language catalogs with English fallback; bundled ADB remains included.
 - Serialized shared-group creation for simultaneous nearby connections, basic connection fallback after optional bridge activation errors, and cancellation retained before the tunnel worker starts.
+- Cancellable setup, clear phone-update/permission guidance, pairing-sheet dismissal, compact connection controls and stable small-window layout. Fixed gateway selection cannot silently use another phone.
+- Background clipboard image conversion and history writes, bounded pending work and recipient trust checks. App windows publish geometry changes only when needed; video frames and QUIC remain unchanged.
+- Bluetooth discovery recovers after radio changes; pending QR offers survive Activity recreation, and leaving the scanner fences late camera startup. Notification rows have equal card heights and expose additional actions; file reception confirms the selected folder.
 
 ### Verified
 
-The automated source suite and source builds pass. S24 Ultra checks over an owned USB test channel covered gateway HTTPS, UDP and DNS; real H.264 and text/Enter control; the capture-free clipboard channel; physical panel restoration after STOP, an independent 30-second timeout and Helper process death. These checks do not establish direct Wi-Fi latency or Mac system routing.
+The automated source suite and source builds pass. S24 Ultra checks over an owned USB test channel covered gateway HTTPS, UDP and DNS; real H.264 and text/Enter control; the capture-free clipboard channel; physical panel restoration after STOP, an independent 30-second timeout and Helper process death. A real Bluetooth OFF/ON trial recovered discovery without restarting the Activity, using an independent 18-second restore process on the phone. These checks do not establish direct Wi-Fi latency or Mac system routing.
 
 ### Before public release
 
@@ -39,10 +42,13 @@ macOS 14+ on Apple Silicon and Android 12+ remain required. The Mac app is ad-ho
 - Расширенный доступ до перезагрузки через активированный по ADB мост Binder/FD: ограниченные запросы, правильный порядок медиаканалов и завершение принадлежащих сеансу процессов.
 - Одиннадцать системных языков с английским fallback; ADB по-прежнему встроен.
 - Последовательное создание общей группы при одновременном подключении, сохранение базового подключения при ошибке дополнительного моста и обработка отмены до запуска туннеля.
+- Отмена настройки, понятные подсказки об обновлении и разрешениях телефона, закрытие QR после привязки и компактный блок подключений с корректными размерами небольшого окна. Выбор конкретного шлюза не приводит к скрытому использованию другого телефона.
+- Обработка изображений буфера и запись истории в фоне, ограниченная очередь и проверка доверия получателей. Окна приложений сообщают об изменении геометрии только при необходимости; видеокадры и QUIC сохранены.
+- Обнаружение восстанавливается после переключения Bluetooth; QR сохраняется при пересоздании Activity, а выход из сканера блокирует поздний запуск камеры. Карточки уведомлений выровнены по строкам, доступны дополнительные действия и подтверждение папки приёма файлов.
 
 ### Проверено
 
-Автоматические проверки и сборка исходников проходят. На S24 Ultra через собственный тестовый USB-канал проверены HTTPS, UDP и DNS шлюза; настоящая H.264-картинка и ввод текста/Enter; канал буфера без захвата экрана; восстановление физической панели после STOP, независимого таймера 30 секунд и завершения Helper. Эти проверки не подтверждают задержку прямого Wi-Fi и системную маршрутизацию Mac.
+Автоматические проверки и сборка исходников проходят. На S24 Ultra через собственный тестовый USB-канал проверены HTTPS, UDP и DNS шлюза; настоящая H.264-картинка и ввод текста/Enter; канал буфера без захвата экрана; восстановление физической панели после STOP, независимого таймера 30 секунд и завершения Helper. Настоящее выключение/включение Bluetooth восстановило обнаружение без перезапуска Activity; отдельный процесс на телефоне вернул радио через 18 секунд. Эти проверки не подтверждают задержку прямого Wi-Fi и системную маршрутизацию Mac.
 
 ### До публичного выпуска
 

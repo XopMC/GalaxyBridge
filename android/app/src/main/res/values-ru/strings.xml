@@ -116,4 +116,9 @@
     <string name="internet_sharing">Интернет с телефона</string>
     <string name="internet_enable">Раздавать интернет</string>
     <string name="internet_disable">Остановить раздачу</string>
+    <string name="nearby_permission_required">Разрешите доступ к устройствам поблизости в настройках и повторите попытку.</string>
+    <string name="nearby_starting">Запуск обнаружения устройств поблизости…</string>
+    <string name="nearby_discovery_ready">Обнаружение устройств поблизости включено. Подключитесь с Mac.</string>
+    <string name="nearby_unavailable">Не удалось запустить обнаружение. Проверьте Bluetooth и доступ к устройствам поблизости, затем повторите попытку.</string>
+    <string name="qr_camera_unavailable">Не удалось запустить камеру. Закройте другие приложения, использующие камеру, и повторите попытку.</string>
 </resources>

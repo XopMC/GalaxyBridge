@@ -13,6 +13,7 @@ enum ContentCacheMaintenanceCoordinatorSpec {
         var notices: [Owner.Notice] = []
         var restoreResults: [Owner.Restoration?] = []
         var onDelete: (() -> Void)?
+        var onWrite: (() -> Void)?
         var onContents: (() -> Void)?
         var disk: [Owner.Key: Data] = [:]
         var operations: Owner.Storage {
@@ -22,6 +23,7 @@ enum ContentCacheMaintenanceCoordinatorSpec {
                 return deletionSucceeds
             }, put: { [self] key, payload in
                 writes.append(payload)
+                onWrite?()
                 if writeFails { throw Fault.unavailable }
                 disk[key] = payload
             }, contents: { [self] device, namespace in
@@ -46,6 +48,9 @@ enum ContentCacheMaintenanceCoordinatorSpec {
         backpressure()
         restoreFences()
         claimedDeleteThenNewWrite()
+        await clipboardWriteFences()
+        clipboardFanoutKeepsHistoryWithinBoundedCapacity()
+        clipboardTrustGenerationIsNotAMutationRevision()
         print("PASS notification cache: fallback, reconstruction, bounded retries, supersession, trust, capacity, restore fences, concurrent claim ordering")
     }
 
@@ -243,5 +248,82 @@ enum ContentCacheMaintenanceCoordinatorSpec {
         release.signal(); precondition(done.wait(timeout: .now() + 5) == .success)
         precondition(fixture.disk[a] == Data([5]))
         precondition(fixture.notices.map(\.outcome) == [.durable]) // only B's completion
+    }
+
+    static func clipboardWriteFences() async {
+        let key = Owner.Key(deviceID: "clipboard-peer", namespace: .clipboard, itemID: "copy")
+        let fixture = Fixture(); let owner = fixture.owner()
+        owner.store(key, payload: Data([1]))
+        owner.invalidateDevice(key.deviceID, revoke: true)
+        owner.drain()
+        precondition(fixture.writes.isEmpty && fixture.disk[key] == nil,
+                     "Revocation must discard an unclaimed clipboard write")
+
+        let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        fixture.onWrite = {
+            precondition(!Thread.isMainThread)
+            entered.signal(); precondition(release.wait(timeout: .now() + 5) == .success)
+        }
+        owner.store(key, payload: Data([2]))
+        let worker = Task.detached { owner.drain() }
+        precondition(entered.wait(timeout: .now() + 5) == .success)
+        // Admission/invalidation must not wait on the storage writer's lock.
+        owner.invalidateDevice(key.deviceID, revoke: true)
+        fixture.onWrite = nil
+        owner.store(key, payload: Data([3]))
+        let completion = owner.beginShutdown()
+        owner.store(key, payload: Data([4])) // post-shutdown ingress is closed
+        release.signal(); await worker.value; await completion.wait()
+        precondition(fixture.writes == [Data([2]), Data([3])] && fixture.disk[key] == Data([3]),
+                     "A claimed old clipboard write must retire before revoke/new generation, and Quit must retain the admitted new write")
+    }
+
+    static func clipboardFanoutKeepsHistoryWithinBoundedCapacity() {
+        let fixture = Fixture()
+        let owner = Owner(storage: fixture.operations, automatic: false)
+        // Existing history reserve plus a maximum-sized image copied to all
+        // three supported physical devices, before the disk owner gets a turn.
+        for index in 0..<4 {
+            owner.store(.init(deviceID: "history", namespace: .notifications, itemID: "\(index)"),
+                        payload: Data(repeating: 1, count: 2 * 1024 * 1024))
+        }
+        let image = Data(repeating: 2, count: 4 * 1024 * 1024)
+        for index in 0..<3 {
+            owner.store(.init(deviceID: "phone-\(index)", namespace: .clipboard, itemID: "copy"), payload: image)
+        }
+        owner.drain()
+        precondition(fixture.writes.count == 7 && !fixture.notices.contains(where: { $0.outcome == .capacity }),
+                     "Maximum-sized clipboard fanout must not disable clipboard/history persistence")
+    }
+
+    static func clipboardTrustGenerationIsNotAMutationRevision() {
+        let fixture = Fixture(); let owner = fixture.owner()
+        let key = Owner.Key(deviceID: "trust-A", namespace: .clipboard, itemID: "copy")
+        let old = owner.clipboardTrustToken(deviceID: key.deviceID)!
+        let other = owner.clipboardTrustToken(deviceID: "trust-B")!
+        owner.store(.init(deviceID: key.deviceID, namespace: .notifications, itemID: "new-notification"), payload: Data([1]))
+        owner.drain()
+        precondition(owner.isCurrent(old, routeID: "control:A"), "An unrelated cache mutation must not revoke clipboard trust")
+        let fingerprint = Data([11])
+        owner.invalidateDevice(key.deviceID, clipboardFingerprint: fingerprint)
+        owner.store(key, payload: Data([9]), clipboardTrust: old)
+        owner.drain()
+        precondition(fixture.disk[key] == nil, "Token validation and cache admission must be atomic against promotion")
+        precondition(owner.clipboardTrustToken(deviceID: key.deviceID) == nil && owner.isCurrent(other, routeID: "control:B"),
+                     "Promotion quarantines only its device, including fresh token acquisition")
+        let validation = owner.clipboardValidationToken(deviceID: key.deviceID, fingerprint: fingerprint, routes: ["control:A-new"])!
+        owner.validateClipboardRoutes(old, fingerprint: fingerprint, evaluated: ["control:A-new"], approved: ["control:A-new"])
+        precondition(owner.clipboardTrustToken(deviceID: key.deviceID) == nil, "A stale revalidation cannot reopen trust")
+        owner.validateClipboardRoutes(validation, fingerprint: fingerprint, evaluated: ["control:A-new"], approved: ["control:A-new"])
+        let current = owner.clipboardTrustToken(deviceID: key.deviceID)!
+        precondition(!owner.isCurrent(old, routeID: "control:A") && owner.isCurrent(current, routeID: "control:A-new"))
+        precondition(owner.clipboardValidationToken(deviceID: key.deviceID, fingerprint: fingerprint, routes: ["control:A-new"]) == nil,
+                     "Unchanged validated routes must not repeat trust-store work")
+        owner.store(key, payload: Data([2]), clipboardTrust: current); owner.drain()
+        precondition(fixture.disk[key] == Data([2]))
+        owner.invalidateDevice(key.deviceID, revoke: true)
+        owner.store(key, payload: Data([3]), clipboardTrust: current); owner.drain()
+        precondition(fixture.disk[key] == nil && owner.clipboardTrustToken(deviceID: key.deviceID) == nil,
+                     "Revocation must close trust and fence old clipboard writes")
     }
 }

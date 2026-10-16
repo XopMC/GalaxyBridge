@@ -33,6 +33,7 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
         }
         guard let route = model.enhancedCaptureRoute(for: device) else { return }
         let serial = route.serial
+        let clipboardIdentity = model.enhancedClipboardIdentity(deviceID: device.id, serial: serial)
         let leaseID = "app:\(device.id):\(application.packageName)"
         guard model.reserveApplicationWindowSession(leaseID) else { return }
         do {
@@ -63,7 +64,8 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
                     model?.acceptEnhancedClipboard(
                         deviceID: device.id,
                         changeID: update.changeID,
-                        content: update.content
+                        content: update.content,
+                        sourceIdentity: clipboardIdentity
                     )
                 },
                 freshFramePresentationReceipt: { [weak model] in

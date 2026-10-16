@@ -116,4 +116,9 @@
     <string name="internet_sharing">Internet sharing</string>
     <string name="internet_enable">Share internet</string>
     <string name="internet_disable">Stop internet sharing</string>
+    <string name="nearby_permission_required">Allow nearby device access in Settings, then try again.</string>
+    <string name="nearby_starting">Starting nearby discovery…</string>
+    <string name="nearby_discovery_ready">Nearby discovery is on. Connect from your Mac.</string>
+    <string name="nearby_unavailable">Nearby discovery could not start. Check Bluetooth and nearby device access, then try again.</string>
+    <string name="qr_camera_unavailable">The camera could not start. Close other apps using the camera, then try again.</string>
 </resources>

@@ -414,12 +414,14 @@ class CompanionLanServer(private val context: Context) {
 
     private fun internetSharing(request: Envelope, peerID: String, sessionID: String): Envelope {
         val sharing = request.internetSharingRequest
+        val phoneAllowed = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .getBoolean("internet_sharing_allowed", false)
         val runtime = com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current
         var leaseID = sharing.leaseId
         val error = runCatching {
             val gateway = requireNotNull(runtime).internet
             if (sharing.enabled) {
-                check(context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getBoolean("internet_sharing_allowed", false))
+                check(phoneAllowed)
                 // A repeated enabled request with the same lease is status+renew, including
                 // temporary validation loss. It must not rotate credentials or close flows.
                 leaseID = gateway.enableAuthenticated(peerID, sessionID, leaseID.takeIf { it.isNotEmpty() }).id
@@ -431,7 +433,8 @@ class CompanionLanServer(private val context: Context) {
                 com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus.newBuilder().setRequestId(sharing.requestId)
                     .setLeaseId(leaseID).setEnabled(error == null && sharing.enabled)
                     .setUpstream(state?.upstream ?: "unavailable").setInternetValidated(false)
-                    .setErrorCode(if (error != null) "internet_gateway_unavailable" else state?.errorCode.orEmpty())
+                    .setErrorCode(InternetSharingRequestPolicy.errorCode(
+                        sharing.enabled, phoneAllowed, error != null, state?.errorCode.orEmpty()))
                     .setBytesSent(state?.bytesSent ?: 0).setBytesReceived(state?.bytesReceived ?: 0)).build()
     }
 

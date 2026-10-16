@@ -60,6 +60,8 @@ final class ScrcpySession: ObservableObject {
     @Published private(set) var applicationDisplayIdentity: ScrcpyApplicationDisplayIdentity?
 
     let serial: String
+    var clipboardTrustGeneration: UUID { preparationID }
+    var clipboardTrustPeer: PairedPeer? { shellLease?.context.peer }
     private let adb: ADBClient
     private let shellProvider: ShellCapabilityBridgeProvider?
     private var shellLease: ShellCapabilityBridgeLease?
@@ -127,7 +129,7 @@ final class ScrcpySession: ObservableObject {
     var diagnosticDecodedFrameHandler: (@Sendable (CVPixelBuffer, CMTime, UInt32, PrimaryMediaTrace?) -> Void)? { didSet { refreshNativeBinding() } }
     var ownedDecodedFrameHandler: (@MainActor @Sendable (NativeDecodedFrame) -> Void)? { didSet { refreshNativeBinding() } }
     var controlReadyHandler: (@MainActor @Sendable () -> Void)?
-    var clipboardEventHandler: (@Sendable (ScrcpyClipboardUpdate) -> Void)?
+    var clipboardEventHandler: (@MainActor @Sendable (ScrcpyClipboardUpdate) -> Void)?
 #if !GALAXYBRIDGE_APP_STORE && GB_QUIC_BACKEND_QA
     var quicStockObservation: (@Sendable ([UInt64]) -> Void)?
     var quicDeviceObservation: (@MainActor @Sendable (ScrcpyDeviceMessage) -> Void)?

@@ -33,7 +33,11 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 420)
         } detail: {
             if let device = model.row(id: model.selectedDeviceID) {
-                DeviceWorkspace(device: device, setupRequest: workspaceSetupRequest)
+                // Isolate the split column from content ideal heights when controls expand.
+                GeometryReader { viewport in
+                    DeviceWorkspace(device: device, setupRequest: workspaceSetupRequest)
+                        .frame(width: viewport.size.width, height: viewport.size.height, alignment: .topLeading)
+                }
                     .toolbar {
                         ToolbarItemGroup {
                             Button { setupDevice = device } label: {
@@ -412,7 +416,7 @@ struct DeviceWorkspace: View {
             }
             .pickerStyle(.segmented)
             .padding(12)
-            panelContent.frame(maxWidth: .infinity, maxHeight: .infinity)
+            panelContent.frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
         }
         .navigationTitle(device.name)
         .onChange(of: setupRequest, initial: true) { _, request in
@@ -853,7 +857,15 @@ private struct FilesPanel: View {
 #if !GALAXYBRIDGE_APP_STORE
             Divider()
             Label("FILES_FROM_PHONE", systemImage: "arrow.down.doc").font(.headline)
-            Button("FILES_RECEIVE_AUTHORIZE") { model.authorizeIncomingDownloads() }
+            if model.hasIncomingDownloadsSelection {
+                HStack {
+                    Label("FILES_RECEIVE_FOLDER_SELECTED", systemImage: "folder")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("FILES_RECEIVE_RESELECT") { model.authorizeIncomingDownloads() }.font(.caption)
+                }
+            } else {
+                Button("FILES_RECEIVE_AUTHORIZE") { model.authorizeIncomingDownloads() }
+            }
             let rows = model.incomingFilesByDevice[deviceID, default: []]
             if rows.isEmpty {
                 Text("FILES_RECEIVE_HINT").font(.caption).foregroundStyle(.secondary)
@@ -1181,6 +1193,7 @@ private struct NotificationCard: View {
                     model.toggleNotificationPackage(deviceID: deviceID, packageName: notification.packageName)
                 } label: { Image(systemName: "bell.slash") }
                 .help("MUTE_APP")
+                .accessibilityLabel(Text("MUTE_APP"))
                 .buttonStyle(.plain)
                 Button {
                     model.performNotificationAction(
@@ -1191,6 +1204,7 @@ private struct NotificationCard: View {
                     )
                 } label: { Image(systemName: "xmark") }
                 .buttonStyle(.plain)
+                .accessibilityLabel(Text("CLOSE"))
                 .disabled(!model.canSendNotificationAction(deviceID: deviceID) || isPending)
             }
             if !notification.title.isEmpty {
@@ -1209,18 +1223,13 @@ private struct NotificationCard: View {
                     .lineLimit(3)
             }
             ForEach(notification.actions.prefix(2)) { action in
-                if action.acceptsText {
-                    replyEditors(actionID: action.id)
-                } else {
-                    Button(action.title) {
-                        model.performNotificationAction(
-                            deviceID: deviceID,
-                            notificationID: notification.id,
-                            actionID: action.id
-                        )
+                notificationAction(action)
+            }
+            if notification.actions.count > 2 {
+                DisclosureGroup("NOTIFICATION_MORE_ACTIONS") {
+                    ForEach(notification.actions.dropFirst(2)) { action in
+                        notificationAction(action).frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .disabled(!model.canSendNotificationAction(deviceID: deviceID) || isPending)
-                    actionStatus(actionID: action.id)
                 }
             }
             // A saved native response can outlive a phone action/notification revision.
@@ -1230,7 +1239,7 @@ private struct NotificationCard: View {
             actionStatus(actionID: "")
         }
         .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 138, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 138, maxHeight: .infinity, alignment: .topLeading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -1241,9 +1250,23 @@ private struct NotificationCard: View {
     private var isPending: Bool { model.notificationActionIsPending(deviceID: deviceID, notificationID: notification.id) }
 
     private var savedActionIDsOutsidePrimaryRows: [String] {
-        let rendered = Set(notification.actions.prefix(2).filter(\.acceptsText).map(\.id))
+        let rendered = Set(notification.actions.filter(\.acceptsText).map(\.id))
         return model.notificationSavedReplyActionIDs(deviceID: deviceID, notificationID: notification.id)
             .filter { !rendered.contains($0) }
+    }
+
+    @ViewBuilder
+    private func notificationAction(_ action: BridgeNotificationActionRow) -> some View {
+        if action.acceptsText {
+            replyEditors(actionID: action.id)
+        } else {
+            Button(action.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? String(localized: "NOTIFICATION_ACTION_FALLBACK") : action.title) {
+                model.performNotificationAction(deviceID: deviceID, notificationID: notification.id, actionID: action.id)
+            }
+            .disabled(!model.canSendNotificationAction(deviceID: deviceID) || isPending)
+            actionStatus(actionID: action.id)
+        }
     }
 
     @ViewBuilder

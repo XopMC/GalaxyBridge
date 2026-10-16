@@ -22,6 +22,12 @@ import Foundation
         let renewal = NearbyLeaseReceipt(requestID: "renew", deviceID: "phone", sessionID: "session", expectedState: "established", expectedLeaseID: "lease")
         precondition(renewal.accepts(requestID: "renew", deviceID: "phone", sessionID: "session", state: "established", error: "", leaseID: "lease"))
         precondition(!renewal.accepts(requestID: "renew", deviceID: "phone", sessionID: "session", state: "established", error: "", leaseID: "other"))
+        precondition(NearbyDirectStatusReceipt.classify(requestID: "current", expectedRequestID: "current", state: "pending", errorCode: "") == .process)
+        precondition(NearbyDirectStatusReceipt.classify(requestID: "current", expectedRequestID: "current", state: "established", errorCode: "") == .process)
+        precondition(NearbyDirectStatusReceipt.classify(requestID: "", expectedRequestID: "", state: "failed", errorCode: "wifi_direct_unavailable") == .ignore)
+        precondition(NearbyDirectStatusReceipt.classify(requestID: "stale", expectedRequestID: "current", state: "failed", errorCode: "wifi_direct_unavailable") == .ignore)
+        precondition(NearbyDirectStatusReceipt.classify(requestID: "current", expectedRequestID: "current", state: "failed", errorCode: "future_error_1") == .failure("future_error_1"))
+        precondition(NearbyDirectStatusReceipt.classify(requestID: "current", expectedRequestID: "current", state: "failed", errorCode: String(repeating: "x", count: 129)) == .failure("nearby_request_failed"))
         let instant = ContinuousClock.now
         var renewalClock = NearbyLeaseRenewalState(confirmedAt: instant)
         precondition(!renewalClock.expired(at: instant + .seconds(34)))

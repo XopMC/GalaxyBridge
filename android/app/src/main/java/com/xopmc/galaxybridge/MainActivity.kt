@@ -66,6 +66,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -89,10 +90,16 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import com.xopmc.galaxybridge.core.ADBBindingTranscript
 import com.xopmc.galaxybridge.core.PairingUriCodec
 import com.xopmc.galaxybridge.qr.LocalQrCodeDecoder
 import com.xopmc.galaxybridge.qr.QrScanGate
+import com.xopmc.galaxybridge.qr.QrCameraLifecycle
+import com.xopmc.galaxybridge.nearby.NearbyDiscoveryStatus
+import com.xopmc.galaxybridge.nearby.NearbyDiscoveryStatusBus
+import com.xopmc.galaxybridge.nearby.PendingNearbyEnable
 import com.xopmc.galaxybridge.security.DeviceIdentityStore
 import com.xopmc.galaxybridge.service.CameraCaptureService
 import com.xopmc.galaxybridge.service.GalaxyAccessibilityService
@@ -104,6 +111,9 @@ import com.xopmc.galaxybridge.setup.SetupAction
 import com.xopmc.galaxybridge.setup.SetupCard
 import com.xopmc.galaxybridge.setup.SetupKind
 import com.xopmc.galaxybridge.setup.RuntimePermissionRequestGate
+import com.xopmc.galaxybridge.setup.ExplicitPermissionPolicy
+import com.xopmc.galaxybridge.setup.PermissionAccess
+import com.xopmc.galaxybridge.setup.PermissionRoute
 import com.xopmc.galaxybridge.setup.SetupFeature
 import com.xopmc.galaxybridge.setup.SetupSelection
 import com.xopmc.galaxybridge.setup.SetupState
@@ -122,10 +132,10 @@ class MainActivity : ComponentActivity() {
     private var refreshToken by mutableIntStateOf(0)
     private var runtimePermissionGate = RuntimePermissionRequestGate()
     private var setupActionError by mutableStateOf<String?>(null)
-    private var pendingNearbyOffer: String? = null
+    private val pendingNearbyEnable by lazy { ViewModelProvider(this)[NearbyEnableViewModel::class.java].pending }
     private val nearbyPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         if (com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.hasNearbyPermissions(this)) enableNearbyAndDeliverOffer()
-        else setupActionError = getString(R.string.setup_action_unavailable)
+        else setupActionError = getString(R.string.nearby_permission_required)
         refreshToken++
     }
     private lateinit var foregroundClipboardMonitor: ForegroundClipboardMonitor
@@ -164,7 +174,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        handlePairingIntent(intent)
+        if (savedInstanceState == null) handlePairingIntent(intent)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -183,6 +193,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Settings grants/revocations are read again; returning never opens a prompt.
         startBridgeServiceIfAllowed()
+        continueNearbyEnable(explicitRequest = false)
         refreshToken++
     }
 
@@ -216,7 +227,7 @@ class MainActivity : ComponentActivity() {
         if (uri.host == "pair") {
             if (uri.getQueryParameter("transport") == "nearby") {
                 if (runCatching { com.xopmc.galaxybridge.nearby.NearbyPairingOffer.parse(uri.toString(), System.currentTimeMillis()) }.isSuccess) {
-                    pendingNearbyOffer = uri.toString()
+                    pendingNearbyEnable.request(uri.toString())
                     requestNearbyEnable()
                 } else setupActionError = getString(R.string.qr_invalid)
             } else storePendingPairing(uri.toString())
@@ -268,6 +279,7 @@ class MainActivity : ComponentActivity() {
         var showAccessibilityDisclosure by remember { mutableStateOf(false) }
         var showRevokeConfirmation by remember { mutableStateOf(false) }
         var qrStatus by remember { mutableStateOf<String?>(null) }
+        val nearbyStatus by NearbyDiscoveryStatusBus.status.collectAsState()
 
         LaunchedEffect(Unit) {
             PairingStateBus.revision.collect { refreshToken++ }
@@ -366,6 +378,9 @@ class MainActivity : ComponentActivity() {
                 nearbyEnabled = getSharedPreferences(PREFERENCES, MODE_PRIVATE).getBoolean("nearby_enabled", false),
                 internetAllowed = getSharedPreferences(PREFERENCES, MODE_PRIVATE).getBoolean("internet_sharing_allowed", false),
                 onToggleNearby = ::toggleNearby,
+                nearbyStatus = nearbyStatus,
+                nearbyNeedsSettings = nearbyPermissionRoute() == PermissionRoute.Settings,
+                onRetryNearby = ::requestNearbyEnable,
                 onToggleInternet = ::toggleInternetSharing,
             )
             HomeScreen.QrScanner -> QrScannerScreen(
@@ -464,6 +479,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun revokePairing() {
+        pendingNearbyEnable.cancel()
         stopService(Intent(this, MediaProjectionCaptureService::class.java))
         stopService(Intent(this, CameraCaptureService::class.java))
         EncryptedContentCache(this).use { it.revokeAll() }
@@ -605,23 +621,62 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestNearbyEnable() {
-        if (com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.hasNearbyPermissions(this)) {
-            enableNearbyAndDeliverOffer()
-            return
+        setupActionError = null
+        pendingNearbyEnable.request()
+        continueNearbyEnable(explicitRequest = true)
+    }
+
+    private fun continueNearbyEnable(explicitRequest: Boolean) {
+        if (!pendingNearbyEnable.requested) return
+        when (nearbyPermissionRoute(explicitRequest)) {
+            PermissionRoute.None -> if (com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.hasNearbyPermissions(this)) {
+                enableNearbyAndDeliverOffer()
+            }
+            PermissionRoute.Settings -> runCatching {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+            }.onFailure { setupActionError = getString(R.string.setup_action_unavailable) }
+            PermissionRoute.Request -> runCatching {
+                val permissions = nearbyPermissions().filter {
+                    ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+                }
+                nearbyPermissionLauncher.launch(permissions.toTypedArray())
+                getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit {
+                    permissions.forEach { putBoolean("nearby_requested_$it", true) }
+                }
+            }.onFailure { setupActionError = getString(R.string.setup_action_unavailable) }
         }
+    }
+
+    private fun nearbyPermissions(): List<String> {
         val permissions = mutableListOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE)
         permissions += if (Build.VERSION.SDK_INT >= 33) Manifest.permission.NEARBY_WIFI_DEVICES else Manifest.permission.ACCESS_FINE_LOCATION
         if (Build.VERSION.SDK_INT >= 37) permissions += Manifest.permission.ACCESS_LOCAL_NETWORK
-        nearbyPermissionLauncher.launch(permissions.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }.toTypedArray())
+        return permissions
+    }
+
+    private fun nearbyPermissionRoute(explicitRequest: Boolean = true): PermissionRoute {
+        val preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
+        return ExplicitPermissionPolicy.route(nearbyPermissions().map {
+            PermissionAccess(
+                granted = ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED,
+                previouslyRequested = preferences.getBoolean("nearby_requested_$it", false),
+                showRationale = shouldShowRequestPermissionRationale(it),
+            )
+        }, explicitRequest = explicitRequest)
     }
 
     private fun enableNearbyAndDeliverOffer() {
+        val delivery = pendingNearbyEnable.complete(System.currentTimeMillis()) ?: return
+        if (delivery.expired) {
+            setupActionError = getString(R.string.qr_invalid)
+            refreshToken++
+            return
+        }
+        setupActionError = null
         getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit { putBoolean("nearby_enabled", true) }
         if (!hasLocalNetworkAccess()) return
-        val offer = pendingNearbyOffer
-        pendingNearbyOffer = null
         ContextCompat.startForegroundService(this, Intent(this, GalaxyBridgeForegroundService::class.java).also {
-            if (offer != null) it.putExtra(GalaxyBridgeForegroundService.EXTRA_NEARBY_PAIRING_OFFER, offer)
+            delivery.offer?.let { offer -> it.putExtra(GalaxyBridgeForegroundService.EXTRA_NEARBY_PAIRING_OFFER, offer) }
         })
         refreshToken++
     }
@@ -630,7 +685,7 @@ class MainActivity : ComponentActivity() {
         val preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
         if (!preferences.getBoolean("nearby_enabled", false)) requestNearbyEnable()
         else {
-            pendingNearbyOffer = null
+            pendingNearbyEnable.cancel()
             preferences.edit { putBoolean("nearby_enabled", false) }
             startBridgeServiceIfAllowed()
             refreshToken++
@@ -678,6 +733,12 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** QR token stays in process memory; it is never written into saved-instance state. */
+internal class NearbyEnableViewModel : ViewModel() {
+    val pending = PendingNearbyEnable()
+    override fun onCleared() { pending.cancel() }
+}
+
 @Composable
 internal fun GalaxyBridgeTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
@@ -705,6 +766,9 @@ private fun HomeContent(
     nearbyEnabled: Boolean,
     internetAllowed: Boolean,
     onToggleNearby: () -> Unit,
+    nearbyStatus: NearbyDiscoveryStatus,
+    nearbyNeedsSettings: Boolean,
+    onRetryNearby: () -> Unit,
     onToggleInternet: () -> Unit,
 ) {
     Column(
@@ -727,6 +791,20 @@ private fun HomeContent(
                 Text(stringResource(R.string.nearby_connection), style = MaterialTheme.typography.titleMedium)
                 OneUiOutlinedButton(onClick = onToggleNearby) {
                     Text(stringResource(if (nearbyEnabled) R.string.nearby_disable else R.string.nearby_enable))
+                }
+                if (nearbyNeedsSettings) {
+                    Text(stringResource(R.string.nearby_permission_required), style = MaterialTheme.typography.bodyMedium)
+                } else if (nearbyEnabled) {
+                    Text(stringResource(when (nearbyStatus) {
+                        NearbyDiscoveryStatus.Starting -> R.string.nearby_starting
+                        NearbyDiscoveryStatus.Available -> R.string.nearby_discovery_ready
+                        else -> R.string.nearby_unavailable
+                    }), style = MaterialTheme.typography.bodyMedium)
+                }
+                if (nearbyNeedsSettings || (nearbyEnabled && nearbyStatus == NearbyDiscoveryStatus.Unavailable)) {
+                    OneUiOutlinedButton(onClick = onRetryNearby) {
+                        Text(stringResource(if (nearbyNeedsSettings) R.string.action_open_settings else R.string.clipboard_share_retry))
+                    }
                 }
                 Text(stringResource(R.string.internet_sharing), style = MaterialTheme.typography.titleMedium)
                 OneUiOutlinedButton(onClick = onToggleInternet) {
@@ -1174,6 +1252,7 @@ private fun QrScannerScreen(
     onClose: () -> Unit,
     onQrCode: (String) -> Boolean,
 ) {
+    var cameraUnavailable by remember(cameraGranted) { mutableStateOf(false) }
     LaunchedEffect(cameraGranted) {
         if (!cameraGranted) onRequestCamera()
     }
@@ -1203,17 +1282,21 @@ private fun QrScannerScreen(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            if (cameraGranted) {
-                CameraPreviewScanner(onQrCode = onQrCode)
+            if (cameraGranted && !cameraUnavailable) {
+                CameraPreviewScanner(onQrCode = onQrCode, onUnavailable = { cameraUnavailable = true })
             } else {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        stringResource(R.string.qr_camera_required),
+                        stringResource(if (cameraUnavailable) R.string.qr_camera_unavailable else R.string.qr_camera_required),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyLarge,
                     )
-                    Button(onClick = onRequestCamera) {
-                        Text(stringResource(if (cameraRequestOpensSettings) R.string.action_open_settings else R.string.action_allow))
+                    Button(onClick = { if (cameraUnavailable) cameraUnavailable = false else onRequestCamera() }) {
+                        Text(stringResource(when {
+                            cameraUnavailable -> R.string.clipboard_share_retry
+                            cameraRequestOpensSettings -> R.string.action_open_settings
+                            else -> R.string.action_allow
+                        }))
                     }
                 }
             }
@@ -1227,7 +1310,7 @@ private fun QrScannerScreen(
 }
 
 @Composable
-private fun CameraPreviewScanner(onQrCode: (String) -> Boolean) {
+private fun CameraPreviewScanner(onQrCode: (String) -> Boolean, onUnavailable: () -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewContentDescription = stringResource(R.string.qr_preview_content_description)
@@ -1243,59 +1326,75 @@ private fun CameraPreviewScanner(onQrCode: (String) -> Boolean) {
         modifier = Modifier.fillMaxSize(),
     )
     DisposableEffect(previewView, lifecycleOwner) {
+        val cameraLifecycle = QrCameraLifecycle()
         val analyzerExecutor = Executors.newSingleThreadExecutor()
         val providerFuture = ProcessCameraProvider.getInstance(context)
+        var boundProvider: ProcessCameraProvider? = null
+        var boundPreview: Preview? = null
+        var boundAnalysis: ImageAnalysis? = null
         val listener = Runnable {
-            val provider = providerFuture.get()
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
-            val analysis = ImageAnalysis.Builder()
-                .setResolutionSelector(
-                    ResolutionSelector.Builder()
-                        .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
-                        .setResolutionStrategy(
-                            ResolutionStrategy(
-                                Size(1280, 720),
-                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
-                            ),
+            cameraLifecycle.runIfActive {
+                runCatching {
+                    val provider = providerFuture.get().also { boundProvider = it }
+                    val preview = Preview.Builder().build().also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
+                        boundPreview = it
+                    }
+                    val analysis = ImageAnalysis.Builder()
+                        .setResolutionSelector(
+                            ResolutionSelector.Builder()
+                                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+                                .setResolutionStrategy(
+                                    ResolutionStrategy(
+                                        Size(1280, 720),
+                                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
+                                    ),
+                                )
+                                .build(),
                         )
-                        .build(),
-                )
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-                .also { imageAnalysis ->
-                    imageAnalysis.setAnalyzer(analyzerExecutor) { imageProxy ->
-                        if (!scanGate.beginFrame()) {
-                            imageProxy.close()
-                            return@setAnalyzer
-                        }
-                        val raw = runCatching { LocalQrCodeDecoder.decode(imageProxy) }
-                            .getOrNull()
-                            ?.takeIf { it.startsWith("galaxybridge://pair") }
-                        imageProxy.close()
-                        if (raw == null) {
-                            scanGate.completeFrame(accepted = false)
-                        } else {
-                            ContextCompat.getMainExecutor(context).execute {
-                                val accepted = runCatching { onQrCode(raw) }.getOrDefault(false)
-                                scanGate.completeFrame(accepted)
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .build()
+                        .also { imageAnalysis ->
+                            boundAnalysis = imageAnalysis
+                            imageAnalysis.setAnalyzer(analyzerExecutor) { imageProxy ->
+                                if (!scanGate.beginFrame()) {
+                                    imageProxy.close()
+                                    return@setAnalyzer
+                                }
+                                val raw = runCatching { LocalQrCodeDecoder.decode(imageProxy) }
+                                    .getOrNull()
+                                    ?.takeIf { it.startsWith("galaxybridge://pair") }
+                                imageProxy.close()
+                                if (raw == null) {
+                                    scanGate.completeFrame(accepted = false)
+                                } else {
+                                    ContextCompat.getMainExecutor(context).execute {
+                                        cameraLifecycle.runIfActive {
+                                            val accepted = runCatching { onQrCode(raw) }.getOrDefault(false)
+                                            scanGate.completeFrame(accepted)
+                                        }
+                                    }
+                                }
                             }
                         }
-                    }
-                }
-            provider.unbindAll()
-            provider.bindToLifecycle(
-                lifecycleOwner,
-                CameraSelector.DEFAULT_BACK_CAMERA,
-                preview,
-                analysis,
-            )
+                    provider.bindToLifecycle(
+                        lifecycleOwner,
+                        CameraSelector.DEFAULT_BACK_CAMERA,
+                        preview,
+                        analysis,
+                    )
+                }.onFailure { onUnavailable() }
+            }
         }
         providerFuture.addListener(listener, ContextCompat.getMainExecutor(context))
         onDispose {
-            runCatching { if (providerFuture.isDone) providerFuture.get().unbindAll() }
-            analyzerExecutor.shutdown()
+            cameraLifecycle.dispose()
+            boundAnalysis?.clearAnalyzer()
+            runCatching {
+                boundPreview?.let { boundProvider?.unbind(it) }
+                boundAnalysis?.let { boundProvider?.unbind(it) }
+            }
+            analyzerExecutor.shutdownNow()
         }
     }
 }
