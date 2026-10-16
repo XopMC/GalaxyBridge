@@ -289,3 +289,5 @@
 "APPLICATIONS_SEARCH_EMPTY_HINT" = "請嘗試其他 App 名稱或套件名稱。";
 "CLIENT_SETUP_VERIFICATION_UNAVAILABLE" = "此版本無法驗證這項功能。請更改選擇以繼續設定。";
 "NOTIFICATION_CUSTOM_CONTENT" = "請在手機上開啟此通知以查看內容。";
+"FILES_RECEIVE_AUTHORIZE" = "允許接收檔案";
+"FILES_RECEIVE_AUTHORIZE_HINT" = "請選擇「下載項目」檔案夾，讓此 Mac 儲存從手機接收的檔案。";

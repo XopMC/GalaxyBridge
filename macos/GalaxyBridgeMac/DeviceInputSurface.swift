@@ -84,10 +84,11 @@ struct TrackpadMotionFilter {
         let gain = 0.65
         switch lockedAxis {
         case .horizontal:
-            return CGPoint(x: -deltaX * gain / renderedSize.width, y: 0)
+            return CGPoint(x: deltaX * gain / renderedSize.width, y: 0)
         case .vertical:
-            // AppKit physical Y grows upward; the flipped Android surface grows downward.
-            return CGPoint(x: 0, y: -deltaY * gain / renderedSize.height)
+            // Logical scroll deltas describe content movement; Android touch
+            // coordinates use the same downward-positive content direction.
+            return CGPoint(x: 0, y: deltaY * gain / renderedSize.height)
         case nil:
             return .zero
         }
@@ -284,9 +285,10 @@ final class DeviceInputNSView: NSView, @preconcurrency NSTextInputClient {
         }
 
         if event.phase != .cancelled {
-            let physicalDirection = event.isDirectionInvertedFromDevice ? -1.0 : 1.0
-            let deltaX = Double(event.scrollingDeltaX) * physicalDirection
-            let deltaY = Double(event.scrollingDeltaY) * physicalDirection
+            // AppKit already applies the user's natural/traditional preference.
+            // Preserve its logical content direction when emulating a touch.
+            let deltaX = Double(event.scrollingDeltaX)
+            let deltaY = Double(event.scrollingDeltaY)
             let movement = trackpadMotionFilter.consume(
                 deltaX: deltaX,
                 deltaY: deltaY,

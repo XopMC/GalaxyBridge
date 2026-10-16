@@ -286,3 +286,5 @@
 "APPLICATIONS_SEARCH_EMPTY_HINT" = "Try a different app name or package name.";
 "CLIENT_SETUP_VERIFICATION_UNAVAILABLE" = "This version cannot verify this feature. Change your selection to continue setup.";
 "NOTIFICATION_CUSTOM_CONTENT" = "Open this notification on your phone to view its content.";
+"FILES_RECEIVE_AUTHORIZE" = "Allow receiving files";
+"FILES_RECEIVE_AUTHORIZE_HINT" = "Choose Downloads so this Mac can save files received from your phone.";

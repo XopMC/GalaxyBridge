@@ -98,14 +98,7 @@ final class CompanionTLSClient: @unchecked Sendable {
             },
             queue
         )
-        let tcp = NWProtocolTCP.Options()
-        tcp.noDelay = true
-        tcp.enableKeepalive = true
-        tcp.keepaliveIdle = 2
-        tcp.keepaliveInterval = 1
-        tcp.keepaliveCount = 3
-        let parameters = NWParameters(tls: tls, tcp: tcp)
-        parameters.includePeerToPeer = true
+        let parameters = CompanionTransportParameters.make(tls: tls)
         connection = NWConnection(to: endpoint, using: parameters)
     }
 

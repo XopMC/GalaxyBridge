@@ -418,6 +418,9 @@ final class QuicScrcpySessionTransport: ScrcpySessionTransport, @unchecked Senda
                                 native.audio.consume(admitted.work.event, epoch: admitted.identity.epoch, diagnosticTrace: trace, nativeWork: admitted.work)
                             }
                             callbacks.media(admitted)
+                            // Match the stock parser's bounded diagnostics cadence.
+                            // Without this, QUIC reports only at retirement.
+                            diagnostics?.emitIfDue()
                         case 3:
                             operation = 10
                             var transferred = false

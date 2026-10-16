@@ -151,7 +151,10 @@ final class MetalVideoRenderer: NSObject, MTKViewDelegate, VideoSurfacePresentin
         lock.unlock()
         guard let drawable = view.currentDrawable,
               let commandBuffer = commandQueue.makeCommandBuffer()
-        else { return }
+        else {
+            retryUnavailableDrawable(in: view, bindingGeneration: bindingGeneration)
+            return
+        }
 
         guard let pixelBuffer else {
             if let pass = view.currentRenderPassDescriptor {
@@ -215,6 +218,33 @@ final class MetalVideoRenderer: NSObject, MTKViewDelegate, VideoSurfacePresentin
         }
         commandBuffer.present(drawable)
         commandBuffer.commit()
+        lock.withLock { invalidationState.didSubmitDraw() }
+    }
+
+    private func retryUnavailableDrawable(in view: MTKView, bindingGeneration: UUID) {
+        let isVisible = canRetryDrawable(in: view)
+        let token = lock.withLock { () -> UInt64? in
+            guard frame != nil, presentationBindingGeneration == bindingGeneration else { return nil }
+            return invalidationState.retryAfterFailedDraw(isVisible: isVisible)
+        }
+        guard let token else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(33)) { [weak self] in
+            guard let self, let view = self.view else { return }
+            let visible = self.canRetryDrawable(in: view)
+            let shouldDraw = self.lock.withLock {
+                self.invalidationState.consumeRetry(token, isVisible: visible)
+            }
+            if shouldDraw { view.setNeedsDisplay(view.bounds) }
+        }
+    }
+
+    private func canRetryDrawable(in view: MTKView) -> Bool {
+        guard let window = view.window else { return false }
+        return window.isVisible && !window.isMiniaturized
+            && window.occlusionState.contains(.visible)
+            && !view.isHiddenOrHasHiddenAncestor
+            && view.bounds.width > 0 && view.bounds.height > 0
+            && view.drawableSize.width > 0 && view.drawableSize.height > 0
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -227,12 +257,17 @@ final class MetalVideoRenderer: NSObject, MTKViewDelegate, VideoSurfacePresentin
         lock.withLock {
             frame = nil; frameDiagnosticTrace = nil; framePresentationReceipt = nil
             presentationBindingGeneration = UUID()
+            invalidationState.cancelRetries()
         }
         context.clearCaches()
         view?.setNeedsDisplay(view?.bounds ?? .zero)
     }
 
     func invalidatePresentationReceipts() {
-        lock.withLock { framePresentationReceipt = nil; presentationBindingGeneration = UUID() }
+        lock.withLock {
+            framePresentationReceipt = nil
+            presentationBindingGeneration = UUID()
+            invalidationState.cancelRetries()
+        }
     }
 }

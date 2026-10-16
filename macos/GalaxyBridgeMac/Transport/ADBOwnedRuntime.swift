@@ -220,6 +220,10 @@ final class ADBOwnedRuntime: @unchecked Sendable {
                 "GALAXYBRIDGE_ADB_USER_DIR": identityRoot.appendingPathComponent("keys").path,
                 "GALAXYBRIDGE_ADB_PARENT_PIPE": "stdin-v1", "ADB_USB": "0", "ADB_EMU": "0",
                 "GALAXYBRIDGE_ADB_USB_POLICY": usbPolicy.rawValue,
+                // Negotiate upstream ADB's credit-based stream flow control.
+                // Stop-and-wait WRTE/OKAY stalls frame header/payload and
+                // gesture bursts on Wi-Fi. Unsupported peers retain legacy ADB.
+                "ADB_BURST_MODE": "1",
                 "ADB_REJECT_KILL_SERVER": "1", "ADB_TRACE": "", "ANDROID_ADB_LOG_PATH": "/dev/null"]
             // Probe the reviewed binary contract with an empty, temporary key
             // directory before allowing any persistent identity generation.

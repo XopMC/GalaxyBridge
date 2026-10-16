@@ -1285,6 +1285,23 @@ impl Endpoint {
         let reliable_only = self.prioritize_reliable;
         let mut output_drained = false;
         for _ in 0..GENERATED_PACKETS {
+            // Keep a short pacing lookahead rather than filling the 32-slot
+            // committed FIFO behind a future head. A few packets cover owner
+            // wakeup quantization without committing a long stale media tail.
+            // Descriptor stalls never gain extra commitments. Already-owned
+            // packets retain FIFO, pacing and quiche recovery accounting.
+            if drain
+                && self.preserve_committed
+                && self.generated.back().is_some_and(|packet| {
+                    self.needs_writable
+                        || self.write_permit == WritePermit::Denied
+                        || self.generated.len() >= 3
+                        || packet.at.saturating_duration_since(self.service_now())
+                            >= Duration::from_millis(2)
+                })
+            {
+                break;
+            }
             if self.generated.len() == GENERATED_PACKETS {
                 break;
             }
@@ -4259,7 +4276,7 @@ mod tests {
     ) -> (Endpoint, Endpoint) {
         ready_pair_with_pacing_cap(sender_capacity, cc, None)
     }
-    fn ready_pair_with_pacing_cap(
+    pub(super) fn ready_pair_with_pacing_cap(
         sender_capacity: usize,
         cc: CongestionControl,
         max_pacing_rate: Option<u64>,
@@ -5102,3 +5119,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "endpoint_pacing_horizon_tests.rs"]
+mod pacing_horizon_tests;

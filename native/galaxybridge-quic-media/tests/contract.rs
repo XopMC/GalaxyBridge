@@ -5892,6 +5892,10 @@ fn two_pointer_byte_sink_move_barrier_up_seal_and_late_partial_are_not_interleav
     let mut up = critical(2, 3, touch(1));
     up.body[31] = 2;
     w.ingest(up, 0).unwrap();
+    // The newest still-fresh position must reach the byte sink before UP.
+    let l = w.next_write(0).unwrap();
+    assert_eq!(l.bytes.as_slice()[1], 2);
+    w.write_result(l.token, 32, 0).unwrap();
     let l = w.next_write(0).unwrap();
     assert_eq!(l.bytes.as_slice()[1], 1);
     w.write_result(l.token, 32, 0).unwrap();

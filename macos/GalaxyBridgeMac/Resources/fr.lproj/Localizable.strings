@@ -287,3 +287,5 @@
 "APPLICATIONS_SEARCH_EMPTY_HINT" = "Essayez un autre nom d’application ou de paquet.";
 "CLIENT_SETUP_VERIFICATION_UNAVAILABLE" = "Cette version ne peut pas vérifier cette fonctionnalité. Modifiez votre sélection pour poursuivre la configuration.";
 "NOTIFICATION_CUSTOM_CONTENT" = "Ouvrez cette notification sur votre téléphone pour voir son contenu.";
+"FILES_RECEIVE_AUTHORIZE" = "Autoriser la réception";
+"FILES_RECEIVE_AUTHORIZE_HINT" = "Choisissez Téléchargements pour que ce Mac puisse enregistrer les fichiers reçus du téléphone.";

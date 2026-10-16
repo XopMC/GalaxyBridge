@@ -498,6 +498,33 @@ struct PrimaryMediaDiagnosticsTests {
         #expect(!compressionNoise.isVisiblyDifferent(from: baseline))
         #expect(PrimaryFrameSignature(luma: localized).isVisiblyDifferent(from: baseline))
     }
+    @Test @MainActor func quicMetadataAndNativeFrameHandoffsDoNotShareQueueOrActorStage() async throws {
+        let meter = PrimaryMediaDiagnostics(generation: 14, now: { 0.002 }, sink: { _ in })
+        let trace = try #require(meter.received(stream: .video, bytes: 3, pts: 1, epoch: 1, now: 0))
+        let deliveries = DiagnosticEventSink()
+        // Holding this actor keeps the metadata callback queued while the
+        // native pipeline independently reaches its decoded-frame handoff.
+        ScrcpyPrimaryMediaDelivery.deliver(.codec(.h264), trace: trace, metadataOnly: true) { event, context in
+            deliveries.values.append(event)
+            #expect(context?.sequence == trace.sequence)
+        }
+        meter.mark(.decoder, trace: trace, now: 0.001)
+        meter.enter(.event, trace: trace, now: 0.002)
+        let overlapping = meter.snapshot(now: 0.002)
+        #expect(overlapping.pending[.event] == 1)
+        #expect(overlapping.pending[.metadataEvent] == 1)
+        meter.leave(.event, trace: trace, now: 0.003)
+        for _ in 0..<100 where deliveries.values.isEmpty { await Task.yield() }
+        #expect(deliveries.values == [.codec(.h264)])
+        let summary = meter.snapshot(now: 1)
+        #expect(summary.counters[.queueImbalance] == 0)
+        #expect(summary.counters[.invalidTimestamp] == 0)
+        #expect(summary.pending[.event] == 0)
+        #expect(summary.pending[.metadataEvent] == 0)
+        #expect(summary.histograms[.receiveToActor]?.sampleCount == 0)
+        #expect(meter.stageTime(.actor, trace: trace) == nil)
+    }
+
     @Test @MainActor func actualHandoffAndMulticastPreserveEffects() async throws {
         let meter = PrimaryMediaDiagnostics(generation: 9, now: { 0 }, sink: { _ in })
         let trace = try #require(meter.received(stream: .video, bytes: 3, pts: 1, epoch: 1, now: 0))

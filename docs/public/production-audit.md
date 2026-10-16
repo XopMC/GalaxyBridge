@@ -24,6 +24,14 @@ all phones, networks, applications, or a zero-latency experience.
 | Disconnected mirror | A removed device row left a blank borderless window without a visible close control | Full-size dark unavailable state with a close button bound to its own hosting window; visually verified that closing it keeps the main window open |
 | Catalog refresh | Refresh replaced useful tiles with an empty loading panel; obsolete route completion could strand loading | Preserve tiles, serialize requests, reject obsolete results and reload after a USB/Wi-Fi route change |
 | QUIC launch | Native ADB child lacked the owned key directory and private server endpoint, causing SIGABRT | Child launch uses the same explicit environment/endpoint as regular ADB; real private-server regression and on-device producer start |
+| QUIC media intake | A ready large access unit paid a service wait for each 8 KiB read | A real preloaded 25,602-byte IDR changes from four read turns to one; larger/fragmented input and original deadlines remain bounded and byte-exact |
+| QUIC gesture release | UP discarded the latest queued MOVE, including when DOWN had not finished writing | Exact stock-byte regressions preserve MOVE-before-UP, partial DOWN, CANCEL and the original 40 ms motion expiry |
+| QUIC pacing | Early ciphertext generation retained a long FIFO behind a future pacing deadline | Bounded three-packet/~2 ms lookahead preserves committed packets; authenticated loopback delivery, reliable fairness and 6 Mbps payload throughput tests |
+| Static video refresh | A temporarily unavailable Metal drawable could lose the only changed frame’s redraw request | Three bounded visible-surface retries, latest-frame coalescing and clear/detach cancellation regressions |
+| Wireless ADB flow control | The owned server did not request Android's negotiated delayed-ACK capability | Enable ADB Burst Mode on the private server and its clients; actual server/phone capability intersection, USB input and an unread 8 MiB stream plus independent controls verified |
+| Trackpad direction | Precise scrolling compensated deltas that AppKit had already adjusted to the user's preference | Eight actual scrollWheel cases cover both axes, signs and inversion flags; axis lock, dead zone, momentum and release rules remain intact |
+| Android LAN connection | Companion transport unnecessarily requested Apple peer-to-peer discovery | LAN TLS/TCP parameters retain interface choice, TCP_NODELAY and keepalive without requesting Apple peer-to-peer; no isolated latency gain claimed |
+| QUIC diagnostics | Metadata and decoded frames both contributed to one actor queue counter | Separate metadata accounting; hardware run reports zero queue imbalance and invalid timestamps |
 | QUIC temporary files | Retired sessions left native executables and producer JARs on the phone | Exact session-owned paths are removed after physical retirement; partial-launch rollback tests and an S24 open/close check (two files while running, zero after close) |
 | Guidance | Direct screen instructions described the Companion capture flow; camera setup promised a virtual webcam | Distribution-specific screen/audio copy and phone-camera preview wording across shipping languages |
 
@@ -36,6 +44,11 @@ all phones, networks, applications, or a zero-latency experience.
   No Share action or custom input method is required.
 - A synthetic notification appeared on Mac; dismissing it on Mac removed it on Android.
 - A 104448-byte synthetic Mac-to-phone file transfer passed SHA-256 verification.
+- Phone-to-Mac reception passed after choosing Downloads through the app’s folder
+  chooser and restarting the app. Sending that received 1568-byte neutral file
+  back to Android preserved its original SHA-256. Both phone copies and the Mac
+  fixture were removed afterward. This is source-app evidence; final packaging
+  validation is recorded separately.
 - A recorded MOV decoded successfully at 886 x 1920 with an AAC audio track.
   A five-second synthetic phone tone yielded nonzero decoded PCM in the recording.
 - Phone-camera preview entered streaming state and stopped cleanly. Camera
@@ -96,11 +109,63 @@ Normal packaged installation and pairing were checked separately above.
   the still-open mirror resumed and accepted another click. The transport was
   restored manually; automatic recovery across network roaming is still unproven.
 
+### Prioritized Wi-Fi correction
+
+The normal installed public app was tested with its existing S24 pairing. The
+USB host transport was detached, leaving the phone's debugging settings intact;
+the live producer used the Wireless ADB endpoint. The H.264 1920-max / 60 fps
+target / 6 Mbps profile was unchanged. The owned private ADB server now enables
+**Burst Mode**, negotiated only when both peers support `delayed_ack`.
+
+| Sequential motion run | Duration | Distinct presentation fps | Maximum receive / presentation gap |
+| --- | --- | --- | --- |
+| Before Burst Mode | 257.54 s | 51.11 | 306.39 / 316.67 ms |
+| With Burst Mode | 93.37 s | 54.76 | 120.25 / 125.00 ms |
+
+All twelve subsequent static-response clicks arrived: dispatch-to-visible change
+was **82.9–215.5 ms**, with no control failures or expired probes. Holding an
+8 MiB ADB stdout stream unread for 42 seconds did not block four independent
+visible clicks. After reattaching USB, three further clicks arrived correctly.
+These are sequential measurements of unequal duration on one network; they do
+not establish a hard latency bound or eliminate radio/network jitter. Router
+round-trip spikes of about 80–90 ms were also observed. No resolution, bitrate,
+frame-rate target or declared function was removed.
+
+A complete 19.95-second on-device Perfetto trace, with no trace-buffer loss,
+matched twelve input responses. Median phone event-to-captured-frame time was
+26.94 ms, captured-frame-to-encoded-output 23.86 ms, and host receipt-to-visible
+presentation 25.80 ms. The remaining transport/handoff budget varied from
+13.95 to 106.84 ms. Long codec dequeue waits alone were not treated as encoder
+CPU stalls. Private traces, phone identities and screenshots are excluded from Git.
+
+The experimental QUIC path also retains its architecture: bounded media intake,
+MOVE-before-UP ordering, pacing lookahead and Metal redraw recovery have focused
+regressions. A 103.79-second S24 run presented 58.09 distinct fps with a 200 ms
+maximum presentation gap and zero diagnostic queue imbalance. It remains opt-in;
+its measurements are not substituted for the public Wireless ADB results.
+
+### Final package and regression checks
+
+The updated DMG was mounted and its Applications link and nested ad-hoc
+signatures verified. Mach-O code before the packaging signature matches the
+source app used for timing; the installed executable matches the DMG exactly.
+The installed package reconnected to the existing S24 pairing and displayed the
+phone over Wireless ADB with USB detached at the host. Both scroll directions
+were checked visually in the main mirror and a separate Android Settings window;
+a direct mouse swipe and navigation clicks worked. The public APK is unchanged
+from the preceding maintenance upload: this update's runtime fixes are in the Mac
+app and its bundled native resources.
+
+Fresh checks passed: **136 Swift tests in 15 suites**, the actual AppKit input
+mapping spec, bounded Metal redraw recovery, Downloads scope persistence,
+owned-ADB Burst negotiation, four native ingestion regressions, 175 native media
+checks and the four pacing-horizon regressions plus related transport gates.
+The publication scanner passed 928 source files; all eleven language catalogs
+per platform passed key coverage. This does not replace independent hardware,
+linguistic or clean-Mac acceptance.
+
 ## Remaining acceptance work
 
-- Finish phone-to-Mac transfer after granting the standard Downloads permission.
-  The installed public app also awaits this OS permission; the queued synthetic
-  transfer is not counted as a successful acceptance check.
 - Expand the measured motion/input checks to additional networks and longer runs.
 - Repeat hardware checks after any relevant source change; abrupt process death
   and an unreachable phone can still leave that session's temporary files behind.

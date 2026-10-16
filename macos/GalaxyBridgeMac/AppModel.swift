@@ -189,6 +189,7 @@ final class AppModel: ObservableObject {
     private var pendingTransfers: [String: OutgoingFileTransfer] = [:]
     private let outgoingFileStore = OutgoingFileTransferStore()
 #if !GALAXYBRIDGE_APP_STORE
+    private let incomingDownloadsAccess = DownloadsFolderAccess()
     private let incomingFileStore = IncomingFileTransferStore()
     private var incomingFileTasks: [UUID: Task<Void, Never>] = [:]
     private var incomingFileProofs: [String: UUID] = [:]
@@ -1833,6 +1834,26 @@ final class AppModel: ObservableObject {
         action.dismiss = dismiss
         do { try control.sendNotificationAction(action) } catch { lastError = error.localizedDescription }
     }
+
+#if !GALAXYBRIDGE_APP_STORE
+    func authorizeIncomingDownloads() {
+        guard terminationAdmission.admitsWork else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        panel.message = String(localized: "FILES_RECEIVE_AUTHORIZE_HINT")
+        guard panel.runModal() == .OK, let url = panel.url, terminationAdmission.admitsWork else { return }
+        do {
+            try incomingDownloadsAccess.grant(url)
+            lastError = nil
+        } catch {
+            lastError = String(localized: "FILES_RECEIVE_AUTHORIZE_HINT")
+        }
+    }
+#endif
 
     func sendFile(deviceID: String, url: URL) {
         guard terminationAdmission.admitsWork else { return }

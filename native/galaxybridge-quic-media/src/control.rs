@@ -347,6 +347,7 @@ struct Command {
     gesture: u64,
     pointer: u64,
     final_move: u64,
+    barrier: u64,
     bytes: Bytes,
     deadline: u64,
     offset: usize,
@@ -583,6 +584,8 @@ impl Writer {
                 }
                 if self.pointers.iter().any(|p| {
                     p.gesture == gesture && p.pointer == pointer && final_move < p.latest_move
+                }) || self.moves.iter().any(|m| {
+                    m.gesture == gesture && m.pointer == pointer && final_move < m.sequence
                 }) {
                     return Err(Failure::Protocol);
                 }
@@ -602,8 +605,13 @@ impl Writer {
             .ok_or(Failure::Clock)?;
         self.serial = self.serial.checked_add(1).ok_or(Failure::Capacity)?;
         if matches!(class, Class::Up | Class::Cancel) {
-            self.moves
-                .retain(|m| m.gesture != gesture || m.pointer != pointer);
+            // UP seals a valid latest MOVE; it must reach the stock sink
+            // before UP even when both arrive in one owner turn. CANCEL
+            // intentionally abandons unwritten motion immediately.
+            if class == Class::Cancel {
+                self.moves
+                    .retain(|m| m.gesture != gesture || m.pointer != pointer);
+            }
             if let Some(p) = self
                 .pointers
                 .iter_mut()
@@ -620,6 +628,7 @@ impl Writer {
             gesture,
             pointer,
             final_move,
+            barrier: 0,
             bytes,
             deadline,
             offset: 0,
@@ -642,20 +651,46 @@ impl Writer {
         {
             return Err(Failure::Protocol);
         }
-        let Some(p) = self
+        let active = self
             .pointers
-            .iter_mut()
-            .find(|p| p.gesture == gesture && p.pointer == pointer)
-        else {
+            .iter()
+            .find(|p| p.gesture == gesture && p.pointer == pointer);
+        let pending_down =
+            self.critical.iter().chain(self.current.iter()).any(|c| {
+                c.class == Some(Class::Down) && c.gesture == gesture && c.pointer == pointer
+            });
+        if active.is_none() && !pending_down {
             return Ok(());
-        };
-        if barrier > self.applied || p.closing || r.sequence <= p.latest_move {
+        }
+        let closing = active.is_some_and(|p| p.closing)
+            || self.critical.iter().chain(self.current.iter()).any(|c| {
+                matches!(c.class, Some(Class::Up | Class::Cancel))
+                    && c.gesture == gesture
+                    && c.pointer == pointer
+            });
+        let latest = active.map_or(0, |p| p.latest_move).max(
+            self.moves
+                .iter()
+                .filter(|m| m.gesture == gesture && m.pointer == pointer)
+                .map(|m| m.sequence)
+                .max()
+                .unwrap_or(0),
+        );
+        // Retain at most one fresh MOVE for an admitted DOWN, but do not
+        // write it until all its already-received critical barriers apply.
+        if barrier >= self.next || closing || r.sequence <= latest {
             return Ok(());
         }
         self.moves
             .retain(|m| m.gesture != gesture || m.pointer != pointer);
         let bytes = self.move_pool.allocate(raw.to_vec())?;
-        p.latest_move = r.sequence;
+        if let Some(p) = self
+            .pointers
+            .iter_mut()
+            .find(|p| p.gesture == gesture && p.pointer == pointer)
+        {
+            p.latest_move = r.sequence;
+        }
         self.serial = self.serial.checked_add(1).ok_or(Failure::Capacity)?;
         self.moves.push(Command {
             token: self.serial,
@@ -665,6 +700,7 @@ impl Writer {
             gesture,
             pointer,
             final_move: 0,
+            barrier,
             bytes,
             deadline: now
                 .checked_add(MOVE_LIFETIME - r.age_us as u64 * 1000)
@@ -721,19 +757,43 @@ impl Writer {
                     gesture,
                     pointer,
                     final_move: 0,
+                    barrier: 0,
                     bytes,
                     deadline,
                     offset: 0,
                     geometry_release: true,
                 });
             } else {
-                self.current = self.critical.pop_front().or_else(|| {
-                    if self.moves.is_empty() {
-                        None
-                    } else {
-                        Some(self.moves.remove(0))
-                    }
+                let sealed_move = self.critical.front().and_then(|release| {
+                    (release.class == Some(Class::Up))
+                        .then(|| {
+                            self.moves.iter().position(|m| {
+                                m.gesture == release.gesture
+                                    && m.pointer == release.pointer
+                                    && m.sequence <= release.final_move
+                                    && m.barrier <= self.applied
+                                    && self
+                                        .pointers
+                                        .iter()
+                                        .any(|p| p.gesture == m.gesture && p.pointer == m.pointer)
+                            })
+                        })
+                        .flatten()
                 });
+                self.current = if let Some(at) = sealed_move {
+                    Some(self.moves.remove(at))
+                } else {
+                    self.critical.pop_front().or_else(|| {
+                        let at = self.moves.iter().position(|m| {
+                            m.barrier <= self.applied
+                                && self
+                                    .pointers
+                                    .iter()
+                                    .any(|p| p.gesture == m.gesture && p.pointer == m.pointer)
+                        })?;
+                        Some(self.moves.remove(at))
+                    })
+                };
             }
         }
         let c = self.current.as_ref()?;
@@ -802,7 +862,13 @@ impl Writer {
                     self.pointers.push(Pointer {
                         gesture: c.gesture,
                         pointer: c.pointer,
-                        latest_move: 0,
+                        latest_move: self
+                            .moves
+                            .iter()
+                            .filter(|m| m.gesture == c.gesture && m.pointer == c.pointer)
+                            .map(|m| m.sequence)
+                            .max()
+                            .unwrap_or(0),
                         closing: self.critical.iter().any(|q| {
                             matches!(q.class, Some(Class::Up | Class::Cancel))
                                 && q.gesture == c.gesture

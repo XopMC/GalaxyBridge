@@ -636,7 +636,7 @@ final class ScrcpySession: ObservableObject {
                     self.sendInitialControlMessages(); self.startClipboardPollingIfNeeded()
                 } },
                 media: { [weak self] media in
-                    ScrcpyPrimaryMediaDelivery.deliver(media.work.event, trace: media.work.trace) { [weak self] event, trace in
+                    ScrcpyPrimaryMediaDelivery.deliver(media.work.event, trace: media.work.trace, metadataOnly: true) { [weak self] event, trace in
                         guard let self, self.nativeOwner === owner, owner.attempt.isAdmitted else { return }
                         if media.identity.track == 1 {
                             self.handleVideo(event, diagnosticTrace: trace, owner: owner, work: media.work, consumed: true)
@@ -1404,15 +1404,18 @@ private struct SendablePixelBuffer: @unchecked Sendable {
     init(_ value: CVPixelBuffer) { self.value = value }
 }
 
-/// This is the existing socket→MainActor hop, shared with focused synthetic tests.
+/// Stock enters the primary pipeline on this actor hop. QUIC's parallel
+/// metadata callback has separate accounting from decoded-frame delivery.
 enum ScrcpyPrimaryMediaDelivery {
     static func deliver(_ event: ScrcpyStreamEvent, trace: PrimaryMediaTrace?,
+                        metadataOnly: Bool = false,
                         handler: @escaping @MainActor @Sendable (ScrcpyStreamEvent, PrimaryMediaTrace?) -> Void) {
-        if let trace { trace.collector.enter(.event, trace: trace) }
+        let queue: PrimaryMediaQueue = metadataOnly ? .metadataEvent : .event
+        if let trace { trace.collector.enter(queue, trace: trace) }
         Task { @MainActor in
             if let trace {
-                trace.collector.leave(.event, trace: trace)
-                trace.collector.mark(.actor, trace: trace)
+                trace.collector.leave(queue, trace: trace)
+                if !metadataOnly { trace.collector.mark(.actor, trace: trace) }
             }
             handler(event, trace)
         }

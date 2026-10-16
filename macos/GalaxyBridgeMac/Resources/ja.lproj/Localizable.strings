@@ -289,3 +289,5 @@
 "APPLICATIONS_SEARCH_EMPTY_HINT" = "別のアプリ名またはパッケージ名で検索してください。";
 "CLIENT_SETUP_VERIFICATION_UNAVAILABLE" = "このバージョンでは、この機能を検証できません。選択を変更して設定を続けてください。";
 "NOTIFICATION_CUSTOM_CONTENT" = "内容を表示するには、スマートフォンでこの通知を開いてください。";
+"FILES_RECEIVE_AUTHORIZE" = "ファイルの受信を許可";
+"FILES_RECEIVE_AUTHORIZE_HINT" = "このMacでスマートフォンからのファイルを保存できるように、「ダウンロード」を選択してください。";

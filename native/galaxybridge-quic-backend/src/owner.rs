@@ -2900,18 +2900,52 @@ impl Backend {
     }
     fn read_stock(&mut self, track: u8) -> Result<(), Error> {
         galaxybridge_quic_media::media::first_error::stage(line!());
+        let started = Instant::now();
+        self.read_stock_with_budget(track, || started.elapsed() >= Duration::from_millis(2))
+    }
+    fn read_stock_with_budget(
+        &mut self,
+        track: u8,
+        mut budget_elapsed: impl FnMut() -> bool,
+    ) -> Result<(), Error> {
         let index = (track - 1) as usize;
         let mut bytes = std::mem::take(&mut self.buffers[index]);
+        let mut read_bytes = 0;
         if bytes.is_empty() {
             let mut b = [0; 8192];
             if let Some(n) = self.stock.as_mut().unwrap().read(track, &mut b)? {
                 bytes.extend_from_slice(&b[..n]);
+                read_bytes += n;
             }
         }
         let mut at = 0;
         for _ in 0..32 {
             if at == bytes.len() && self.g1.deferred_stock_track() != Some(track) {
-                break;
+                // Finish a ready partial media AU without charging an owner
+                // sleep for each 8 KiB. Refill only while an AU is incomplete,
+                // with at most 64 KiB of reads, 32 parser steps, and 2 ms
+                // between refills so input, audio, timers and sends run.
+                // Deferred/capacity ownership stays with G1; control retains
+                // its existing single-read service and original deadlines.
+                if track > 2
+                    || self.active_track != Some(track)
+                    || read_bytes >= 64 * 1024
+                    || budget_elapsed()
+                {
+                    break;
+                }
+                bytes.clear();
+                at = 0;
+                let mut b = [0; 8192];
+                let limit = b.len().min(64 * 1024 - read_bytes);
+                let Some(n) = self.stock.as_mut().unwrap().read(track, &mut b[..limit])? else {
+                    break;
+                };
+                if n == 0 {
+                    break;
+                }
+                bytes.extend_from_slice(&b[..n]);
+                read_bytes += n;
             }
             let now = self.now_ns()?;
             if track <= 2 {
@@ -4972,3 +5006,7 @@ mod tests {
         assert_eq!(media, 2);
     }
 }
+
+#[cfg(all(test, feature = "qa"))]
+#[path = "owner_stock_ingestion_tests.rs"]
+mod stock_ingestion_tests;

@@ -16,7 +16,7 @@ Use macOS 14 or later on an Apple Silicon Mac and Android 12 or later on a Samsu
 2. Launch the installed app. This prerelease uses an ad-hoc signature and is not Apple notarized.
 3. If macOS blocks it, confirm you downloaded the intended release. After attempting to open it, go to **System Settings → Privacy & Security → Open Anyway** for Galaxy Bridge and confirm the system dialog. Keep macOS protection enabled for other apps.
 4. Allow Local Network access when prompted so the Mac can communicate with your phone.
-5. When receiving your first file, allow Galaxy Bridge to save files in Downloads in the macOS prompt.
+5. In Files, click **Allow file reception** and select your **Downloads** folder in the macOS folder chooser. The app remembers this choice after restart.
 
 ADB is bundled; installing Homebrew, Android SDK, or a separate ADB package is unnecessary for using the download.
 
@@ -56,7 +56,7 @@ Received files appear in **Downloads** on Mac and **Download/GalaxyBridge** on A
 2. Запустите установленное приложение. У этого предварительного выпуска локальная ad-hoc подпись, нотарификации Apple нет.
 3. Если macOS блокирует запуск, убедитесь, что скачали нужный выпуск. После попытки открытия перейдите в **«Системные настройки → Конфиденциальность и безопасность»** и разрешите запуск Galaxy Bridge кнопкой **«Всё равно открыть»**, затем подтвердите системный диалог. Оставьте защиту macOS включённой для остальных приложений.
 4. Разрешите доступ к локальной сети по запросу, чтобы Mac мог связываться с телефоном.
-5. При первом приёме файла разрешите Galaxy Bridge доступ к папке «Загрузки» в системном запросе macOS.
+5. На панели «Файлы» нажмите **«Разрешить приём файлов»** и выберите папку **«Загрузки»** в системном окне. Приложение запомнит выбор после перезапуска.
 
 ADB уже встроен: для использования готового приложения не нужны Homebrew, Android SDK и отдельная установка ADB.
 

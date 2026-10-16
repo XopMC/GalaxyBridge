@@ -289,3 +289,5 @@
 "APPLICATIONS_SEARCH_EMPTY_HINT" = "جرّب اسم تطبيق أو اسم حزمة مختلفًا.";
 "CLIENT_SETUP_VERIFICATION_UNAVAILABLE" = "لا يمكن لهذا الإصدار التحقق من هذه الميزة. غيّر اختيارك لمتابعة الإعداد.";
 "NOTIFICATION_CUSTOM_CONTENT" = "افتح هذا الإشعار على هاتفك لعرض محتواه.";
+"FILES_RECEIVE_AUTHORIZE" = "السماح باستقبال الملفات";
+"FILES_RECEIVE_AUTHORIZE_HINT" = "اختر «التنزيلات» ليتمكن هذا Mac من حفظ الملفات المستلمة من هاتفك.";

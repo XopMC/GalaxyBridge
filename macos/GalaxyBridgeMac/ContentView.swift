@@ -806,6 +806,7 @@ private struct FilesPanel: View {
 #if !GALAXYBRIDGE_APP_STORE
             Divider()
             Label("FILES_FROM_PHONE", systemImage: "arrow.down.doc").font(.headline)
+            Button("FILES_RECEIVE_AUTHORIZE") { model.authorizeIncomingDownloads() }
             let rows = model.incomingFilesByDevice[deviceID, default: []]
             if rows.isEmpty {
                 Text("FILES_RECEIVE_HINT").font(.caption).foregroundStyle(.secondary)

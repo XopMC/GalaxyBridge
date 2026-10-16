@@ -6,7 +6,7 @@ enum PrimaryMediaStream: Int, CaseIterable, Sendable { case video, audio, contro
 enum PrimaryMediaStage: Int, CaseIterable, Sendable {
     case received, actor, decoder, submitted, callback, delivered, appModel, surface
 }
-enum PrimaryMediaQueue: String, CaseIterable, Sendable { case event, decoder, vt, output, control }
+enum PrimaryMediaQueue: String, CaseIterable, Sendable { case event, metadataEvent, decoder, vt, output, control }
 enum PrimaryMediaMetric: String, CaseIterable, Sendable {
     case receiveToActor, actorToDecoder, decoderToSubmit, submitToCallback
     case callbackToDelivery, deliveryToAppModel, appModelToSurface, surfaceToMetal, metalToPresented

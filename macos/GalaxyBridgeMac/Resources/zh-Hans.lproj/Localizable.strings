@@ -289,3 +289,5 @@
 "APPLICATIONS_SEARCH_EMPTY_HINT" = "请尝试其他应用名称或软件包名称。";
 "CLIENT_SETUP_VERIFICATION_UNAVAILABLE" = "此版本无法验证这项功能。请更改选择以继续设置。";
 "NOTIFICATION_CUSTOM_CONTENT" = "请在手机上打开此通知以查看内容。";
+"FILES_RECEIVE_AUTHORIZE" = "允许接收文件";
+"FILES_RECEIVE_AUTHORIZE_HINT" = "请选择“下载”文件夹，以便此 Mac 保存从手机接收的文件。";

@@ -287,3 +287,5 @@
 "APPLICATIONS_SEARCH_EMPTY_HINT" = "Versuche einen anderen App- oder Paketnamen.";
 "CLIENT_SETUP_VERIFICATION_UNAVAILABLE" = "Diese Version kann diese Funktion nicht überprüfen. Ändere deine Auswahl, um die Einrichtung fortzusetzen.";
 "NOTIFICATION_CUSTOM_CONTENT" = "Öffne diese Mitteilung auf deinem Telefon, um ihren Inhalt anzusehen.";
+"FILES_RECEIVE_AUTHORIZE" = "Dateiempfang erlauben";
+"FILES_RECEIVE_AUTHORIZE_HINT" = "Wähle „Downloads“, damit dieser Mac Dateien von deinem Smartphone speichern kann.";

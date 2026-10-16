@@ -82,6 +82,9 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
         }
         try require(outcomes.count == 8 && outcomes.passed, "concurrent starts must coalesce")
         try require(try client.devices().isEmpty)
+        let hostFeatures = try client.run(arguments: ["host-features"])
+        guard hostFeatures.split(separator: ",").contains(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == "delayed_ack" })
+        else { print("FAIL: owned ADB server has no negotiated burst-mode capability"); exit(1) }
         let nativeChild = try client.nativeChildCommand(arguments: ["devices", "-l"])
         try require(nativeChild.program == "/usr/bin/env" && nativeChild.arguments.first == "-i")
         let nativeResult = try ADBCommandRunner(executableURL: URL(fileURLWithPath: nativeChild.program))
@@ -90,6 +93,7 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
         try require(String(decoding: nativeResult.stdout, as: UTF8.self).contains("List of devices attached"))
         try require(nativeChild.arguments.contains("GALAXYBRIDGE_ADB_USER_DIR=" + identity.appendingPathComponent("keys").path))
         try require(nativeChild.arguments.contains("-L"), "native transport must not fall through to system ADB")
+        try require(nativeChild.arguments.contains("ADB_BURST_MODE=1"), "native child must share the owned transport feature policy")
         let key = identity.appendingPathComponent("keys/adbkey")
         let publicKey = identity.appendingPathComponent("keys/adbkey.pub")
         let originalKey = try Data(contentsOf: key)
@@ -185,11 +189,19 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
             try pairing.pair(service: WirelessADBService(name: "fixture", kind: .pairing, endpoint: "192.168.10.20:12345"),
                              code: WirelessADBPairingCode("123456")!, cancellation: cancellation)
         }
+        var childPID: Int32?
         for _ in 0..<100 {
-            if fm.fileExists(atPath: pidFile.path) { break }
+            // Creation can precede printf's first bytes; an existing empty
+            // file is not evidence that the fixture has published its PID.
+            if let text = try? String(contentsOf: pidFile, encoding: .utf8),
+               let pid = Int32(text), pid > 0 { childPID = pid; break }
             try await Task.sleep(for: .milliseconds(10))
         }
-        let pid = Int32(try String(contentsOf: pidFile, encoding: .utf8))!
+        guard let pid = childPID else {
+            cancellation.cancel()
+            _ = try? await attempt.value
+            throw FixtureFailure.assertion("pairing fixture did not publish its PID")
+        }
         cancellation.cancel()
         do { try await attempt.value; preconditionFailure("cancelled pairing succeeded") }
         catch is CancellationError {}
