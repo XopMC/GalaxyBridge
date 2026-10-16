@@ -311,3 +311,35 @@
 "RETRY" = "إعادة المحاولة";
 "NOTIFICATION_ACTION_REMOVED_DRAFT" = "تمت إزالة هذا الإشعار. ستبقى مسودته المحفوظة متاحة هنا لمدة 10 دقائق.";
 "FILE_SOURCE_CHANGED" = "تغيّر الملف أثناء التحضير. أعد إرساله بعد الانتهاء من تعديله.";
+
+// Direct connectivity and internet sharing.
+"NEARBY_CONNECTION" = "اتصال مباشر";
+"NEARBY_CONNECT" = "الاتصال مباشرة";
+"NEARBY_PAIR" = "اقتران دون شبكة";
+"NEARBY_STOP" = "قطع الاتصال المباشر";
+"INTERNET_SHARING" = "إنترنت الهاتف";
+"INTERNET_ENABLE" = "مشاركة الإنترنت";
+"INTERNET_DISABLE" = "إيقاف المشاركة";
+"INTERNET_POLICY" = "اختيار البوابة";
+"INTERNET_AUTOMATIC" = "تلقائي";
+"INTERNET_BALANCED" = "موازنة هاتفين";
+"INTERNET_INSTALL_HELPER" = "تثبيت مكوّن الشبكة";
+"INTERNET_HELPER_REQUIRED" = "مكوّن الشبكة مطلوب";
+"INTERNET_WAITING" = "في انتظار الهاتف";
+"INTERNET_READY" = "الإنترنت جاهز";
+"INTERNET_FAILED" = "فشل الاتصال";
+"INTERNET_WIFI" = "Wi-Fi";
+"INTERNET_CELLULAR" = "شبكة الهاتف";
+"INTERNET_UNAVAILABLE" = "غير متاح";
+"NEARBY_SHELL_REQUIRED" = "أعد الاتصال المتقدم لاستخدام جميع الميزات.";
+"NEARBY_AUTO_CONNECT" = "الاتصال المباشر تلقائيًا";
+"NEARBY_SEARCHING" = "البحث عن أجهزة قريبة";
+"NEARBY_AUTHENTICATING" = "التحقق من الجهاز";
+"NEARBY_CREATING" = "إنشاء شبكة مباشرة";
+"NEARBY_JOINING" = "الاتصال بالشبكة";
+"NEARBY_VERIFYING" = "فحص الاتصال";
+"INTERNET_REMOVE_HELPER" = "إزالة مكوّن الشبكة";
+
+"NEARBY_FAILED" = "فشل الاتصال";
+"INTERNET_VPN" = "VPN الهاتف";
+"NEARBY_NETWORK_HINT" = "يتصل Mac بشبكة Wi-Fi الخاصة بالهاتف.";

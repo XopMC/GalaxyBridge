@@ -36,7 +36,8 @@ final class ApplicationWindowSession: ObservableObject {
         companionKeyHandler: @escaping @MainActor (Bool, UInt32, UInt32, UInt32) -> Bool,
         companionClipboardHandler: @escaping @MainActor (EnhancedClipboardOperation) -> Bool,
         clipboardEventHandler: @escaping @MainActor @Sendable (ScrcpyClipboardUpdate) -> Void,
-        freshFramePresentationReceipt: (@MainActor () -> (@MainActor @Sendable () -> Void)?)? = nil
+        freshFramePresentationReceipt: (@MainActor () -> (@MainActor @Sendable () -> Void)?)? = nil,
+        shellProvider: ShellCapabilityBridgeProvider? = nil
     ) throws {
         self.application = application
         self.companionTextHandler = companionTextHandler
@@ -47,7 +48,8 @@ final class ApplicationWindowSession: ObservableObject {
             serial: serial,
             adb: adb,
             physicalDisplayPolicy: .leaveUnchanged,
-            quicSelection: quicSelection
+            quicSelection: quicSelection,
+            shellProvider: shellProvider
         )
         surface.freshFramePresentationReceipt = { [weak self] in
             guard let self, !self.closed,

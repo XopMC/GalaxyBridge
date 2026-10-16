@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Create a GitHub/ad-hoc app and drag-to-Applications DMG.
 
-Defaults to candidate metadata. Explicit --release labels the agreed 0.1.1
+Defaults to candidate metadata. Explicit --release labels the agreed 0.1.2
 Direct scope; it does not notarize, install, publish, or certify hardware tests.
 All source bundle changes happen in an owned staging copy.
 """
@@ -16,7 +16,7 @@ import shutil
 import subprocess
 import tempfile
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 
 def distribution_metadata(release: bool) -> dict:
     return {
@@ -62,7 +62,7 @@ parser.add_argument("source_app", type=Path)
 parser.add_argument("output_directory", type=Path)
 parser.add_argument("--adb-runtime", type=Path, default=ROOT / ".build/owned-adb/runtime-v2.2")
 parser.add_argument("--release", action="store_true",
-                    help="Label Direct release 0.1.1 (notification replies only, no virtual webcam).")
+                    help="Label Direct release 0.1.2 (notification replies only, no virtual webcam).")
 args = parser.parse_args()
 source, output, runtime = (p.resolve() for p in (args.source_app, args.output_directory, args.adb_runtime))
 if output.exists() or source == output or source in output.parents:
@@ -123,8 +123,11 @@ with tempfile.TemporaryDirectory(prefix=".galaxybridge-direct-", dir=output.pare
             if not dependency.startswith(("/usr/lib/", "/System/Library/")):
                 if dependency not in ("@executable_path/libusb-1.0.0.dylib", "@loader_path/libusb-1.0.0.dylib"):
                     raise SystemExit("Unbundled Mach-O dependency: " + dependency)
-        subprocess.run(["codesign", "--force", "--timestamp=none", "--sign", "-", str(executable)], check=True)
-    # No hardened-runtime library validation: users can replace LGPL libusb.
+        signing = ["codesign", "--force", "--timestamp=none"]
+        if executable == host: signing += ["--options", "runtime"]
+        subprocess.run(signing + ["--sign", "-", str(executable)], check=True)
+    # Main client is hardened for privileged IPC. The separate ADB process
+    # retains replaceable LGPL libusb; its signature policy is unchanged.
     for extension in extensions:
         subprocess.run(["codesign", "--force", "--timestamp=none", "--sign", "-", str(extension)], check=True)
     if hashlib.sha256((adb_directory / "adb").read_bytes()).hexdigest() != expected_adb:
@@ -140,7 +143,7 @@ with tempfile.TemporaryDirectory(prefix=".galaxybridge-direct-", dir=output.pare
         if path.is_file() and path.name != "SHA256SUMS":
             manifest.append(hashlib.sha256(path.read_bytes()).hexdigest() + "  " + str(path.relative_to(adb_directory)))
     (adb_directory / "SHA256SUMS").write_text("\n".join(manifest) + "\n")
-    subprocess.run(["codesign", "--force", "--timestamp=none", "--sign", "-", str(app)], check=True)
+    subprocess.run(["codesign", "--force", "--timestamp=none", "--options", "runtime", "--sign", "-", str(app)], check=True)
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
     # Running adb version does not start a server or touch any phone.
     version_keys = Path(temporary) / "version-keys"

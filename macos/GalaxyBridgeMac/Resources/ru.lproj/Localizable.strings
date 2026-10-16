@@ -308,3 +308,35 @@
 "RETRY" = "Повторить";
 "NOTIFICATION_ACTION_REMOVED_DRAFT" = "Уведомление удалено. Черновик доступен здесь ещё 10 минут.";
 "FILE_SOURCE_CHANGED" = "Файл изменился во время подготовки. Повторите отправку после завершения редактирования.";
+
+// Direct connectivity and internet sharing.
+"NEARBY_CONNECTION" = "Прямое подключение";
+"NEARBY_CONNECT" = "Подключить напрямую";
+"NEARBY_PAIR" = "Привязать без сети";
+"NEARBY_STOP" = "Отключить прямую связь";
+"INTERNET_SHARING" = "Интернет с телефона";
+"INTERNET_ENABLE" = "Раздавать интернет";
+"INTERNET_DISABLE" = "Остановить раздачу";
+"INTERNET_POLICY" = "Выбор шлюза";
+"INTERNET_AUTOMATIC" = "Автоматически";
+"INTERNET_BALANCED" = "Балансировать два телефона";
+"INTERNET_INSTALL_HELPER" = "Установить сетевой компонент";
+"INTERNET_HELPER_REQUIRED" = "Нужен сетевой компонент";
+"INTERNET_WAITING" = "Ожидание телефона";
+"INTERNET_READY" = "Интернет работает";
+"INTERNET_FAILED" = "Ошибка подключения";
+"INTERNET_WIFI" = "Wi-Fi";
+"INTERNET_CELLULAR" = "Мобильная сеть";
+"INTERNET_UNAVAILABLE" = "Недоступно";
+"NEARBY_SHELL_REQUIRED" = "Восстановите расширенный доступ, чтобы использовать все функции.";
+"NEARBY_AUTO_CONNECT" = "Автоподключение напрямую";
+"NEARBY_SEARCHING" = "Поиск рядом";
+"NEARBY_AUTHENTICATING" = "Проверка устройства";
+"NEARBY_CREATING" = "Создание прямой сети";
+"NEARBY_JOINING" = "Подключение к сети";
+"NEARBY_VERIFYING" = "Проверка связи";
+"INTERNET_REMOVE_HELPER" = "Удалить сетевой компонент";
+
+"NEARBY_FAILED" = "Ошибка подключения";
+"INTERNET_VPN" = "VPN телефона";
+"NEARBY_NETWORK_HINT" = "Mac подключится к сети Wi-Fi телефона.";

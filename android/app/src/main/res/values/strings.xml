@@ -110,4 +110,10 @@
     <string name="clipboard_share_send">Send</string>
     <string name="clipboard_share_retry">Try again</string>
     <string name="file_send_forget">Remove from list</string>
+    <string name="nearby_connection">Direct connection</string>
+    <string name="nearby_enable">Enable nearby connection</string>
+    <string name="nearby_disable">Disable nearby connection</string>
+    <string name="internet_sharing">Internet sharing</string>
+    <string name="internet_enable">Share internet</string>
+    <string name="internet_disable">Stop internet sharing</string>
 </resources>

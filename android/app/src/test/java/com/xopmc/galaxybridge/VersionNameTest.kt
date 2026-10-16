@@ -18,9 +18,9 @@ class VersionNameTest {
     @Test
     fun distributionFlavorOwnsExactlyOneVersionSuffix() {
         val expected = when (BuildConfig.DISTRIBUTION) {
-            "internal" -> "0.1.1-internal"
-            "direct" -> "0.1.1-direct"
-            "play" -> "0.1.1"
+            "internal" -> "0.1.2-internal"
+            "direct" -> "0.1.2-direct"
+            "play" -> "0.1.2"
             else -> error("Unknown distribution ${BuildConfig.DISTRIBUTION}")
         }
 

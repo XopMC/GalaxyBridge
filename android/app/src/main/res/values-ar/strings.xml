@@ -111,4 +111,10 @@
     <string name="clipboard_share_send">أرسل</string>
     <string name="clipboard_share_retry">حاول مرة أخرى</string>
     <string name="file_send_forget">إزالة من القائمة</string>
+    <string name="nearby_connection">اتصال مباشر</string>
+    <string name="nearby_enable">تفعيل الاتصال القريب</string>
+    <string name="nearby_disable">إيقاف الاتصال القريب</string>
+    <string name="internet_sharing">مشاركة الإنترنت</string>
+    <string name="internet_enable">مشاركة الإنترنت</string>
+    <string name="internet_disable">إيقاف مشاركة الإنترنت</string>
 </resources>

@@ -111,4 +111,10 @@
     <string name="clipboard_share_send">送信</string>
     <string name="clipboard_share_retry">もう一度お試しください</string>
     <string name="file_send_forget">リストから削除</string>
+    <string name="nearby_connection">直接接続</string>
+    <string name="nearby_enable">近くの接続を有効にする</string>
+    <string name="nearby_disable">近くの接続を無効にする</string>
+    <string name="internet_sharing">インターネット共有</string>
+    <string name="internet_enable">インターネットを共有</string>
+    <string name="internet_disable">共有を停止</string>
 </resources>

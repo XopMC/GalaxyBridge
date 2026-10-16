@@ -42,6 +42,13 @@ message Envelope {
     TransferCancel transfer_cancel = 34;
     NotificationSnapshot notification_snapshot = 35;
     NotificationActionResult notification_action_result = 36;
+    InternetSharingRequest internet_sharing_request = 37;
+    InternetSharingStatus internet_sharing_status = 38;
+    DirectLinkRequest direct_link_request = 39;
+    DirectLinkDescriptor direct_link_descriptor = 40;
+    DirectLinkStatus direct_link_status = 41;
+    ShellBridgeRequest shell_bridge_request = 42;
+    ShellBridgeResult shell_bridge_result = 43;
   }
 }
 
@@ -109,6 +116,7 @@ enum TransportKind {
   TRANSPORT_KIND_USB_ADB = 1;
   TRANSPORT_KIND_WIRELESS_ADB = 2;
   TRANSPORT_KIND_COMPANION_LAN = 3;
+  TRANSPORT_KIND_DIRECT_WIFI = 4;
 }
 
 enum Capability {
@@ -127,6 +135,9 @@ enum Capability {
   CAPABILITY_RECORDING = 12;
   // Implementation support, independent of current notification permission.
   CAPABILITY_NOTIFICATION_ACTION_RESULTS = 13;
+  CAPABILITY_NEARBY_LINK = 14;
+  CAPABILITY_INTERNET_GATEWAY = 15;
+  CAPABILITY_PRIVILEGED_BRIDGE = 16;
 }
 
 message CapabilityUpdate {
@@ -143,6 +154,104 @@ enum ChannelKind {
   CHANNEL_KIND_AUDIO = 4;
   CHANNEL_KIND_FILES = 5;
   CHANNEL_KIND_CAMERA = 6;
+  CHANNEL_KIND_INTERNET_PROXY = 7;
+  CHANNEL_KIND_ENHANCED_STREAM = 8;
+}
+
+// These operations are admitted only after the existing signed session
+// authentication. Credentials never belong in Bonjour or BLE advertisements.
+message InternetSharingRequest {
+  string request_id = 1;
+  bool enabled = 2;
+  string lease_id = 3;
+}
+
+message InternetSharingStatus {
+  string request_id = 1;
+  string lease_id = 2;
+  bool enabled = 3;
+  string upstream = 4; // "wifi", "cellular", or "unavailable"
+  bool internet_validated = 5;
+  string error_code = 6;
+  uint64 bytes_sent = 7;
+  uint64 bytes_received = 8;
+}
+
+message DirectLinkRequest {
+  string request_id = 1;
+  bool enabled = 2;
+  string group_lease_id = 3;
+  // Empty means create; populated means join an authenticated shared group.
+  DirectLinkDescriptor join = 4;
+  // Exact-lease handoff after the Mac has verified the offered TLS endpoint.
+  bool confirmed = 5;
+}
+
+message DirectLinkDescriptor {
+  string group_lease_id = 1;
+  string owner_device_id = 2;
+  uint64 generation = 3;
+  string network_name = 4;
+  string passphrase = 5;
+  string owner_address = 6;
+  uint32 companion_port = 7;
+  string mode = 8; // "p2p" or "local_only_hotspot"
+  string interface_name = 9;
+  string device_id = 10;
+  string device_address = 11;
+  bytes tls_certificate_sha256 = 12;
+  bytes identity_public_key = 13;
+  string display_name = 14;
+}
+
+message DirectLinkStatus {
+  string request_id = 1;
+  string group_lease_id = 2;
+  string state = 3;
+  string error_code = 4;
+  bool upstream_wifi_preserved = 5;
+}
+
+message ShellCaptureOptions {
+  uint32 scid = 1;
+  uint32 display_id = 2;
+  string package_name = 3;
+  uint32 max_size = 4;
+  uint32 max_fps = 5;
+  uint64 video_bit_rate = 6;
+  string codec = 7;
+  uint32 width = 8;
+  uint32 height = 9;
+  bool audio = 10;
+  bool control = 11;
+}
+
+message ShellBridgeRequest {
+  enum Operation {
+    STATUS = 0;
+    START_SCRCPY = 1;
+    START_CLIPBOARD = 2;
+    START_PANEL = 3;
+    STOP = 4;
+    LIST_APPLICATIONS = 5;
+  }
+  string request_id = 1;
+  string lease_id = 2;
+  string boot_generation = 3;
+  Operation operation = 4;
+  ShellCaptureOptions options = 5;
+  bool power_on = 6;
+}
+
+message ShellBridgeResult {
+  string request_id = 1;
+  string lease_id = 2;
+  string boot_generation = 3;
+  bool available = 4;
+  string state = 5;
+  string error_code = 6;
+  repeated string stream_ids = 7;
+  bytes application_catalog_json = 8;
 }
 
 message OpenChannel {

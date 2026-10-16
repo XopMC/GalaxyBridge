@@ -5,6 +5,14 @@ import SwiftUI
 
 @MainActor
 final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
+    struct RouteResume {
+        let application: ApplicationCatalogItem
+        let frame: NSRect
+    }
+    struct RouteSuspension {
+        let windows: [RouteResume]
+        let settled: Bool
+    }
     private struct Record {
         let leaseID: String
         let window: NSWindow
@@ -16,13 +24,15 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
     private var records: [String: Record] = [:]
 
     func present(application: ApplicationCatalogItem, device: DeviceRow, model: AppModel) {
+        model.registerApplicationWindowCoordinator(self)
         let key = "\(device.id)\u{0}\(application.packageName)"
         if let record = records[key] {
             record.window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        guard let serial = device.adbSerial else { return }
+        guard let route = model.enhancedCaptureRoute(for: device) else { return }
+        let serial = route.serial
         let leaseID = "app:\(device.id):\(application.packageName)"
         guard model.reserveApplicationWindowSession(leaseID) else { return }
         do {
@@ -58,7 +68,8 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
                 },
                 freshFramePresentationReceipt: { [weak model] in
                     model?.clientSetupEvidenceReceipt(deviceID: device.id, feature: .applications)
-                }
+                },
+                shellProvider: route.shellProvider
             )
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: ApplicationWindowResizeGeometry.initialContentSize),
@@ -133,6 +144,26 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
         entry.value.session.close()
         entry.value.release()
         records.removeValue(forKey: entry.key)
+    }
+
+    func suspendForRouteChange(deviceID: String) async -> RouteSuspension {
+        let selected = records.filter { $0.key.hasPrefix(deviceID + "\u{0}") }
+        let windows = selected.values.map { RouteResume(application: $0.session.application, frame: $0.window.frame) }
+        var settled = true
+        for (key, record) in selected {
+            records.removeValue(forKey: key); record.window.delegate = nil
+            await record.session.closeAndWaitForCleanup()
+            settled = settled && record.session.nativeSession.cleanupPhysicallySettled
+            record.release(); record.window.close()
+        }
+        return RouteSuspension(windows: windows, settled: settled)
+    }
+
+    func resumeAfterRouteChange(_ windows: [RouteResume], device: DeviceRow, model: AppModel) {
+        for item in windows {
+            present(application: item.application, device: device, model: model)
+            records[device.id + "\u{0}" + item.application.packageName]?.window.setFrame(item.frame, display: true)
+        }
     }
 
     func windowDidResize(_ notification: Notification) {

@@ -1,0 +1,11 @@
+#include "GBNetworkLease.h"
+#include <errno.h>
+#include <string.h>
+static int equal(const uint8_t*a,const uint8_t*b,size_t n){unsigned v=0;for(size_t i=0;i<n;i++)v|=a[i]^b[i];return v==0;}
+int gb_pin_matches(const uint8_t a[20],const uint8_t b[20]){return equal(a,b,20);}
+int gb_request_valid(const GBNetworkRequest*r){if(!r||((r->flags&GB_NETWORK_DNS)&&!(r->flags&GB_NETWORK_DEFAULT_ROUTES))||r->version!=1||((r->flags&GB_NETWORK_DNS)&&(r->dns_port<1024||r->dns_port>65535))||r->mtu<1280||r->mtu>1500||r->gateway_count>2||r->trial_seconds>30||(r->flags&~15u)||((r->flags&(GB_NETWORK_DEFAULT_ROUTES|GB_NETWORK_DNS))&&!(r->flags&GB_NETWORK_MUTATION_APPROVED)))return 0;for(unsigned i=0;i<r->gateway_count;i++){const GBGatewayAddress*g=&r->gateways[i];if(g->family!=4&&g->family!=6)return 0;if(g->family==4&&(g->address[0]==0||g->address[0]==127||g->address[0]>=224))return 0;if(g->family==6&&(g->address[0]==255))return 0;}return 1;}
+static int owned(const GBLease*l,uid_t u,const uint8_t*t){return l->active&&l->owner==u&&equal(l->token,t,16);}
+int gb_lease_create(GBLease*l,const GBNetworkRequest*r,uid_t u,const uint8_t*t,uint64_t now,const GBLeaseOps*o,void*c){if(l->active)return EBUSY;if(!gb_request_valid(r))return EINVAL;memset(l,0,sizeof(*l));l->active=1;l->tun_fd=-1;l->owner=u;l->request=*r;l->started=l->heartbeat=now;l->deadline=r->trial_seconds?now+r->trial_seconds:UINT64_MAX;memcpy(l->token,t,16);int error=0;if(o->save(c,l))error=EIO;else{int applied=o->apply(c,l);if(applied)error=applied>0?applied:EIO;else if(o->save(c,l))error=EIO;}if(error){if(!o->restore(c,l)){l->active=0;o->save(c,l);}return error;}return 0;}
+int gb_lease_heartbeat(GBLease*l,uid_t u,const uint8_t*t,uint64_t now,const GBLeaseOps*o,void*c){if(!owned(l,u,t))return EPERM;if(now<l->started||now>=l->deadline||now>=l->heartbeat+15)return ETIMEDOUT;l->heartbeat=now;return o->save(c,l)?EIO:0;}
+int gb_lease_release(GBLease*l,uid_t u,const uint8_t*t,const GBLeaseOps*o,void*c){if(!l->active&&l->owner==u&&equal(l->token,t,16))return 0;if(!owned(l,u,t))return EPERM;if(o->restore(c,l))return EBUSY;l->active=0;l->tun_fd=-1;return o->save(c,l)?EIO:0;}
+int gb_lease_expire(GBLease*l,uint64_t now,const GBLeaseOps*o,void*c){if(!l->active)return 0;if(now>=l->started&&now<l->deadline&&now<l->heartbeat+15)return 0;return gb_lease_release(l,l->owner,l->token,o,c);}

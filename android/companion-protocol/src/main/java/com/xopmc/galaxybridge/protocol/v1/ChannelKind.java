@@ -39,6 +39,14 @@ public enum ChannelKind
    * <code>CHANNEL_KIND_CAMERA = 6;</code>
    */
   CHANNEL_KIND_CAMERA(6),
+  /**
+   * <code>CHANNEL_KIND_INTERNET_PROXY = 7;</code>
+   */
+  CHANNEL_KIND_INTERNET_PROXY(7),
+  /**
+   * <code>CHANNEL_KIND_ENHANCED_STREAM = 8;</code>
+   */
+  CHANNEL_KIND_ENHANCED_STREAM(8),
   UNRECOGNIZED(-1),
   ;
 
@@ -70,6 +78,14 @@ public enum ChannelKind
    * <code>CHANNEL_KIND_CAMERA = 6;</code>
    */
   public static final int CHANNEL_KIND_CAMERA_VALUE = 6;
+  /**
+   * <code>CHANNEL_KIND_INTERNET_PROXY = 7;</code>
+   */
+  public static final int CHANNEL_KIND_INTERNET_PROXY_VALUE = 7;
+  /**
+   * <code>CHANNEL_KIND_ENHANCED_STREAM = 8;</code>
+   */
+  public static final int CHANNEL_KIND_ENHANCED_STREAM_VALUE = 8;
 
 
   @java.lang.Override
@@ -99,6 +115,8 @@ public enum ChannelKind
       case 4: return CHANNEL_KIND_AUDIO;
       case 5: return CHANNEL_KIND_FILES;
       case 6: return CHANNEL_KIND_CAMERA;
+      case 7: return CHANNEL_KIND_INTERNET_PROXY;
+      case 8: return CHANNEL_KIND_ENHANCED_STREAM;
       default: return null;
     }
   }

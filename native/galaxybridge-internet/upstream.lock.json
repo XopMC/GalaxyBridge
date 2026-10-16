@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "components": {
+    "hev-socks5-tunnel": {
+      "repository": "https://github.com/heiher/hev-socks5-tunnel",
+      "commit": "873541b81f00f8fd462392fc622adbb8a8cd59b0",
+      "archive": "https://codeload.github.com/heiher/hev-socks5-tunnel/tar.gz/873541b81f00f8fd462392fc622adbb8a8cd59b0",
+      "sha256": "89d4cc51066a73210e90ce4e2b846b81922dea62d66cf58fca776c7bd046f387"
+    },
+    "hev-socks5-server": {
+      "repository": "https://github.com/heiher/hev-socks5-server",
+      "commit": "691000437857d43385705bfd7e0b723925dc6cc7",
+      "archive": "https://codeload.github.com/heiher/hev-socks5-server/tar.gz/691000437857d43385705bfd7e0b723925dc6cc7",
+      "sha256": "d667f28849472a24b8981f9fd01c01acf9e6a64cfb4efada6ec37451d5713c29"
+    },
+    "hev-socks5-core": {
+      "repository": "https://github.com/heiher/hev-socks5-core",
+      "commit": "9f1cf0bfca0c003dd0cf0fbdcf6912a2b46a8d05",
+      "archive": "https://codeload.github.com/heiher/hev-socks5-core/tar.gz/9f1cf0bfca0c003dd0cf0fbdcf6912a2b46a8d05",
+      "sha256": "956b41725b4a619a7ed592c972c38a94425698e5cb3ab2185e48b47131f6838f"
+    },
+    "hev-task-system": {
+      "repository": "https://github.com/heiher/hev-task-system",
+      "commit": "b2f2250371c1bd436a42f3c380ee46d4ac3bada8",
+      "archive": "https://codeload.github.com/heiher/hev-task-system/tar.gz/b2f2250371c1bd436a42f3c380ee46d4ac3bada8",
+      "sha256": "e9e4c5abf2a1852ea01b7190cce50208cdf0298e5990a34480a98fd23c1a616e"
+    },
+    "lwip": {
+      "repository": "https://github.com/heiher/lwip",
+      "commit": "7f51e51c72d088481af972c3a115cec41c043d49",
+      "archive": "https://codeload.github.com/heiher/lwip/tar.gz/7f51e51c72d088481af972c3a115cec41c043d49",
+      "sha256": "9d6407a47367b3469c5c0b2cb3c6220a9ab40900fde4e5a53dd0b9c4d2dd4795"
+    },
+    "yaml": {
+      "repository": "https://github.com/heiher/yaml",
+      "commit": "94441ec8777eb319936735a58b376963d09c73d4",
+      "archive": "https://codeload.github.com/heiher/yaml/tar.gz/94441ec8777eb319936735a58b376963d09c73d4",
+      "sha256": "4d9ca11fe2e2790d102b1da4a5fecc0b668613d901eeb408a295faedbbeeb01a"
+    }
+  },
+  "submodules": {
+    "src/core": "hev-socks5-core",
+    "third-part/hev-task-system": "hev-task-system",
+    "third-part/yaml": "yaml",
+    "third-part/lwip": "lwip"
+  }
+}

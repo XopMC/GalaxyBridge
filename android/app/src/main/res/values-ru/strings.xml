@@ -110,4 +110,10 @@
     <string name="clipboard_share_send">Отправить</string>
     <string name="clipboard_share_retry">Повторить</string>
     <string name="file_send_forget">Убрать из списка</string>
+    <string name="nearby_connection">Прямое подключение</string>
+    <string name="nearby_enable">Включить подключение рядом</string>
+    <string name="nearby_disable">Отключить подключение рядом</string>
+    <string name="internet_sharing">Интернет с телефона</string>
+    <string name="internet_enable">Раздавать интернет</string>
+    <string name="internet_disable">Остановить раздачу</string>
 </resources>

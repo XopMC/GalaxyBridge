@@ -11,14 +11,19 @@ enum UserFacingText {
     }
 
     static func capabilityName(for code: String) -> String {
-        resolver.capabilityName(for: code)
+        switch code {
+        case "CAPABILITY_NEARBY_LINK": String(localized: "NEARBY_CONNECTION")
+        case "CAPABILITY_INTERNET_GATEWAY": String(localized: "INTERNET_SHARING")
+        case "CAPABILITY_PRIVILEGED_BRIDGE": String(localized: "NEARBY_CONNECTION")
+        default: resolver.capabilityName(for: code)
+        }
     }
 
     static func unavailableReason(for code: String) -> String {
 #if GALAXYBRIDGE_APP_STORE
-        resolver.unavailableReason(for: code)
+        return resolver.unavailableReason(for: code)
 #else
-        resolver.unavailableReason(for: code, usesDirectScreenConnection: true)
+        return resolver.unavailableReason(for: code, usesDirectScreenConnection: true)
 #endif
     }
 

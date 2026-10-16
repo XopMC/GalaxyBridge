@@ -111,4 +111,10 @@
     <string name="clipboard_share_send">发送</string>
     <string name="clipboard_share_retry">再试一次</string>
     <string name="file_send_forget">从列表中移除</string>
+    <string name="nearby_connection">直接连接</string>
+    <string name="nearby_enable">启用附近连接</string>
+    <string name="nearby_disable">停用附近连接</string>
+    <string name="internet_sharing">共享互联网</string>
+    <string name="internet_enable">共享互联网</string>
+    <string name="internet_disable">停止共享互联网</string>
 </resources>

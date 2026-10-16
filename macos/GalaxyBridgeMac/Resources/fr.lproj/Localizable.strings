@@ -309,3 +309,35 @@
 "RETRY" = "Réessayer";
 "NOTIFICATION_ACTION_REMOVED_DRAFT" = "Cette notification a été supprimée. Son brouillon reste disponible ici pendant 10 minutes.";
 "FILE_SOURCE_CHANGED" = "Le fichier a été modifié pendant sa préparation. Renvoyez-le une fois les modifications terminées.";
+
+// Direct connectivity and internet sharing.
+"NEARBY_CONNECTION" = "Connexion directe";
+"NEARBY_CONNECT" = "Connecter directement";
+"NEARBY_PAIR" = "Associer sans réseau";
+"NEARBY_STOP" = "Déconnecter la liaison directe";
+"INTERNET_SHARING" = "Internet du téléphone";
+"INTERNET_ENABLE" = "Partager Internet";
+"INTERNET_DISABLE" = "Arrêter le partage";
+"INTERNET_POLICY" = "Sélection de passerelle";
+"INTERNET_AUTOMATIC" = "Automatique";
+"INTERNET_BALANCED" = "Équilibrer deux téléphones";
+"INTERNET_INSTALL_HELPER" = "Installer le composant réseau";
+"INTERNET_HELPER_REQUIRED" = "Composant réseau requis";
+"INTERNET_WAITING" = "En attente du téléphone";
+"INTERNET_READY" = "Internet disponible";
+"INTERNET_FAILED" = "Échec de connexion";
+"INTERNET_WIFI" = "Wi-Fi";
+"INTERNET_CELLULAR" = "Réseau mobile";
+"INTERNET_UNAVAILABLE" = "Indisponible";
+"NEARBY_SHELL_REQUIRED" = "Rétablissez l’accès avancé pour utiliser toutes les fonctions.";
+"NEARBY_AUTO_CONNECT" = "Connexion directe automatique";
+"NEARBY_SEARCHING" = "Recherche à proximité";
+"NEARBY_AUTHENTICATING" = "Vérification de l’appareil";
+"NEARBY_CREATING" = "Création du réseau direct";
+"NEARBY_JOINING" = "Connexion au réseau";
+"NEARBY_VERIFYING" = "Vérification de la connexion";
+"INTERNET_REMOVE_HELPER" = "Supprimer le composant réseau";
+
+"NEARBY_FAILED" = "Échec de connexion";
+"INTERNET_VPN" = "VPN du téléphone";
+"NEARBY_NETWORK_HINT" = "Votre Mac rejoint le réseau Wi-Fi du téléphone.";

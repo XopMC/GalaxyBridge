@@ -311,3 +311,35 @@
 "RETRY" = "重試";
 "NOTIFICATION_ACTION_REMOVED_DRAFT" = "此通知已移除。儲存的草稿將在此處保留10分鐘。";
 "FILE_SOURCE_CHANGED" = "檔案在準備過程中發生變更。請完成編輯後重新傳送。";
+
+// Direct connectivity and internet sharing.
+"NEARBY_CONNECTION" = "直接連線";
+"NEARBY_CONNECT" = "直接連線";
+"NEARBY_PAIR" = "無網路配對";
+"NEARBY_STOP" = "中斷直接連線";
+"INTERNET_SHARING" = "手機網際網路";
+"INTERNET_ENABLE" = "共享網際網路";
+"INTERNET_DISABLE" = "停止共享";
+"INTERNET_POLICY" = "選擇閘道";
+"INTERNET_AUTOMATIC" = "自動";
+"INTERNET_BALANCED" = "平衡使用兩支手機";
+"INTERNET_INSTALL_HELPER" = "安裝網路元件";
+"INTERNET_HELPER_REQUIRED" = "需要網路元件";
+"INTERNET_WAITING" = "等待手機";
+"INTERNET_READY" = "網際網路已就緒";
+"INTERNET_FAILED" = "連線失敗";
+"INTERNET_WIFI" = "Wi-Fi";
+"INTERNET_CELLULAR" = "行動網路";
+"INTERNET_UNAVAILABLE" = "無法使用";
+"NEARBY_SHELL_REQUIRED" = "恢復進階存取以使用所有功能。";
+"NEARBY_AUTO_CONNECT" = "自動直接連線";
+"NEARBY_SEARCHING" = "正在搜尋附近裝置";
+"NEARBY_AUTHENTICATING" = "正在驗證裝置";
+"NEARBY_CREATING" = "正在建立直接網路";
+"NEARBY_JOINING" = "正在加入網路";
+"NEARBY_VERIFYING" = "正在檢查連線";
+"INTERNET_REMOVE_HELPER" = "移除網路元件";
+
+"NEARBY_FAILED" = "連線失敗";
+"INTERNET_VPN" = "手機 VPN";
+"NEARBY_NETWORK_HINT" = "Mac 將加入手機的 Wi-Fi 網路。";

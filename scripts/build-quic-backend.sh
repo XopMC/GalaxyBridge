@@ -17,6 +17,7 @@ export GB_PRODUCER_SHA256="$(shasum -a 256 "$GB_PRODUCER_JAR" | awk '{print $1}'
 printf '%s\n' "$GB_PRODUCER_SHA256" > "$GB_OUT/PRODUCER_SHA256.txt"
 
 if [[ "$GB_MODE" != android ]]; then
+    python3 "$GB_ROOT/scripts/verify-rust-macos-deployment.py" --rustc "${RUSTC:-rustc}" --minimum 14.0
     "$GB_CARGO" build "${GB_CARGO_NETWORK[@]}" --release "${GB_FEATURES[@]}" --manifest-path "$GB_MANIFEST" --target aarch64-apple-darwin
     cp "$CARGO_TARGET_DIR/aarch64-apple-darwin/release/gb-quic-backend" "$GB_OUT/gb-quic-backend-macos-arm64$GB_SUFFIX"
     cp "$CARGO_TARGET_DIR/aarch64-apple-darwin/release/libgalaxybridge_quic_backend.a" "$GB_OUT/libgalaxybridge_quic_backend-macos-arm64$GB_SUFFIX.a"

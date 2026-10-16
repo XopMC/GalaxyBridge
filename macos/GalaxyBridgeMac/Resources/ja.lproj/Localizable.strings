@@ -311,3 +311,35 @@
 "RETRY" = "再試行";
 "NOTIFICATION_ACTION_REMOVED_DRAFT" = "この通知は削除されました。保存した下書きはここで10分間利用できます。";
 "FILE_SOURCE_CHANGED" = "準備中にファイルが変更されました。編集を終えてから再送信してください。";
+
+// Direct connectivity and internet sharing.
+"NEARBY_CONNECTION" = "直接接続";
+"NEARBY_CONNECT" = "直接接続";
+"NEARBY_PAIR" = "ネットワークなしでペアリング";
+"NEARBY_STOP" = "直接接続を切断";
+"INTERNET_SHARING" = "電話のインターネット";
+"INTERNET_ENABLE" = "インターネットを共有";
+"INTERNET_DISABLE" = "共有を停止";
+"INTERNET_POLICY" = "ゲートウェイ選択";
+"INTERNET_AUTOMATIC" = "自動";
+"INTERNET_BALANCED" = "2台の電話で分散";
+"INTERNET_INSTALL_HELPER" = "ネットワーク部品をインストール";
+"INTERNET_HELPER_REQUIRED" = "ネットワーク部品が必要";
+"INTERNET_WAITING" = "電話を待っています";
+"INTERNET_READY" = "インターネット接続済み";
+"INTERNET_FAILED" = "接続に失敗";
+"INTERNET_WIFI" = "Wi-Fi";
+"INTERNET_CELLULAR" = "モバイル回線";
+"INTERNET_UNAVAILABLE" = "利用不可";
+"NEARBY_SHELL_REQUIRED" = "すべての機能には拡張アクセスの再接続が必要です。";
+"NEARBY_AUTO_CONNECT" = "自動的に直接接続";
+"NEARBY_SEARCHING" = "近くの端末を検索中";
+"NEARBY_AUTHENTICATING" = "端末を確認中";
+"NEARBY_CREATING" = "直接ネットワークを作成中";
+"NEARBY_JOINING" = "ネットワークに接続中";
+"NEARBY_VERIFYING" = "接続を確認中";
+"INTERNET_REMOVE_HELPER" = "ネットワーク部品を削除";
+
+"NEARBY_FAILED" = "接続に失敗";
+"INTERNET_VPN" = "スマートフォンのVPN";
+"NEARBY_NETWORK_HINT" = "MacはスマートフォンのWi-Fiネットワークに接続します。";

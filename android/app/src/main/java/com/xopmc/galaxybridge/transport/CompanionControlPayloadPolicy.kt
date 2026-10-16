@@ -8,6 +8,9 @@ import com.xopmc.galaxybridge.setup.DistributionFeatures
 internal enum class CompanionControlPayloadKind {
     OPEN_CHANNEL,
     PING,
+    SHELL_BRIDGE,
+    DIRECT_LINK,
+    INTERNET_SHARING,
     INPUT,
     CLIPBOARD,
     NOTIFICATION_ACTION,
@@ -24,6 +27,9 @@ internal object CompanionControlPayloadPolicy {
     fun classify(envelope: Envelope): CompanionControlPayloadKind = when (envelope.payloadCase) {
         Envelope.PayloadCase.OPEN_CHANNEL -> CompanionControlPayloadKind.OPEN_CHANNEL
         Envelope.PayloadCase.PING -> CompanionControlPayloadKind.PING
+        Envelope.PayloadCase.SHELL_BRIDGE_REQUEST -> CompanionControlPayloadKind.SHELL_BRIDGE
+        Envelope.PayloadCase.DIRECT_LINK_REQUEST -> CompanionControlPayloadKind.DIRECT_LINK
+        Envelope.PayloadCase.INTERNET_SHARING_REQUEST -> CompanionControlPayloadKind.INTERNET_SHARING
         Envelope.PayloadCase.INPUT_EVENT -> CompanionControlPayloadKind.INPUT
         Envelope.PayloadCase.CLIPBOARD_UPDATE -> CompanionControlPayloadKind.CLIPBOARD
         Envelope.PayloadCase.NOTIFICATION_ACTION -> CompanionControlPayloadKind.NOTIFICATION_ACTION

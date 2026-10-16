@@ -30,6 +30,9 @@ enum CompanionAuthenticationRejection {
 
 final class CompanionTLSClient: @unchecked Sendable {
     let peer: PairedPeer
+    let endpoint: NWEndpoint
+    var authenticatedSessionID: String { sessionID }
+    var resolvedEndpoint: NWEndpoint { connection.currentPath?.remoteEndpoint ?? endpoint }
     private let connection: NWConnection
     private let queue = DispatchQueue(label: "com.xopmc.GalaxyBridge.companion-tls")
     private let stateHandler: @Sendable (CompanionConnectionState) -> Void
@@ -46,6 +49,18 @@ final class CompanionTLSClient: @unchecked Sendable {
     private let messageIDLock = NSLock()
     private let notificationActionCapabilityLock = NSLock()
     private var notificationActionResultsSupported = false
+    private var internetGatewaySupported = false
+    private let rawStreamID: String?
+    private let rawCodec: String?
+    private let rawReadyHandler: @Sendable () -> Void
+    private let rawDataHandler: (@Sendable (Data, @escaping @Sendable () -> Void) -> Void)?
+    private var rawReady = false
+    private var rawUpgradeDecoder = RawChannelUpgradeDecoder()
+
+    var supportsInternetGateway: Bool {
+        notificationActionCapabilityLock.lock(); defer { notificationActionCapabilityLock.unlock() }
+        return internetGatewaySupported
+    }
 
     var supportsNotificationActionResults: Bool {
         notificationActionCapabilityLock.lock()
@@ -69,9 +84,18 @@ final class CompanionTLSClient: @unchecked Sendable {
         diagnosticSink: @escaping CompanionConnectionDiagnostics.Sink = { _ in },
         stateHandler: @escaping @Sendable (CompanionConnectionState) -> Void,
         envelopeHandler: @escaping @Sendable (GBEnvelope, Int) -> Void,
-        mediaHandler: @escaping @Sendable (MediaPacket) -> Void = { _ in }
+        mediaHandler: @escaping @Sendable (MediaPacket) -> Void = { _ in },
+        rawStreamID: String? = nil,
+        rawCodec: String? = nil,
+        rawReadyHandler: @escaping @Sendable () -> Void = {},
+        rawDataHandler: (@Sendable (Data, @escaping @Sendable () -> Void) -> Void)? = nil
     ) {
         self.peer = peer
+        self.endpoint = endpoint
+        self.rawStreamID = rawStreamID
+        self.rawCodec = rawCodec
+        self.rawReadyHandler = rawReadyHandler
+        self.rawDataHandler = rawDataHandler
         self.hostID = hostID
         self.sessionID = sessionID
         self.stateHandler = stateHandler
@@ -175,6 +199,22 @@ final class CompanionTLSClient: @unchecked Sendable {
         try send(envelope)
     }
 
+    func sendInternetSharing(_ request: GBInternetSharingRequest) throws {
+        guard supportsInternetGateway else { throw CocoaError(.featureUnsupported) }
+        var envelope = baseEnvelope(); envelope.internetSharingRequest = request; try send(envelope)
+    }
+
+    func sendShellBridge(_ request: GBShellBridgeRequest) throws {
+        var envelope = baseEnvelope(); envelope.shellBridgeRequest = request; try send(envelope)
+    }
+
+    func sendRaw(_ data: Data, completion: @escaping @Sendable (Bool) -> Void) {
+        queue.async { [self] in
+            guard rawReady, data.count <= 256 * 1024 else { completion(false); return }
+            connection.send(content: data, completion: .contentProcessed { completion($0 == nil) })
+        }
+    }
+
     func sendNotificationAction(_ action: GBNotificationAction) throws {
         var envelope = baseEnvelope()
         envelope.notificationAction = action
@@ -260,6 +300,7 @@ final class CompanionTLSClient: @unchecked Sendable {
     }
 
     private func receive() {
+        if rawReady { receiveRaw(); return }
         connection.receive(minimumIncompleteLength: 1, maximumLength: 256 * 1024) { [weak self] data, _, complete, error in
             guard let self else { return }
             if let data {
@@ -271,6 +312,27 @@ final class CompanionTLSClient: @unchecked Sendable {
                         stateHandler(.failed(error.localizedDescription))
                         connection.cancel()
                         return
+                    }
+                } else if channelKind == .internetProxy || channelKind == .enhancedStream {
+                    do {
+                        try rawUpgradeDecoder.append(data)
+                        while !rawReady, let frame = try rawUpgradeDecoder.nextFrame() {
+                            let envelope = try GBEnvelope(serializedBytes: frame)
+                            guard handleControlEnvelope(envelope, frameCount: frame.count) else { return }
+                        }
+                        if rawReady {
+                            let pending = rawUpgradeDecoder.takeRawRemainder()
+                            if !pending.isEmpty, let rawDataHandler {
+                                rawDataHandler(pending) { [weak self] in
+                                    guard let self else { return }
+                                    self.queue.async { [weak self] in self?.receiveRaw() }
+                                }
+                                return
+                            }
+                        }
+                    } catch {
+                        diagnostics.controlDecodeFailed(error)
+                        stateHandler(.failed(error.localizedDescription)); connection.cancel(); return
                     }
                 } else {
                     let frames: [Data]
@@ -285,51 +347,7 @@ final class CompanionTLSClient: @unchecked Sendable {
                     for frame in frames {
                         do {
                             let envelope = try GBEnvelope(serializedBytes: frame)
-                            if !receivedHello,
-                               case let .error(error)? = envelope.payload,
-                               let message = CompanionAuthenticationRejection.message(for: error.code) {
-                                deliveredTerminalAuthenticationFailure = true
-                                stateHandler(.authenticationRejected(message))
-                                connection.cancel()
-                                return
-                            }
-                            if case .hello? = envelope.payload {
-                                receivedHello = true
-                                diagnostics.helloReceived()
-                                stateHandler(.connected)
-                                if channelKind == .control { startHeartbeat() }
-                            }
-                            if case let .pong(pong)? = envelope.payload {
-                                let now = ProcessInfo.processInfo.systemUptime
-                                if let roundTripMilliseconds = heartbeat.receivePong(
-                                    pong.echoedMonotonicTimeNs,
-                                    now: now
-                                ) {
-                                    diagnostics.recordMatchedPong(
-                                        roundTripMilliseconds: roundTripMilliseconds
-                                    )
-                                }
-                            }
-                            if case let .capabilityUpdate(update)? = envelope.payload, channelKind == .control {
-                                notificationActionCapabilityLock.lock()
-                                notificationActionResultsSupported = update.available.contains(.notificationActionResults)
-                                notificationActionCapabilityLock.unlock()
-                            }
-                            // The phone sends Hello THEN Capabilities. They may
-                            // arrive in separate TCP reads. Do not parse the
-                            // remaining control frame as a media header.
-                            if case .capabilityUpdate? = envelope.payload,
-                               receivedHello, channelKind != .control, !channelOpened {
-                                do {
-                                    try openChannel()
-                                } catch {
-                                    diagnostics.sendFailed(error)
-                                    stateHandler(.failed(error.localizedDescription))
-                                    connection.cancel()
-                                    return
-                                }
-                            }
-                            envelopeHandler(envelope, frame.count)
+                            guard handleControlEnvelope(envelope, frameCount: frame.count) else { return }
                         } catch {
                             diagnostics.controlDecodeFailed(error)
                             stateHandler(.failed(error.localizedDescription))
@@ -359,10 +377,73 @@ final class CompanionTLSClient: @unchecked Sendable {
         }
     }
 
+    private func handleControlEnvelope(_ envelope: GBEnvelope, frameCount: Int) -> Bool {
+        if !receivedHello,
+           case let .error(error)? = envelope.payload,
+           let message = CompanionAuthenticationRejection.message(for: error.code) {
+            deliveredTerminalAuthenticationFailure = true
+            stateHandler(.authenticationRejected(message))
+            connection.cancel()
+            return false
+    }
+        if case .hello? = envelope.payload {
+            receivedHello = true
+            diagnostics.helloReceived()
+            stateHandler(.connected)
+            if channelKind == .control { startHeartbeat() }
+    }
+        if case let .pong(pong)? = envelope.payload {
+            let now = ProcessInfo.processInfo.systemUptime
+            if let roundTripMilliseconds = heartbeat.receivePong(
+                pong.echoedMonotonicTimeNs,
+                now: now
+            ) {
+                diagnostics.recordMatchedPong(
+                    roundTripMilliseconds: roundTripMilliseconds
+                )
+            }
+    }
+        if case let .capabilityUpdate(update)? = envelope.payload, channelKind == .control {
+            notificationActionCapabilityLock.lock()
+            notificationActionResultsSupported = update.available.contains(.notificationActionResults)
+            internetGatewaySupported = update.available.contains(.internetGateway)
+            notificationActionCapabilityLock.unlock()
+    }
+        if case let .internetSharingStatus(status)? = envelope.payload,
+           channelKind == .internetProxy, status.enabled,
+           status.leaseID == rawStreamID, rawDataHandler != nil {
+            rawReady = true
+            rawReadyHandler()
+    }
+        if case let .shellBridgeResult(result)? = envelope.payload,
+           channelKind == .enhancedStream, result.available, result.state == "stream_ready",
+           let rawStreamID, result.streamIds.contains(rawStreamID), rawDataHandler != nil {
+            rawReady = true
+            rawReadyHandler()
+    }
+        // The phone sends Hello THEN Capabilities. They may
+        // arrive in separate TCP reads. Do not parse the
+        // remaining control frame as a media header.
+        if case .capabilityUpdate? = envelope.payload,
+           receivedHello, channelKind != .control, !channelOpened {
+            do {
+                try openChannel()
+            } catch {
+                diagnostics.sendFailed(error)
+                stateHandler(.failed(error.localizedDescription))
+                connection.cancel()
+                return false
+            }
+    }
+        envelopeHandler(envelope, frameCount)
+        return true
+    }
+
     private func openChannel() throws {
         var request = GBOpenChannel()
         request.kind = channelKind
-        request.streamID = UUID().uuidString.lowercased()
+        request.streamID = rawStreamID ?? UUID().uuidString.lowercased()
+        if let rawCodec { request.codec = rawCodec }
         if channelKind == .video || channelKind == .camera { request.codec = "h264" }
         if channelKind == .audio { request.codec = "aac" }
         var envelope = GBEnvelope()
@@ -375,6 +456,22 @@ final class CompanionTLSClient: @unchecked Sendable {
         try send(envelope)
         diagnostics.openChannelRequested()
         channelOpened = true
+    }
+
+    private func receiveRaw() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, complete, error in
+            guard let self else { return }
+            let next: @Sendable () -> Void = { [weak self] in
+                guard let self else { return }
+                self.queue.async {
+                    if let error { self.stateHandler(.failed(error.localizedDescription)); self.connection.cancel() }
+                    else if complete { self.stateHandler(.disconnected); self.connection.cancel() }
+                    else { self.receiveRaw() }
+                }
+            }
+            if let data, !data.isEmpty, let rawDataHandler { rawDataHandler(data, next) }
+            else { next() }
+        }
     }
 
     private func nextMessageID() -> UInt64 {
@@ -449,6 +546,6 @@ func companionDiagnosticChannel(_ channel: GBChannelKind) -> CompanionDiagnostic
     case .audio: .audio
     case .files: .files
     case .camera: .camera
-    case .unspecified, .UNRECOGNIZED: .unknown
+    case .internetProxy, .enhancedStream, .unspecified, .UNRECOGNIZED: .unknown
     }
 }

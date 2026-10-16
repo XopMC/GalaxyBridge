@@ -18,6 +18,8 @@ The public CMake workflow builds the native runtimes, macOS app, and Android Dir
 
 Select your JDK, SDK, and NDK through `JAVA_HOME`, `ANDROID_SDK_ROOT`, and `ANDROID_NDK_HOME`. Alternatively, pass CMake cache variables `GB_JAVA_HOME`, `GB_ANDROID_SDK_ROOT`, and `GB_ANDROID_NDK_HOME`. `GB_CARGO`, `GB_RUSTC`, and `GB_RUSTDOC` select an explicit Rust toolchain. Never put signing secrets into checked-in presets. Gradle verifies the wrapper distribution SHA-256 and the checked-in `android/gradle/verification-metadata.xml` pins the resolved dependency files for the supported Direct build and test graphs.
 
+The Rust standard library must also support macOS 14. Some Homebrew distributions build it for a newer system; setting `MACOSX_DEPLOYMENT_TARGET` cannot lower prebuilt libraries. The native build checks this and rejects an incompatible distribution. Select a compatible official rustup toolchain through the variables above if needed.
+
 ### Configure and build
 
 Run these commands from the repository root. The optional bootstrap installs pinned CMake 3.31.6, Ninja 1.11.1.4, and Meson 1.11.1 into this build tree:
@@ -38,10 +40,10 @@ cmake --build --preset macos-arm64-release --target package
 
 | Target | Result |
 |---|---|
-| `native` | Source-built QUIC backend, scrcpy server, and owned ADB runtime. |
+| `native` | Source-built QUIC, scrcpy/shell bridge, owned ADB, and pinned internet tunnel/gateway runtimes. |
 | `macos-app` | Ad-hoc-signed `out/macos-arm64-release/artifacts/GalaxyBridge.app`; depends on `native`. |
 | `android-apk` | Direct release APK under `out/macos-arm64-release/artifacts`; unsigned unless signing inputs are supplied. |
-| `check` | Builds `native`, then checks compiled runtime pins, Swift core/protocol, Rust backend/media/transport/FFI, scrcpy and Android unit tests; no app installation or phone operation. |
+| `check` | Builds `native`, then checks runtime pins, Swift/core/protocol, Rust, scrcpy, Android, nearby crypto interoperability, shell/lease lifecycle, helper trust and recovery guardian; no app installation or phone operation. |
 | `package` | DMG, APK, and checksum files in `out/macos-arm64-release/packages`; builds app/APK prerequisites. |
 
 The build preset defaults to `package` when no target is specified. The default concurrency is four jobs; configure `-DGB_BUILD_JOBS=2` if necessary. Build-generated integrity pins bind the Mac executable to the runtimes produced by the same build. Intermediate outputs live under `out/`, `.build/`, and the Android Gradle build directories. CMake isolates Cargo, Gradle, SwiftPM and bootstrap pip dependency caches under the selected build tree’s `dependency-cache/`; the externally installed Rust toolchain, JDK and Android SDK/NDK remain prerequisites. APK packaging disables Gradle build-cache reuse and reruns build tasks.
@@ -65,6 +67,8 @@ Do not commit a keystore or password. The build does not create or reuse the mai
 
 The macOS source app is ad-hoc signed; this workflow does not perform Apple notarization or activate a virtual webcam. A source rebuild is not claimed to be byte-identical to the 0.1.0 downloads, which predate the public CMake integration. See the [roadmap](roadmap.md) for remaining validation.
 
+The 0.1.2 source candidate embeds an optional network-helper installer. Its root approval is bound to the hardened app's program fingerprint and final signed identity. Building and embedding the installer requires no administrator access; installing it does. See [direct connections and internet sharing](direct-connectivity.md) for scope and outstanding hardware acceptance.
+
 <a id="russian"></a>
 
 ## Русский
@@ -80,6 +84,8 @@ The macOS source app is ad-hoc signed; this workflow does not perform Apple nota
 - Доступ к сети для загрузки закреплённых архивов исходников и пакетных зависимостей при первой сборке.
 
 Выберите JDK, SDK и NDK переменными `JAVA_HOME`, `ANDROID_SDK_ROOT` и `ANDROID_NDK_HOME`. Либо передайте параметры CMake `GB_JAVA_HOME`, `GB_ANDROID_SDK_ROOT` и `GB_ANDROID_NDK_HOME`. Для явного выбора Rust служат `GB_CARGO`, `GB_RUSTC` и `GB_RUSTDOC`. Не записывайте секреты подписи в отслеживаемые preset-файлы. Gradle проверяет SHA-256 дистрибутива wrapper; отслеживаемый `android/gradle/verification-metadata.xml` закрепляет файлы зависимостей поддерживаемых Direct-сборки и тестов.
+
+Стандартная библиотека Rust тоже должна поддерживать macOS 14. Некоторые дистрибутивы Homebrew собирают её для более новой системы; `MACOSX_DEPLOYMENT_TARGET` не снижает требования готовых библиотек. Нативная сборка проверяет это и отклоняет несовместимый дистрибутив. При необходимости выберите совместимый официальный toolchain rustup указанными выше переменными.
 
 ### Настройка и сборка
 
@@ -101,10 +107,10 @@ cmake --build --preset macos-arm64-release --target package
 
 | Цель | Результат |
 |---|---|
-| `native` | Сборка QUIC, сервера scrcpy и собственного варианта ADB из исходников. |
+| `native` | Сборка QUIC, scrcpy/shell-моста, собственного ADB и закреплённых компонентов интернет-туннеля и шлюза. |
 | `macos-app` | Приложение с ad-hoc подписью `out/macos-arm64-release/artifacts/GalaxyBridge.app`; зависит от `native`. |
 | `android-apk` | APK Direct release в `out/macos-arm64-release/artifacts`; без подписи, если её параметры не переданы. |
-| `check` | Собирает `native`, проверяет скомпилированные runtime pins, Swift/core/protocol, Rust/backend/media/transport/FFI, scrcpy и Android unit tests; без установки приложений и действий на телефоне. |
+| `check` | Собирает `native`, проверяет runtime pins, Swift/core/protocol, Rust, scrcpy, Android, обмен криптографии, shell/lease lifecycle, доверие helper и watchdog; без установки приложений и действий на телефоне. |
 | `package` | DMG, APK и контрольные суммы в `out/macos-arm64-release/packages`; сначала собираются необходимые приложение и APK. |
 
 Без явного указания цели preset запускает `package`. По умолчанию используются четыре задания; при необходимости задайте `-DGB_BUILD_JOBS=2`. Созданные при сборке контрольные суммы связывают исполняемый файл Mac с собранными вместе с ним нативными компонентами. Промежуточные результаты находятся в `out/`, `.build/` и каталогах сборки Android Gradle. CMake размещает кэши зависимостей Cargo, Gradle, SwiftPM и bootstrap pip в `dependency-cache/` выбранного дерева сборки; установленные Rust, JDK и Android SDK/NDK остаются внешними инструментами. Упаковка APK отключает повторное использование Gradle build cache и заново выполняет задачи сборки.
@@ -127,3 +133,5 @@ GB_ANDROID_DIRECT_KEY_PASSWORD
 Не добавляйте хранилище ключей или пароль в репозиторий. Сборка не создаёт и не использует подпись автора. Ваш ключ отличается от ключа официального APK, поэтому Android может отказать в установке вашей сборки как обновления официального приложения. Сохраните свой ключ для обновления собственных сборок.
 
 Приложение macOS подписывается ad-hoc; этот процесс не выполняет нотарификацию Apple и не активирует виртуальную веб-камеру. Побайтовое совпадение с файлами 0.1.0 не заявляется: они подготовлены до публичной интеграции CMake. Незавершённые проверки перечислены в [планах](roadmap.md#russian).
+
+Кандидат 0.1.2 включает необязательный установщик сетевого компонента. Разрешение root связано с отпечатком программы hardened-приложения и его окончательной подписью. Сборка и встраивание установщика не требуют прав администратора; установка требует. Возможности и незавершённая аппаратная приёмка описаны в [руководстве по прямому подключению и раздаче интернета](direct-connectivity.md#russian).

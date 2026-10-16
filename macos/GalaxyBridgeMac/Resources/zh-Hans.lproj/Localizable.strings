@@ -311,3 +311,35 @@
 "RETRY" = "重试";
 "NOTIFICATION_ACTION_REMOVED_DRAFT" = "此通知已移除。保存的草稿将在此处保留10分钟。";
 "FILE_SOURCE_CHANGED" = "文件在准备过程中发生了更改。请完成编辑后重新发送。";
+
+// Direct connectivity and internet sharing.
+"NEARBY_CONNECTION" = "直接连接";
+"NEARBY_CONNECT" = "直接连接";
+"NEARBY_PAIR" = "无网络配对";
+"NEARBY_STOP" = "断开直接连接";
+"INTERNET_SHARING" = "手机互联网";
+"INTERNET_ENABLE" = "共享互联网";
+"INTERNET_DISABLE" = "停止共享";
+"INTERNET_POLICY" = "选择网关";
+"INTERNET_AUTOMATIC" = "自动";
+"INTERNET_BALANCED" = "均衡使用两部手机";
+"INTERNET_INSTALL_HELPER" = "安装网络组件";
+"INTERNET_HELPER_REQUIRED" = "需要网络组件";
+"INTERNET_WAITING" = "等待手机";
+"INTERNET_READY" = "互联网已就绪";
+"INTERNET_FAILED" = "连接失败";
+"INTERNET_WIFI" = "Wi-Fi";
+"INTERNET_CELLULAR" = "移动网络";
+"INTERNET_UNAVAILABLE" = "不可用";
+"NEARBY_SHELL_REQUIRED" = "恢复高级访问以使用全部功能。";
+"NEARBY_AUTO_CONNECT" = "自动直接连接";
+"NEARBY_SEARCHING" = "正在搜索附近设备";
+"NEARBY_AUTHENTICATING" = "正在验证设备";
+"NEARBY_CREATING" = "正在创建直接网络";
+"NEARBY_JOINING" = "正在加入网络";
+"NEARBY_VERIFYING" = "正在检查连接";
+"INTERNET_REMOVE_HELPER" = "移除网络组件";
+
+"NEARBY_FAILED" = "连接失败";
+"INTERNET_VPN" = "手机 VPN";
+"NEARBY_NETWORK_HINT" = "Mac 将加入手机的 Wi-Fi 网络。";

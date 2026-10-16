@@ -111,4 +111,10 @@
     <string name="clipboard_share_send">보내기</string>
     <string name="clipboard_share_retry">다시 시도해 보세요</string>
     <string name="file_send_forget">목록에서 삭제</string>
+    <string name="nearby_connection">직접 연결</string>
+    <string name="nearby_enable">주변 연결 사용</string>
+    <string name="nearby_disable">주변 연결 사용 안 함</string>
+    <string name="internet_sharing">인터넷 공유</string>
+    <string name="internet_enable">인터넷 공유</string>
+    <string name="internet_disable">인터넷 공유 중지</string>
 </resources>

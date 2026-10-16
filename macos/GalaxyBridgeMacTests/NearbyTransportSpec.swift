@@ -1,0 +1,66 @@
+import Foundation
+
+@main enum NearbyTransportSpec {
+    static func main() throws {
+        var bootstrap = NearbyLinkLifetime()
+        precondition(bootstrap.retiresOnBootstrapLoss)
+        precondition(bootstrap.markVerified())
+        precondition(!bootstrap.retiresOnBootstrapLoss, "a verified Wi-Fi lease must outlive its Bluetooth bootstrap")
+        bootstrap.detachBootstrap()
+        precondition(bootstrap.bootstrapDetached && !bootstrap.retiresOnBootstrapLoss)
+        bootstrap.retire()
+        precondition(bootstrap.retired && !bootstrap.markVerified(), "late verification cannot revive explicit retirement")
+        var timedOut = NearbyLinkLifetime(); timedOut.retire()
+        precondition(!timedOut.markVerified())
+        let release = NearbyLeaseReceipt(requestID: "request", deviceID: "phone", sessionID: "session")
+        precondition(release.accepts(requestID: "request", deviceID: "phone", sessionID: "session", state: "disabled", error: ""))
+        precondition(!release.accepts(requestID: "request", deviceID: "phone", sessionID: "new-session", state: "disabled", error: ""))
+        precondition(!release.accepts(requestID: "request", deviceID: "other", sessionID: "session", state: "disabled", error: ""))
+        precondition(!release.accepts(requestID: "late-request", deviceID: "phone", sessionID: "session", state: "disabled", error: ""))
+        precondition(!release.accepts(requestID: "request", deviceID: "phone", sessionID: "session", state: "pending", error: ""))
+        precondition(!release.accepts(requestID: "request", deviceID: "phone", sessionID: "session", state: "disabled", error: "denied"))
+        let renewal = NearbyLeaseReceipt(requestID: "renew", deviceID: "phone", sessionID: "session", expectedState: "established", expectedLeaseID: "lease")
+        precondition(renewal.accepts(requestID: "renew", deviceID: "phone", sessionID: "session", state: "established", error: "", leaseID: "lease"))
+        precondition(!renewal.accepts(requestID: "renew", deviceID: "phone", sessionID: "session", state: "established", error: "", leaseID: "other"))
+        let instant = ContinuousClock.now
+        var renewalClock = NearbyLeaseRenewalState(confirmedAt: instant)
+        precondition(!renewalClock.expired(at: instant + .seconds(34)))
+        precondition(renewalClock.expired(at: instant + .seconds(35)))
+        renewalClock.confirmed(at: instant + .seconds(10))
+        precondition(!renewalClock.expired(at: instant + .seconds(44)))
+        precondition(renewalClock.expired(at: instant + .seconds(45)))
+        var decoder = NearbyTransportDecoder()
+        let a = Data([1, 2, 3]), b = Data(repeating: 42, count: 8_216)
+        let wire = try NearbyTransportDecoder.encode(a) + NearbyTransportDecoder.encode(b)
+        var frames: [Data] = []
+        for byte in wire { frames += try decoder.append(Data([byte])) }
+        precondition(frames == [a, b])
+        var coalesced = NearbyTransportDecoder()
+        let decoded = try coalesced.append(wire)
+        precondition(decoded == [a, b])
+        do { _ = try NearbyTransportDecoder.encode(Data()); fatalError("empty frame") } catch NearbyTransportFailure.frame {}
+        var invalid = NearbyTransportDecoder()
+        do { _ = try invalid.append(Data([0, 1, 0, 1])); fatalError("oversize length") } catch NearbyTransportFailure.frame {}
+        let now = Date(timeIntervalSince1970: 1_000)
+        let offer = try NearbyOfflineOffer(hostID: UUID().uuidString.lowercased(), identity: Data(repeating: 1, count: 65), now: now)
+        let items = URLComponents(string: offer.uri)!.queryItems!
+        precondition(items.count == 8 && Set(items.map(\.name)).count == 8 && offer.uri.utf8.count < 4096)
+        precondition(offer.expiresAt.timeIntervalSince(now) == 120)
+        precondition(offer.token.count == 32 && offer.context.count == 32)
+        precondition(offer.valid(at: now) && !offer.valid(at: now.addingTimeInterval(120)))
+        var ownership = NearbyAssociationOwnership()
+        let one = UUID(), two = UUID()
+        precondition(ownership.acquire(owner: one, network: "same"))
+        precondition(ownership.acquire(owner: two, network: "same"))
+        precondition(!ownership.acquire(owner: UUID(), network: "different"))
+        precondition(!ownership.release(owner: one))
+        precondition(ownership.release(owner: two))
+        precondition(!ownership.release(owner: two))
+        precondition(NearbyAssociationRestoration.permits(currentName: "owned", currentBSSID: "one", ownedName: "owned", ownedBSSID: "one", positivelyUnassociated: false))
+        precondition(!NearbyAssociationRestoration.permits(currentName: "other", currentBSSID: "two", ownedName: "owned", ownedBSSID: "one", positivelyUnassociated: false))
+        precondition(!NearbyAssociationRestoration.permits(currentName: "owned", currentBSSID: "other-AP", ownedName: "owned", ownedBSSID: "one", positivelyUnassociated: false))
+        precondition(NearbyAssociationRestoration.permits(currentName: nil, currentBSSID: nil, ownedName: "owned", ownedBSSID: "one", positivelyUnassociated: true))
+        precondition(!NearbyAssociationRestoration.permits(currentName: nil, currentBSSID: nil, ownedName: "owned", ownedBSSID: "one", positivelyUnassociated: false))
+        print("PASS Nearby lifetime/late-callback fencing, session-scoped STOP receipts, frame bounds, offer lifetime, shared association ownership and compare restoration")
+    }
+}

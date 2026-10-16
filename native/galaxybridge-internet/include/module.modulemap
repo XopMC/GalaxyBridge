@@ -1,0 +1,4 @@
+module CInternetRuntime {
+  header "galaxybridge_internet.h"
+  export *
+}

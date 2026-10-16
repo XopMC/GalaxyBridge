@@ -311,3 +311,35 @@
 "RETRY" = "다시 시도";
 "NOTIFICATION_ACTION_REMOVED_DRAFT" = "알림이 삭제되었습니다. 저장된 초안은 여기에서 10분 동안 사용할 수 있습니다.";
 "FILE_SOURCE_CHANGED" = "준비 중에 파일이 변경되었습니다. 편집을 마친 후 다시 보내세요.";
+
+// Direct connectivity and internet sharing.
+"NEARBY_CONNECTION" = "직접 연결";
+"NEARBY_CONNECT" = "직접 연결";
+"NEARBY_PAIR" = "네트워크 없이 페어링";
+"NEARBY_STOP" = "직접 연결 해제";
+"INTERNET_SHARING" = "휴대전화 인터넷";
+"INTERNET_ENABLE" = "인터넷 공유";
+"INTERNET_DISABLE" = "공유 중지";
+"INTERNET_POLICY" = "게이트웨이 선택";
+"INTERNET_AUTOMATIC" = "자동";
+"INTERNET_BALANCED" = "두 휴대전화에 분산";
+"INTERNET_INSTALL_HELPER" = "네트워크 구성요소 설치";
+"INTERNET_HELPER_REQUIRED" = "네트워크 구성요소 필요";
+"INTERNET_WAITING" = "휴대전화 대기 중";
+"INTERNET_READY" = "인터넷 연결됨";
+"INTERNET_FAILED" = "연결 실패";
+"INTERNET_WIFI" = "Wi-Fi";
+"INTERNET_CELLULAR" = "모바일 네트워크";
+"INTERNET_UNAVAILABLE" = "사용 불가";
+"NEARBY_SHELL_REQUIRED" = "모든 기능을 사용하려면 고급 액세스를 다시 연결하세요.";
+"NEARBY_AUTO_CONNECT" = "자동으로 직접 연결";
+"NEARBY_SEARCHING" = "주변 기기 검색 중";
+"NEARBY_AUTHENTICATING" = "기기 확인 중";
+"NEARBY_CREATING" = "직접 네트워크 생성 중";
+"NEARBY_JOINING" = "네트워크 연결 중";
+"NEARBY_VERIFYING" = "연결 확인 중";
+"INTERNET_REMOVE_HELPER" = "네트워크 구성요소 제거";
+
+"NEARBY_FAILED" = "연결 실패";
+"INTERNET_VPN" = "휴대전화 VPN";
+"NEARBY_NETWORK_HINT" = "Mac이 휴대전화의 Wi-Fi 네트워크에 연결됩니다.";

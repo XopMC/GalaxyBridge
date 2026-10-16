@@ -2,30 +2,20 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleDisplayName</key>
-	<string>Galaxy Bridge</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
-    <key>CFBundleExecutable</key>
-    <string>$(EXECUTABLE_NAME)</string>
-    <key>CFBundleIdentifier</key>
-    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-    <key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
-    <key>GalaxyBridgeAppGroupIdentifier</key>
-    <string>$(TeamIdentifierPrefix)group.com.xopmc.GalaxyBridge</string>
+	<key>CFBundleDisplayName</key>
+	<string>Galaxy Bridge</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconFile</key>
 	<string>GalaxyBridge</string>
 	<key>CFBundleIconName</key>
 	<string>AppIcon</string>
-    <key>CFBundleName</key>
-    <string>$(PRODUCT_NAME)</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
 	<key>CFBundleLocalizations</key>
 	<array>
 		<string>en</string>
@@ -40,21 +30,35 @@
 		<string>ja</string>
 		<string>ko</string>
 	</array>
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
-    <key>LSApplicationCategoryType</key>
-    <string>public.app-category.utilities</string>
-    <key>NSLocalNetworkUsageDescription</key>
-    <string>GalaxyBridge connects directly to Samsung phones on your local network.</string>
-    <key>NSDownloadsFolderUsageDescription</key>
-    <string>Galaxy Bridge saves files you send from your phone in Downloads.</string>
-    <key>NSBonjourServices</key>
-    <array>
-        <string>_galaxybridge._tcp</string>
-        <!-- Android Wireless debugging advertises these ADB services.  Declaring
-             them is required for the macOS Local Network permission prompt. -->
-        <string>_adb-tls-pairing._tcp</string>
-        <string>_adb-tls-connect._tcp</string>
-    </array>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>GalaxyBridgeAppGroupIdentifier</key>
+	<string>$(TeamIdentifierPrefix)group.com.xopmc.GalaxyBridge</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Galaxy Bridge discovers and securely connects to your nearby Samsung phones.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_galaxybridge._tcp</string>
+		<string>_adb-tls-pairing._tcp</string>
+		<string>_adb-tls-connect._tcp</string>
+	</array>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Galaxy Bridge saves files you send from your phone in Downloads.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>GalaxyBridge connects directly to Samsung phones on your local network.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>Galaxy Bridge needs Wi-Fi network information to connect directly and restore your previous network.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Galaxy Bridge needs Wi-Fi network information to connect directly and restore your previous network.</string>
 </dict>
 </plist>

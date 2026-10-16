@@ -12,6 +12,11 @@ final class ScrcpyDisplayPowerSession: PhoneDisplayPowerOwner {
     var failureHandler: ((String) -> Void)?
     private var serial: String
     private let adb: ADBClient
+    private var shellProvider: ShellCapabilityBridgeProvider?
+    private let shellProviderResolver: ((String) -> ShellCapabilityBridgeProvider?)?
+    private var shellLease: ShellCapabilityBridgeLease?
+    private var shellMonitor: Task<Void, Never>?
+    private var shellDesiredPower: Bool?
     private var socket: ScrcpyControlSocket?
     private var process: Process?
     private var scid: UInt32?
@@ -25,9 +30,19 @@ final class ScrcpyDisplayPowerSession: PhoneDisplayPowerOwner {
     private var cleanupIdentity: PhonePrivacyCleanupIdentity?
     private var cleanupEnabled = true
 
-    init(serial: String, adb: ADBClient) { self.serial = serial; self.adb = adb }
+    init(serial: String, adb: ADBClient, shellProvider: ShellCapabilityBridgeProvider? = nil,
+         shellProviderResolver: ((String) -> ShellCapabilityBridgeProvider?)? = nil) {
+        self.serial = serial; self.adb = adb; self.shellProvider = shellProvider; self.shellProviderResolver = shellProviderResolver
+    }
 
     func useRoute(serial: String) async throws {
+        if let shellProviderResolver {
+            let next = shellProviderResolver(serial)
+            if (next != nil) != (shellProvider != nil) {
+                try await stop()
+                self.serial = serial; self.shellProvider = next; return
+            }
+        }
         // Repeating a route after failed retirement must retry settlement.
         guard PhonePrivacyServerOwnership.requiresRouteSettlement(current: self.serial, requested: serial, controlReady: ready) else { return }
         // The new route is already verified to belong to this logical phone.
@@ -37,6 +52,13 @@ final class ScrcpyDisplayPowerSession: PhoneDisplayPowerOwner {
     }
 
     func start() async throws {
+        if let shellProvider {
+            let initial = try await shellProvider.panelPower()
+            guard initial != .unknown else { throw PowerError.panelNotConfirmed }
+            shellLease = try await shellProvider.setPanelPower(on: initial == .on, lease: shellLease)
+            ready = true; failure = nil; shellDesiredPower = initial == .on
+            startShellMonitor(); return
+        }
         if ready, failure == nil { return }
         try await stop()
         failure = nil
@@ -113,6 +135,7 @@ final class ScrcpyDisplayPowerSession: PhoneDisplayPowerOwner {
     }
 
     func panelPower() async throws -> PhonePanelPowerState {
+        if let shellProvider { return try await shellProvider.panelPower() }
         let output = try await Task.detached(priority: .utility) { [adb, serial] in
             try adb.run(arguments: ["-s", serial, "shell", "dumpsys", "SurfaceFlinger"])
         }.value
@@ -120,6 +143,10 @@ final class ScrcpyDisplayPowerSession: PhoneDisplayPowerOwner {
     }
 
     func setPanelPower(on: Bool) async throws {
+        if let shellProvider {
+            shellLease = try await shellProvider.setPanelPower(on: on, lease: shellLease)
+            ready = true; failure = nil; shellDesiredPower = on; startShellMonitor(); return
+        }
         if !cleanupEnabled {
             try await stop()
             cleanupEnabled = true
@@ -129,6 +156,7 @@ final class ScrcpyDisplayPowerSession: PhoneDisplayPowerOwner {
     }
 
     func restorePanelPower(on: Bool) async throws {
+        if shellProvider != nil { try await setPanelPower(on: on); return }
         if on { try await setPanelPower(on: true); return }
         // Stock crash cleanup can only restore ON. Let that child settle
         // first, then restore an originally-OFF panel using an owner with no
@@ -153,6 +181,11 @@ final class ScrcpyDisplayPowerSession: PhoneDisplayPowerOwner {
     }
 
     func stop() async throws {
+        if let shellProvider {
+            generation = UUID(); ready = false; shellMonitor?.cancel(); shellMonitor = nil
+            if let shellLease { try await shellProvider.retire(shellLease); self.shellLease = nil }
+            shellDesiredPower = nil; return
+        }
         do { try await retireOwnedResources() }
         catch { Self.logFailure(error, operation: "retire-owned-resources"); throw error }
     }
@@ -263,6 +296,27 @@ final class ScrcpyDisplayPowerSession: PhoneDisplayPowerOwner {
         case notReady, panelNotConfirmed, cleanupNotSettled, cleanupIdentityUnavailable
         case forwardOwnershipUnavailable, forwardNotRetired
         case control(String)
+    }
+
+    private func startShellMonitor() {
+        guard shellMonitor == nil else { return }
+        let request = generation
+        shellMonitor = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(2))
+                    guard let self, self.generation == request, let desired = self.shellDesiredPower else { return }
+                    let power = try await self.panelPower()
+                    guard self.generation == request, !Task.isCancelled else { return }
+                    guard power == (desired ? .on : .off) else { throw PowerError.panelNotConfirmed }
+                } catch is CancellationError { return }
+                catch {
+                    guard let self, self.generation == request else { return }
+                    self.failure = "shell_panel_owner_unavailable"; self.ready = false
+                    self.shellMonitor = nil; self.failureHandler?("shell_panel_owner_unavailable"); return
+                }
+            }
+        }
     }
 
     private static func logFailure(_ error: Error, operation: String) {

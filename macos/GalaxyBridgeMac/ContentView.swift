@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import GalaxyBridgeCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -111,6 +112,10 @@ struct ContentView: View {
             .applicationLanguageLayout()
         }
 #if !GALAXYBRIDGE_APP_STORE
+        .sheet(isPresented: $model.isNearbyPairingPresented, onDismiss: { model.nearbyConnection.endOfflinePairing() }) {
+            NearbyPairingSheet(coordinator: model.nearbyConnection) { model.isNearbyPairingPresented = false }
+                .applicationLanguageLayout()
+        }
         .sheet(isPresented: $isWirelessSetupPresented) {
             WirelessSetupSheet(connected: { _ in model.refresh() }, dismiss: { isWirelessSetupPresented = false })
                 .applicationLanguageLayout()
@@ -247,6 +252,9 @@ struct ContentView: View {
                     Button { isWirelessSetupPresented = true } label: {
                         Label("WIFI_SETUP_TITLE", systemImage: "wifi")
                     }
+                    Button(action: model.beginNearbyPairing) {
+                        Label("NEARBY_PAIR", systemImage: "antenna.radiowaves.left.and.right")
+                    }
 #endif
                     Button {
                         openWindow(id: "about")
@@ -359,7 +367,7 @@ struct DeviceWorkspace: View {
                         .font(.caption)
                         .foregroundStyle(device.isReady ? .green : .orange)
 #if !GALAXYBRIDGE_APP_STORE
-                    if device.transport != .companionLAN {
+                    if model.hasEnhancedTransport(deviceID: device.id) {
                         Toggle("PHONE_DISPLAY_PRIVACY_TITLE", isOn: Binding(
                             get: { model.phoneDisplayPrivacyEnabled(deviceID: device.id) },
                             set: { model.setPhoneDisplayPrivacy($0, deviceID: device.id) }
@@ -393,6 +401,9 @@ struct DeviceWorkspace: View {
             }
             .padding(24)
             .background(.regularMaterial)
+#if !GALAXYBRIDGE_APP_STORE
+            NearbyInternetControls(device: device)
+#endif
             Divider()
             Picker("PANELS", selection: $selectedPanel) {
                 ForEach(Panel.allCases) { panel in
@@ -457,7 +468,7 @@ struct ScreenSurface: View {
                 screenCapabilityUnavailableReason: screenCapabilityUnavailableReason,
                 physicalDeviceActive: physicalDeviceActive,
                 mediaUnavailable: mediaUnavailable,
-                deviceTransport: device.transport,
+                usesPhoneAppCapture: !model.hasEnhancedTransport(deviceID: device.id),
                 aspectRatio: model.videoAspectRatios[device.id] ?? (9 / 19.5),
                 contentInset: contentInset,
                 videoContentMode: videoContentMode
@@ -466,7 +477,7 @@ struct ScreenSurface: View {
                 aspectRatio: model.videoAspectRatios[device.id] ?? (9 / 19.5),
                 contentInset: contentInset,
                 videoContentMode: videoContentMode,
-                preciseScrollUsesTouch: device.transport != .companionLAN,
+                preciseScrollUsesTouch: model.hasEnhancedTransport(deviceID: device.id),
                 onTouch: { action, x, y in
                     model.sendTouch(deviceID: device.id, action: action, normalizedX: x, normalizedY: y)
                 },
@@ -532,7 +543,7 @@ struct ScreenSurface: View {
                     Button { model.toggleRecording(deviceID: device.id) } label: {
                         Image(systemName: model.recordingDeviceIDs.contains(device.id) ? "stop.circle.fill" : "record.circle")
                     }
-                    if device.transport != .companionLAN {
+                    if model.hasEnhancedTransport(deviceID: device.id) {
                         Menu {
                             ForEach(model.enhancedDisplaysByDevice[device.id] ?? [ScrcpyDisplay(id: 0, width: nil, height: nil)], id: \.id) { display in
                                 Button {
@@ -573,14 +584,14 @@ struct ScreenSurface: View {
     }
 
     private var screenCapabilityUnavailableReason: String? {
-        guard device.transport == .companionLAN else { return nil }
+        guard !model.hasEnhancedTransport(deviceID: device.id) else { return nil }
         return model.capabilityReasonsByDevice[device.id]?["CAPABILITY_SCREEN_CAPTURE"]
     }
 
     private var screenMediaUnavailable: Bool {
         if model.enhancedScreenInterlocks[device.id] == .mediaUnavailable { return true }
 #if !GALAXYBRIDGE_APP_STORE
-        if device.transport != .companionLAN, case .failed = model.enhancedStates[device.id] { return true }
+        if model.hasEnhancedTransport(deviceID: device.id), case .failed = model.enhancedStates[device.id] { return true }
 #endif
         return false
     }
@@ -592,7 +603,7 @@ private struct ScreenVideoLayer: View {
     let screenCapabilityUnavailableReason: String?
     let physicalDeviceActive: Bool
     let mediaUnavailable: Bool
-    let deviceTransport: TransportKind
+    let usesPhoneAppCapture: Bool
     let aspectRatio: CGFloat
     let contentInset: CGFloat
     let videoContentMode: ContentMode
@@ -608,7 +619,7 @@ private struct ScreenVideoLayer: View {
             if let placeholder {
                 ScreenStreamPlaceholderView(
                     placeholder: placeholder,
-                    deviceTransport: deviceTransport
+                    usesPhoneAppCapture: usesPhoneAppCapture
                 )
                 .transition(.opacity)
             }
@@ -630,7 +641,7 @@ private struct ScreenVideoLayer: View {
 
 private struct ScreenStreamPlaceholderView: View {
     let placeholder: ScreenStreamPlaceholder
-    let deviceTransport: TransportKind
+    let usesPhoneAppCapture: Bool
 
     var body: some View {
         ZStack {
@@ -676,7 +687,7 @@ private struct ScreenStreamPlaceholderView: View {
         case .deviceUnavailable:
             UserFacingText.connectionStatus(
                 isReady: false,
-                usesPhoneApp: deviceTransport == .companionLAN
+                usesPhoneApp: usesPhoneAppCapture
             )
         case .mediaProjectionConsentRequired: UserFacingText.localized("SCREEN_PERMISSION_REQUIRED")
         case .capabilityUnavailable: UserFacingText.localized("SCREEN_CAPTURE_UNAVAILABLE")
@@ -890,6 +901,9 @@ private struct CameraPanel: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 preview
+                if !model.canStartCamera(deviceID: deviceID) {
+                    Text("PANEL_CONNECT_HINT").font(.caption).foregroundStyle(.secondary)
+                }
                 statusNotice
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .bottom, spacing: 12) {
@@ -996,6 +1010,7 @@ private struct CameraPanel: View {
                 )
             }
             .buttonStyle(.borderedProminent)
+            .disabled(!model.canStartCamera(deviceID: deviceID))
             Button("CAMERA_STOP") { model.configureCamera(deviceID: deviceID, enabled: false) }
                 .buttonStyle(.bordered)
         }

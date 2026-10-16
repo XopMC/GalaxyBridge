@@ -122,6 +122,12 @@ class MainActivity : ComponentActivity() {
     private var refreshToken by mutableIntStateOf(0)
     private var runtimePermissionGate = RuntimePermissionRequestGate()
     private var setupActionError by mutableStateOf<String?>(null)
+    private var pendingNearbyOffer: String? = null
+    private val nearbyPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        if (com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.hasNearbyPermissions(this)) enableNearbyAndDeliverOffer()
+        else setupActionError = getString(R.string.setup_action_unavailable)
+        refreshToken++
+    }
     private lateinit var foregroundClipboardMonitor: ForegroundClipboardMonitor
     private val singlePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -208,7 +214,12 @@ class MainActivity : ComponentActivity() {
     private fun handlePairingUri(uri: Uri) {
         if (uri.scheme != "galaxybridge") return
         if (uri.host == "pair") {
-            storePendingPairing(uri.toString())
+            if (uri.getQueryParameter("transport") == "nearby") {
+                if (runCatching { com.xopmc.galaxybridge.nearby.NearbyPairingOffer.parse(uri.toString(), System.currentTimeMillis()) }.isSuccess) {
+                    pendingNearbyOffer = uri.toString()
+                    requestNearbyEnable()
+                } else setupActionError = getString(R.string.qr_invalid)
+            } else storePendingPairing(uri.toString())
         } else if (uri.host == "bind") {
             handleAdbBindingIntent(uri)
         }
@@ -352,6 +363,10 @@ class MainActivity : ComponentActivity() {
                 },
                 onRevoke = { showRevokeConfirmation = true },
                 onOpenAbout = { screen = HomeScreen.About },
+                nearbyEnabled = getSharedPreferences(PREFERENCES, MODE_PRIVATE).getBoolean("nearby_enabled", false),
+                internetAllowed = getSharedPreferences(PREFERENCES, MODE_PRIVATE).getBoolean("internet_sharing_allowed", false),
+                onToggleNearby = ::toggleNearby,
+                onToggleInternet = ::toggleInternetSharing,
             )
             HomeScreen.QrScanner -> QrScannerScreen(
                 cameraGranted = hasCameraPermission(),
@@ -361,7 +376,7 @@ class MainActivity : ComponentActivity() {
                 onClose = { screen = HomeScreen.Home },
                 onQrCode = { value ->
                     if (isValidPairingUri(value)) {
-                        storePendingPairing(value)
+                        handlePairingUri(Uri.parse(value))
                         qrStatus = null
                         screen = HomeScreen.Home
                         true
@@ -457,6 +472,7 @@ class MainActivity : ComponentActivity() {
             remove("paired_mac_key")
             remove("paired_host_id")
             remove("paired_at")
+            remove("internet_sharing_allowed")
         }
         AdbBindingResponseBus.clear()
         startBridgeServiceIfAllowed(GalaxyBridgeForegroundService.ACTION_TRUST_REVOKED)
@@ -588,6 +604,46 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun requestNearbyEnable() {
+        if (com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.hasNearbyPermissions(this)) {
+            enableNearbyAndDeliverOffer()
+            return
+        }
+        val permissions = mutableListOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE)
+        permissions += if (Build.VERSION.SDK_INT >= 33) Manifest.permission.NEARBY_WIFI_DEVICES else Manifest.permission.ACCESS_FINE_LOCATION
+        if (Build.VERSION.SDK_INT >= 37) permissions += Manifest.permission.ACCESS_LOCAL_NETWORK
+        nearbyPermissionLauncher.launch(permissions.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }.toTypedArray())
+    }
+
+    private fun enableNearbyAndDeliverOffer() {
+        getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit { putBoolean("nearby_enabled", true) }
+        if (!hasLocalNetworkAccess()) return
+        val offer = pendingNearbyOffer
+        pendingNearbyOffer = null
+        ContextCompat.startForegroundService(this, Intent(this, GalaxyBridgeForegroundService::class.java).also {
+            if (offer != null) it.putExtra(GalaxyBridgeForegroundService.EXTRA_NEARBY_PAIRING_OFFER, offer)
+        })
+        refreshToken++
+    }
+
+    private fun toggleNearby() {
+        val preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
+        if (!preferences.getBoolean("nearby_enabled", false)) requestNearbyEnable()
+        else {
+            pendingNearbyOffer = null
+            preferences.edit { putBoolean("nearby_enabled", false) }
+            startBridgeServiceIfAllowed()
+            refreshToken++
+        }
+    }
+
+    private fun toggleInternetSharing() {
+        val preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
+        preferences.edit { putBoolean("internet_sharing_allowed", !preferences.getBoolean("internet_sharing_allowed", false)) }
+        startBridgeServiceIfAllowed()
+        refreshToken++
+    }
+
     private fun isAccessibilityEnabled(): Boolean =
         getSystemService(AccessibilityManager::class.java)
             .getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
@@ -595,7 +651,9 @@ class MainActivity : ComponentActivity() {
 
     private fun isValidPairingUri(value: String): Boolean =
         runCatching {
-            PairingUriCodec.decode(value, System.currentTimeMillis() / 1_000)
+            if (Uri.parse(value).getQueryParameter("transport") == "nearby") {
+                com.xopmc.galaxybridge.nearby.NearbyPairingOffer.parse(value, System.currentTimeMillis())
+            } else PairingUriCodec.decode(value, System.currentTimeMillis() / 1_000)
             true
         }.getOrDefault(false)
 
@@ -644,6 +702,10 @@ private fun HomeContent(
     onScanPairing: () -> Unit,
     onRevoke: () -> Unit,
     onOpenAbout: () -> Unit,
+    nearbyEnabled: Boolean,
+    internetAllowed: Boolean,
+    onToggleNearby: () -> Unit,
+    onToggleInternet: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -660,6 +722,18 @@ private fun HomeContent(
         verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.one_ui_section_spacing)),
     ) {
         Header()
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.nearby_connection), style = MaterialTheme.typography.titleMedium)
+                OneUiOutlinedButton(onClick = onToggleNearby) {
+                    Text(stringResource(if (nearbyEnabled) R.string.nearby_disable else R.string.nearby_enable))
+                }
+                Text(stringResource(R.string.internet_sharing), style = MaterialTheme.typography.titleMedium)
+                OneUiOutlinedButton(onClick = onToggleInternet) {
+                    Text(stringResource(if (internetAllowed) R.string.internet_disable else R.string.internet_enable))
+                }
+            }
+        }
         FeatureChoicesPanel(snapshot, onFeatureChoice, onConfirmChoices, onEditChoices)
         if (actionError != null) {
             Text(actionError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
