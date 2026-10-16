@@ -27,6 +27,10 @@ public enum TransportKind
    * <code>TRANSPORT_KIND_COMPANION_LAN = 3;</code>
    */
   TRANSPORT_KIND_COMPANION_LAN(3),
+  /**
+   * <code>TRANSPORT_KIND_DIRECT_WIFI = 4;</code>
+   */
+  TRANSPORT_KIND_DIRECT_WIFI(4),
   UNRECOGNIZED(-1),
   ;
 
@@ -46,6 +50,10 @@ public enum TransportKind
    * <code>TRANSPORT_KIND_COMPANION_LAN = 3;</code>
    */
   public static final int TRANSPORT_KIND_COMPANION_LAN_VALUE = 3;
+  /**
+   * <code>TRANSPORT_KIND_DIRECT_WIFI = 4;</code>
+   */
+  public static final int TRANSPORT_KIND_DIRECT_WIFI_VALUE = 4;
 
 
   @java.lang.Override
@@ -72,6 +80,7 @@ public enum TransportKind
       case 1: return TRANSPORT_KIND_USB_ADB;
       case 2: return TRANSPORT_KIND_WIRELESS_ADB;
       case 3: return TRANSPORT_KIND_COMPANION_LAN;
+      case 4: return TRANSPORT_KIND_DIRECT_WIFI;
       default: return null;
     }
   }

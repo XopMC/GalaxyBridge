@@ -21,9 +21,13 @@ android {
         applicationId = "com.xopmc.galaxybridge"
         minSdk = 31
         targetSdk = 37
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.1.2"
     }
+
+    sourceSets.getByName("main").jniLibs.srcDir(
+        System.getenv("GB_INTERNET_ANDROID_LIBS") ?: rootProject.file("../out/internet-runtime/artifacts/android")
+    )
 
 
     signingConfigs {

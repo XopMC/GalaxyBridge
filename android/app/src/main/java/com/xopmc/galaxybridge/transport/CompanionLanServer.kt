@@ -95,6 +95,31 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 
+internal class CompanionAuthenticatedChannelRole {
+    var kind: ChannelKind = ChannelKind.CHANNEL_KIND_UNSPECIFIED
+        private set
+    val ownsControlRetirement: Boolean get() = kind == ChannelKind.CHANNEL_KIND_CONTROL
+    fun admit(incoming: Envelope): Boolean {
+        val payload = CompanionControlPayloadPolicy.classify(incoming)
+        if (payload == CompanionControlPayloadKind.OPEN_CHANNEL) {
+            val selected = incoming.openChannel.kind
+            if (selected == ChannelKind.CHANNEL_KIND_UNSPECIFIED || selected == ChannelKind.UNRECOGNIZED ||
+                (kind != ChannelKind.CHANNEL_KIND_UNSPECIFIED && kind != selected)) return false
+            kind = selected
+            return true
+        }
+        // Preserve the protocol's safe unsupported-response path without
+        // granting the sender authority over another connection's leases.
+        if (payload == CompanionControlPayloadKind.UNSUPPORTED || payload == CompanionControlPayloadKind.TRANSFER_ACK) return true
+        // Protocol-v1 control clients do not send OpenChannel. Only a parsed,
+        // supported ordinary request may claim their legacy control lifetime.
+        // Authentication, Hello/capability replies, PONG and bare EOF never do.
+        if (kind == ChannelKind.CHANNEL_KIND_UNSPECIFIED) kind = ChannelKind.CHANNEL_KIND_CONTROL
+        if (!ownsControlRetirement) return false
+        return true
+    }
+}
+
 internal class CompanionReceiverStartup<T : Any>(
     factory: () -> T,
 ) {
@@ -106,6 +131,7 @@ internal class CompanionReceiverStartup<T : Any>(
 }
 
 class CompanionLanServer(private val context: Context) {
+    val listeningPort: Int get() = serverSocket?.localPort?.takeIf { it > 0 } ?: 0
     private val identity = DeviceIdentityStore()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val running = AtomicBoolean(false)
@@ -220,6 +246,7 @@ class CompanionLanServer(private val context: Context) {
             return
         }
         val fileOwner = transferReceiver.authenticatedOwner(envelope.deviceId)
+        val authenticatedKey = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(PAIRED_MAC_KEY, null)
         val authenticationFailure = authenticationFailure(envelope)
         if (authenticationFailure != null) {
             Log.w(TAG, "LAN authentication rejected: ${authenticationFailure.name.lowercase()}")
@@ -233,20 +260,60 @@ class CompanionLanServer(private val context: Context) {
             )
             return
         }
+        if (context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(PAIRED_MAC_KEY, null) != authenticatedKey) return
         activeSessions.register(envelope.deviceId, envelope.sessionId, socket)
+        val channelRole = CompanionAuthenticatedChannelRole()
         try {
-            socket.soTimeout = 0
+            // Healthy control peers heartbeat every two seconds. A lost control path
+            // cannot leave its internet lease alive behind an indefinitely blocked read.
+            socket.soTimeout = SOCKET_TIMEOUT_MS
             writeEnvelope(output, hello(envelope))
             writeEnvelope(output, capabilities(envelope))
             val notificationActionLedger = NotificationActionLedger()
             while (!socket.isClosed) {
                 val incoming = runCatching { readEnvelope(input) }.getOrNull() ?: return
+                val currentTrust = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+                if (currentTrust.getString(PAIRED_HOST_ID, null) != envelope.deviceId ||
+                    currentTrust.getString(PAIRED_MAC_KEY, null) != authenticatedKey ||
+                    incoming.deviceId != envelope.deviceId || incoming.sessionId != envelope.sessionId) return
+                if (!channelRole.admit(incoming)) return
                 when (CompanionControlPayloadPolicy.classify(incoming)) {
-                    CompanionControlPayloadKind.OPEN_CHANNEL -> when (incoming.openChannel.kind) {
+                    CompanionControlPayloadKind.OPEN_CHANNEL -> {
+                      socket.soTimeout = if (channelRole.ownsControlRetirement) SOCKET_TIMEOUT_MS else 0
+                      when (channelRole.kind) {
+                        ChannelKind.CHANNEL_KIND_CONTROL -> Unit
                         ChannelKind.CHANNEL_KIND_VIDEO -> return streamVideo(socket, input, output)
                         ChannelKind.CHANNEL_KIND_AUDIO -> return streamAudio(socket, input, output)
                         ChannelKind.CHANNEL_KIND_CAMERA -> return streamCamera(socket, input, output)
                         ChannelKind.CHANNEL_KIND_EVENTS -> return streamEvents(socket, input, output, envelope.sessionId)
+                        ChannelKind.CHANNEL_KIND_ENHANCED_STREAM -> {
+                            val shell = com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current?.shell
+                            if (shell == null || BuildConfig.DISTRIBUTION == "play") {
+                                writeEnvelope(output, Envelope.newBuilder().setProtocolMajor(1).setDeviceId(deviceId()).setSessionId(envelope.sessionId)
+                                    .setShellBridgeResult(com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult.newBuilder()
+                                        .setAvailable(false).setState("failed").setErrorCode("shell_bridge_not_activated")).build())
+                                return
+                            }
+                            shell.bridgeAuthenticated(input, output, envelope.deviceId, envelope.sessionId, incoming.openChannel.streamId, socket::close)
+                            return
+                        }
+                        ChannelKind.CHANNEL_KIND_INTERNET_PROXY -> {
+                            val runtime = com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current
+                            val leaseID = incoming.openChannel.streamId
+                            val codec = incoming.openChannel.codec
+                            val supportedCodec = codec in setOf("", "socks5", "dns-wire-v1")
+                            val admitted = supportedCodec && runtime?.internet?.admits(envelope.deviceId, envelope.sessionId, leaseID) == true
+                            val ready = com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus.newBuilder()
+                                .setRequestId(leaseID).setLeaseId(leaseID).setEnabled(admitted)
+                                .setInternetValidated(false).setUpstream(runtime?.internet?.status()?.upstream ?: "unavailable")
+                                .setErrorCode(if (admitted) "" else "gateway_lease_or_upstream_unavailable")
+                            writeEnvelope(output, Envelope.newBuilder().setProtocolMajor(1).setDeviceId(deviceId())
+                                .setSessionId(envelope.sessionId).setInternetSharingStatus(ready).build())
+                            if (!admitted) return
+                            if (codec == "dns-wire-v1") runtime!!.internet.handleDnsAuthenticated(input, output, envelope.deviceId, envelope.sessionId, leaseID, socket::close)
+                            else runtime!!.internet.bridgeAuthenticated(input, output, envelope.deviceId, envelope.sessionId, leaseID, socket::close)
+                            return
+                        }
                         ChannelKind.CHANNEL_KIND_FILES -> {
                             if (fileOwner == null || fileOwner != transferReceiver.authenticatedOwner(envelope.deviceId)) return
                             return handleFiles(socket, input, output, envelope.sessionId, fileOwner, transferReceiver)
@@ -256,7 +323,12 @@ class CompanionLanServer(private val context: Context) {
                             CompanionControlPayloadPolicy.unsupportedResponse(incoming, deviceId()),
                         )
                     }
+                    }
                     CompanionControlPayloadKind.PING -> {
+                        if (channelRole.ownsControlRetirement) {
+                            com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current?.internet
+                                ?.renewAuthenticated(envelope.deviceId, envelope.sessionId)
+                        }
                         writeEnvelope(
                             output,
                             Envelope.newBuilder()
@@ -268,6 +340,42 @@ class CompanionLanServer(private val context: Context) {
                                 .setPong(Pong.newBuilder().setEchoedMonotonicTimeNs(incoming.ping.monotonicTimeNs))
                                 .build(),
                         )
+                    }
+                    CompanionControlPayloadKind.SHELL_BRIDGE -> {
+                        val bridge = com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current?.shell
+                        val result = if (incoming.shellBridgeRequest.operation == com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.LIST_APPLICATIONS && BuildConfig.DISTRIBUTION != "play") {
+                            runCatching {
+                                require(com.xopmc.galaxybridge.transport.shell.ShellBridgePolicy.uuid(incoming.shellBridgeRequest.requestId))
+                                com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult.newBuilder()
+                                    .setRequestId(incoming.shellBridgeRequest.requestId).setBootGeneration(bridge?.status()?.bootGeneration.orEmpty())
+                                    .setAvailable(true).setState("catalog")
+                                    .setApplicationCatalogJson(ByteString.copyFrom(com.xopmc.galaxybridge.catalog.ApplicationCatalogExporter.inlineJSON(context))).build()
+                            }.getOrElse {
+                                com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult.newBuilder().setRequestId(incoming.shellBridgeRequest.requestId)
+                                    .setAvailable(false).setState("failed").setErrorCode("application_catalog_unavailable").build()
+                            }
+                        } else if (bridge == null || BuildConfig.DISTRIBUTION == "play") {
+                            com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult.newBuilder()
+                                .setRequestId(incoming.shellBridgeRequest.requestId).setAvailable(false).setState("failed")
+                                .setErrorCode("shell_bridge_not_activated").build()
+                        } else bridge.executeAuthenticated(envelope.deviceId, envelope.sessionId, incoming.shellBridgeRequest)
+                        writeEnvelope(output, Envelope.newBuilder().setProtocolMajor(1).setDeviceId(deviceId())
+                            .setSessionId(envelope.sessionId).setMessageId(incoming.messageId + 1).setShellBridgeResult(result).build())
+                    }
+                    CompanionControlPayloadKind.DIRECT_LINK -> {
+                        val response = runCatching {
+                            requireNotNull(com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current)
+                                .coordinator.handleAuthenticated(envelope.deviceId, incoming.directLinkRequest)
+                        }.getOrElse {
+                            Envelope.newBuilder().setProtocolMajor(1).setDeviceId(deviceId()).setDirectLinkStatus(
+                                com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus.newBuilder()
+                                    .setRequestId(incoming.directLinkRequest.requestId).setState("failed")
+                                    .setErrorCode("direct_link_unavailable")).build()
+                        }
+                        writeEnvelope(output, response.toBuilder().setSessionId(envelope.sessionId).setMessageId(incoming.messageId + 1).build())
+                    }
+                    CompanionControlPayloadKind.INTERNET_SHARING -> {
+                        writeEnvelope(output, internetSharing(incoming, envelope.deviceId, envelope.sessionId))
                     }
                     CompanionControlPayloadKind.INPUT -> handleInput(incoming)
                     CompanionControlPayloadKind.CLIPBOARD -> handleClipboard(incoming.clipboardUpdate)
@@ -294,8 +402,40 @@ class CompanionLanServer(private val context: Context) {
                 }
             }
         } finally {
+            if (channelRole.ownsControlRetirement) {
+                com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current?.internet
+                    ?.revokeAuthenticated(envelope.deviceId, envelope.sessionId)
+                com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current?.shell
+                    ?.retireAuthenticated(envelope.deviceId, envelope.sessionId)
+            }
             activeSessions.unregister(envelope.deviceId, envelope.sessionId, socket)
         }
+    }
+
+    private fun internetSharing(request: Envelope, peerID: String, sessionID: String): Envelope {
+        val sharing = request.internetSharingRequest
+        val phoneAllowed = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .getBoolean("internet_sharing_allowed", false)
+        val runtime = com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current
+        var leaseID = sharing.leaseId
+        val error = runCatching {
+            val gateway = requireNotNull(runtime).internet
+            if (sharing.enabled) {
+                check(phoneAllowed)
+                // A repeated enabled request with the same lease is status+renew, including
+                // temporary validation loss. It must not rotate credentials or close flows.
+                leaseID = gateway.enableAuthenticated(peerID, sessionID, leaseID.takeIf { it.isNotEmpty() }).id
+            } else gateway.revokeAuthenticated(peerID, sessionID)
+        }.exceptionOrNull()
+        val state = runtime?.internet?.status()
+        return Envelope.newBuilder().setProtocolMajor(1).setDeviceId(deviceId()).setSessionId(sessionID)
+            .setMessageId(request.messageId + 1).setInternetSharingStatus(
+                com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus.newBuilder().setRequestId(sharing.requestId)
+                    .setLeaseId(leaseID).setEnabled(error == null && sharing.enabled)
+                    .setUpstream(state?.upstream ?: "unavailable").setInternetValidated(false)
+                    .setErrorCode(InternetSharingRequestPolicy.errorCode(
+                        sharing.enabled, phoneAllowed, error != null, state?.errorCode.orEmpty()))
+                    .setBytesSent(state?.bytesSent ?: 0).setBytesReceived(state?.bytesReceived ?: 0)).build()
     }
 
     private fun authenticationFailure(envelope: Envelope): SessionAuthenticationFailure? {

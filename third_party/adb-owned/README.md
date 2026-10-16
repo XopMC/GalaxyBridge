@@ -19,12 +19,19 @@ identity, and preserves that identity across app restarts.
 
 The second patch enables USB only with the explicit policy
 `GALAXYBRIDGE_ADB_USB_POLICY=usb-nonseizing-v1`. It forces the patched libusb
-backend, tries ordinary `USBDeviceOpen` exactly once, declines busy/denied
-devices, and disables seize, reset, reenumeration, kernel-driver detach/attach,
+backend and tries ordinary `USBDeviceOpen` exactly once. A device-level
+`kIOReturnExclusiveAccess` preserves upstream's interface-only handle, allowing
+ordinary `USBInterfaceOpen` to acquire a free ADB interface while another client
+owns the device. Other device-open errors still fail, and a busy or denied ADB
+interface still fails its ordinary interface open. The patch disables seize,
+reset, reenumeration, kernel-driver detach/attach,
 configuration changes and descriptor recovery that changes suspension/config.
 The shared direct app owner selects this policy for normal cable use. Tests
 default to USB disabled. Fake callbacks exercise the source's acquisition
-policy; they do not prove physical-device compatibility or coexistence.
+policy. The Darwin source regression executes the patched open, interface claim
+and close bodies with fake IOKit callbacks, including device-owner coexistence,
+permission failures, interface contention and close ownership. These checks do
+not prove physical-device compatibility or coexistence.
 
 The public CMake build generates a Swift module containing the SHA-256 of its
 freshly built ADB and libusb artifacts. Those expected hashes are compiled into

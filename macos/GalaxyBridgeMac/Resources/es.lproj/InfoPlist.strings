@@ -2,3 +2,9 @@
 "CFBundleDisplayName" = "Galaxy Bridge";
 "NSLocalNetworkUsageDescription" = "Conecte su Galaxy de forma segura a este Mac a través de su red local.";
 "NSDownloadsFolderUsageDescription" = "Guarda los archivos enviados desde tu Galaxy en Descargas.";
+
+"NSBluetoothAlwaysUsageDescription" = "Galaxy Bridge detecta tus teléfonos Samsung cercanos y se conecta de forma segura.";
+
+"NSLocationUsageDescription" = "Galaxy Bridge usa información Wi-Fi para conexiones directas y para restablecer tu red anterior.";
+
+"NSLocationWhenInUseUsageDescription" = "Galaxy Bridge usa información Wi-Fi para conexiones directas y para restablecer tu red anterior.";

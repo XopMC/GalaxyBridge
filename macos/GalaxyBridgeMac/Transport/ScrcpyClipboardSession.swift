@@ -24,7 +24,12 @@ final class ScrcpyClipboardSession {
     }
 
     let serial: String
+    var clipboardTrustGeneration: UUID { generation }
+    var clipboardTrustPeer: PairedPeer? { shellLease?.context.peer }
     private let adb: ADBClient
+    private let shellProvider: ShellCapabilityBridgeProvider?
+    private var shellLease: ShellCapabilityBridgeLease?
+    private var shellCleanup: Task<Void, Never>?
     private let sessionID = UUID().uuidString.lowercased()
     private let readyHandler: @MainActor @Sendable (String) -> Void
     private let failureHandler: @MainActor @Sendable (String) -> Void
@@ -46,16 +51,18 @@ final class ScrcpyClipboardSession {
     private(set) var usesClipboardOccurrences = false
     private var injectedEchoes = ScrcpyInjectedClipboardEchoSuppressor(capacity: 16)
 
-    var clipboardEventHandler: (@Sendable (ScrcpyClipboardUpdate) -> Void)?
+    var clipboardEventHandler: (@MainActor @Sendable (ScrcpyClipboardUpdate) -> Void)?
 
     init(
         serial: String,
         adb: ADBClient,
         readyHandler: @escaping @MainActor @Sendable (String) -> Void = { _ in },
-        failureHandler: @escaping @MainActor @Sendable (String) -> Void
+        failureHandler: @escaping @MainActor @Sendable (String) -> Void,
+        shellProvider: ShellCapabilityBridgeProvider? = nil
     ) {
         self.serial = serial
         self.adb = adb
+        self.shellProvider = shellProvider
         self.readyHandler = readyHandler
         self.failureHandler = failureHandler
     }
@@ -69,6 +76,25 @@ final class ScrcpyClipboardSession {
         preparationTask = Task { [weak self] in
             guard let self else { return }
             do {
+                await shellCleanup?.value
+                guard generation == request, !Task.isCancelled else { throw CancellationError() }
+                if let shellProvider {
+                    let config = ScrcpyLaunchConfiguration(scid: UInt32.random(in: 1...0x7fff_ffff),
+                        videoEnabled: false, audioEnabled: false, sendDeviceMeta: false, keepActive: false,
+                        hideDeviceIME: false, uhidKeyboardEnabled: false, cleanup: true)
+                    let lease = try await shellProvider.prepare(configuration: config, operation: .startClipboard)
+                    guard generation == request, !Task.isCancelled else { try? await shellProvider.retire(lease); throw CancellationError() }
+                    shellLease = lease
+                    guard let port = lease.port, let agentPort = lease.clipboardPort else { throw ShellCapabilityBridgeFailure.invalidResult }
+                    let socket = ScrcpyControlSocket(port: port, initialPreambleLength: 1,
+                        readyHandler: { [weak self] in Task { @MainActor in self?.didBecomeReady(request: request) } },
+                        messageHandler: { [weak self] message in Task { @MainActor in self?.receive(message, request: request) } },
+                        failureHandler: { [weak self] error in Task { @MainActor in self?.fail(request: request, reason: String(describing: error)) } })
+                    let agent = ClipboardAgentSocket(port: agentPort, readyHandler: {},
+                        messageHandler: { [weak self] message in Task { @MainActor in self?.receiveAgent(message, request: request) } },
+                        failureHandler: { [weak self] error in Task { @MainActor in self?.fail(request: request, reason: String(describing: error)) } })
+                    controlSocket = socket; agentSocket = agent; agent.start(); socket.start(); return
+                }
                 let serverURL = try ScrcpyServerLocator.locate()
                 try await Task.detached(priority: .utility) { [adb, serial] in
                     try adb.push(
@@ -186,6 +212,7 @@ final class ScrcpyClipboardSession {
         generation = UUID()
         state = .stopped
         let resources = stopResources(scheduleRemoteCleanup: false)
+        await shellCleanup?.value
         guard resources.port != nil || resources.agentPort != nil || resources.scid != nil else { return }
         let adb = adb
         let serial = serial
@@ -308,6 +335,11 @@ final class ScrcpyClipboardSession {
     private func stopResources(
         scheduleRemoteCleanup: Bool = true
     ) -> (port: UInt16?, agentPort: UInt16?, scid: UInt32?) {
+        if let shellLease, let shellProvider {
+            self.shellLease = nil; shellLease.cancelLocal()
+            let preceding = shellCleanup
+            shellCleanup = Task { await preceding?.value; try? await shellProvider.retire(shellLease) }
+        }
         preparationTask?.cancel()
         preparationTask = nil
         pollTask?.cancel()

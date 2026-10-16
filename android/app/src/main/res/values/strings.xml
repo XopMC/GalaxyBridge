@@ -110,4 +110,15 @@
     <string name="clipboard_share_send">Send</string>
     <string name="clipboard_share_retry">Try again</string>
     <string name="file_send_forget">Remove from list</string>
+    <string name="nearby_connection">Direct connection</string>
+    <string name="nearby_enable">Enable nearby connection</string>
+    <string name="nearby_disable">Disable nearby connection</string>
+    <string name="internet_sharing">Internet sharing</string>
+    <string name="internet_enable">Share internet</string>
+    <string name="internet_disable">Stop internet sharing</string>
+    <string name="nearby_permission_required">Allow nearby device access in Settings, then try again.</string>
+    <string name="nearby_starting">Starting nearby discovery…</string>
+    <string name="nearby_discovery_ready">Nearby discovery is on. Connect from your Mac.</string>
+    <string name="nearby_unavailable">Nearby discovery could not start. Check Bluetooth and nearby device access, then try again.</string>
+    <string name="qr_camera_unavailable">The camera could not start. Close other apps using the camera, then try again.</string>
 </resources>

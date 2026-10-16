@@ -14,6 +14,7 @@ import com.xopmc.galaxybridge.core.PairingUriCodec
 import com.xopmc.galaxybridge.BuildConfig
 import com.xopmc.galaxybridge.setup.DistributionFeatures
 import com.xopmc.galaxybridge.transport.CompanionLanServer
+import com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime
 import com.xopmc.galaxybridge.transport.PairingClient
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
@@ -27,15 +28,27 @@ import kotlinx.coroutines.withContext
 
 class GalaxyBridgeForegroundService : Service() {
     private var lanServer: CompanionLanServer? = null
+    private var directConnectivity: ForegroundConnectivityRuntime? = null
+    @Volatile private var connectivityOwnerActive = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val pairingWorkerRunning = AtomicBoolean(false)
     private val pairingPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { preferences, key ->
         if (key == PENDING_PAIRING) preferences.getString(key, null)?.let(::beginPairing)
+        if (key == "paired_mac_key" || key == "paired_host_id") {
+            directConnectivity?.internet?.revokeAll()
+            directConnectivity?.shell?.deactivate()
+            directConnectivity?.coordinator?.disable()
+        }
     }
 
     override fun onCreate() {
         super.onCreate()
         startForeground(NOTIFICATION_ID, serviceNotification())
+        connectivityOwnerActive = true
+        directConnectivity = ForegroundConnectivityRuntime(applicationContext, { connectivityOwnerActive }, { lanServer?.listeningPort ?: 0 }).also {
+            ForegroundConnectivityRuntime.current = it
+            it.start()
+        }
         if (DistributionFeatures.telephonyEnabled(BuildConfig.DISTRIBUTION)) {
             TelephonyBridge.start(applicationContext)
         }
@@ -46,7 +59,16 @@ class GalaxyBridgeForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_TRUST_REVOKED) restartLanServer()
+        if (intent?.action == ACTION_TRUST_REVOKED) {
+            directConnectivity?.coordinator?.disable()
+            directConnectivity?.shell?.deactivate()
+            directConnectivity?.internet?.revokeAll()
+            restartLanServer()
+        }
+        intent?.getStringExtra(EXTRA_NEARBY_PAIRING_OFFER)?.let { uri ->
+            runCatching { directConnectivity?.coordinator?.installOfflineOffer(uri) }
+        }
+        directConnectivity?.refresh()
         requestPendingPairing()
         return START_STICKY
     }
@@ -54,6 +76,10 @@ class GalaxyBridgeForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        connectivityOwnerActive = false
+        if (ForegroundConnectivityRuntime.current === directConnectivity) ForegroundConnectivityRuntime.current = null
+        directConnectivity?.close()
+        directConnectivity = null
         lanServer?.stop()
         lanServer = null
         getSharedPreferences(PREFERENCES, MODE_PRIVATE)
@@ -120,6 +146,7 @@ class GalaxyBridgeForegroundService : Service() {
     }
 
     companion object {
+        const val EXTRA_NEARBY_PAIRING_OFFER = "nearby_pairing_offer"
         const val ACTION_TRUST_REVOKED = "com.xopmc.galaxybridge.action.TRUST_REVOKED"
         const val NOTIFICATION_ID = 4_701
         const val PREFERENCES = "galaxybridge"

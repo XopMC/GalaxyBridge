@@ -111,4 +111,15 @@
     <string name="clipboard_share_send">發送</string>
     <string name="clipboard_share_retry">再試一次</string>
     <string name="file_send_forget">從列表中移除</string>
+    <string name="nearby_connection">直接連線</string>
+    <string name="nearby_enable">啟用附近連線</string>
+    <string name="nearby_disable">停用附近連線</string>
+    <string name="internet_sharing">共享網際網路</string>
+    <string name="internet_enable">共享網際網路</string>
+    <string name="internet_disable">停止共享網際網路</string>
+    <string name="nearby_permission_required">請在設定中允許存取附近裝置，然後再試一次。</string>
+    <string name="nearby_starting">正在啟動附近裝置探索…</string>
+    <string name="nearby_discovery_ready">附近裝置探索已開啟。請從 Mac 發起連線。</string>
+    <string name="nearby_unavailable">無法啟動附近裝置探索。請檢查藍牙和附近裝置存取權限，然後再試一次。</string>
+    <string name="qr_camera_unavailable">無法啟動相機。請關閉其他正在使用相機的 App，然後再試一次。</string>
 </resources>

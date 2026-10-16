@@ -60,7 +60,12 @@ final class ScrcpySession: ObservableObject {
     @Published private(set) var applicationDisplayIdentity: ScrcpyApplicationDisplayIdentity?
 
     let serial: String
+    var clipboardTrustGeneration: UUID { preparationID }
+    var clipboardTrustPeer: PairedPeer? { shellLease?.context.peer }
     private let adb: ADBClient
+    private let shellProvider: ShellCapabilityBridgeProvider?
+    private var shellLease: ShellCapabilityBridgeLease?
+    private var retiredShellLeases: [ShellCapabilityBridgeLease] = []
     private let remoteRetirement: EnhancedRemoteRetirementFence
     private let physicalDisplayPolicy: ScrcpyPhysicalDisplayPolicy
     private var automaticDisplayManagement: Bool
@@ -124,7 +129,7 @@ final class ScrcpySession: ObservableObject {
     var diagnosticDecodedFrameHandler: (@Sendable (CVPixelBuffer, CMTime, UInt32, PrimaryMediaTrace?) -> Void)? { didSet { refreshNativeBinding() } }
     var ownedDecodedFrameHandler: (@MainActor @Sendable (NativeDecodedFrame) -> Void)? { didSet { refreshNativeBinding() } }
     var controlReadyHandler: (@MainActor @Sendable () -> Void)?
-    var clipboardEventHandler: (@Sendable (ScrcpyClipboardUpdate) -> Void)?
+    var clipboardEventHandler: (@MainActor @Sendable (ScrcpyClipboardUpdate) -> Void)?
 #if !GALAXYBRIDGE_APP_STORE && GB_QUIC_BACKEND_QA
     var quicStockObservation: (@Sendable ([UInt64]) -> Void)?
     var quicDeviceObservation: (@MainActor @Sendable (ScrcpyDeviceMessage) -> Void)?
@@ -174,6 +179,7 @@ final class ScrcpySession: ObservableObject {
         (retiredNativeOwner?.attempt.snapshot.actuallySettled ?? true)
             && (retiredQuicTransport?.physicallySettled ?? true)
             && remoteRetirement.settled
+            && retiredShellLeases.isEmpty
     }
 
     /// Actual prepare and host-native fixtures share this allocation seam.
@@ -185,6 +191,7 @@ final class ScrcpySession: ObservableObject {
         frameDelivery: @escaping NativeFrameDelivery = { action in Task { @MainActor in action() } }
     ) throws -> ScrcpyNativeMediaOwner {
         guard nativeOwner == nil,
+              retiredShellLeases.isEmpty,
               retiredQuicTransport?.physicallySettled ?? true,
               retiredNativeOwner?.attempt.snapshot.actuallySettled ?? true else { throw NativeMediaFailure.cleanupIncomplete }
         retiredNativeOwner = nil
@@ -265,19 +272,21 @@ final class ScrcpySession: ObservableObject {
         applicationDisplayEventDelivery: @escaping ScrcpyApplicationDisplayEventDelivery = { action in
             Task { @MainActor in action() }
         },
-        nativePreparationBoundary: (@MainActor @Sendable (ScrcpyNativeMediaOwner, ScrcpyCodec) async throws -> Bool)? = nil
+        nativePreparationBoundary: (@MainActor @Sendable (ScrcpyNativeMediaOwner, ScrcpyCodec) async throws -> Bool)? = nil,
+        shellProvider: ShellCapabilityBridgeProvider? = nil
     ) {
         self.serial = serial
         self.adb = adb
+        self.shellProvider = shellProvider
         self.remoteRetirement = EnhancedRemoteRetirementFence(captureSerial: serial)
         self.physicalDisplayPolicy = physicalDisplayPolicy
-        self.automaticDisplayManagement = automaticDisplayManagement
+        self.automaticDisplayManagement = shellProvider == nil && automaticDisplayManagement
         self.primaryDiagnosticsEnabled = primaryDiagnosticsEnabled
         self.clipboardPollingEnabled = clipboardPollingEnabled
-        wirelessADBVideoRecovery = serial.contains(":") || serial.contains("_adb-tls-connect._tcp")
+        wirelessADBVideoRecovery = shellProvider != nil || serial.contains(":") || serial.contains("_adb-tls-connect._tcp")
             ? WirelessADBVideoIngressRecovery()
             : nil
-        self.quicSelection = quicSelection
+        self.quicSelection = shellProvider == nil ? quicSelection : nil
         self.quicPreparedLaunch = quicPreparedLaunch
         self.keyboardEmissionSink = keyboardEmissionSink
         self.applicationDisplayEventDelivery = applicationDisplayEventDelivery
@@ -370,6 +379,7 @@ final class ScrcpySession: ObservableObject {
     }
 
     func retryOwnedCleanup() {
+        if !retiredShellLeases.isEmpty { scheduleCleanup { [weak self] in await self?.retirePendingShellLeases() } }
         scheduleCleanup { [weak self] in await self?.retirePendingRemoteServers() }
         if originalDisplayBrightness != nil, displayRestorationFailure != nil { restorePhysicalDisplay() }
     }
@@ -386,6 +396,16 @@ final class ScrcpySession: ObservableObject {
         }
         if !remoteRetirement.settled {
             logger.error("Enhanced remote retirement remains fenced: remote-server-not-retired")
+        }
+    }
+
+    private func retirePendingShellLeases() async {
+        guard let shellProvider else { return }
+        for lease in Array(retiredShellLeases) {
+            do {
+                try await shellProvider.retire(lease)
+                retiredShellLeases.removeAll { $0.id == lease.id }
+            } catch { logger.error("Enhanced shell retirement remains fenced: shell-lease-not-retired") }
         }
     }
 
@@ -519,7 +539,7 @@ final class ScrcpySession: ObservableObject {
             if !continueToADB { return }
         }
         let hostPreparedLaunch = quicSelection != nil && quicPreparedLaunch != nil
-        if !hasRemoteKeyboardPreferenceLease && !hostPreparedLaunch {
+        if shellProvider == nil && !hasRemoteKeyboardPreferenceLease && !hostPreparedLaunch {
             try await EnhancedRemoteKeyboardPreferenceCoordinator.shared.acquire(
                 adb: adb,
                 serial: serial
@@ -530,7 +550,7 @@ final class ScrcpySession: ObservableObject {
             }
             hasRemoteKeyboardPreferenceLease = true
         }
-        if quicSelection == nil {
+        if quicSelection == nil && shellProvider == nil {
             let serverURL = try ScrcpyServerLocator.locate()
             try await Task.detached(priority: .userInitiated) { [adb, serial] in
                 try adb.push(serial: serial, localURL: serverURL, remotePath: ScrcpyLaunchConfiguration.remoteServerPath)
@@ -614,7 +634,7 @@ final class ScrcpySession: ObservableObject {
             videoCodecBaselineProfile: baselineProfileExperiment,
             audioEnabled: Bundle.main.bundleIdentifier == "com.xopmc.GalaxyBridge.internal"
                 && ProcessInfo.processInfo.arguments.contains("--qa-disable-scrcpy-audio") ? false : nil,
-            tunnelForward: !reverseTunnelExperiment,
+            tunnelForward: shellProvider != nil || !reverseTunnelExperiment,
             captureTarget: captureTarget,
             applicationTarget: applicationTarget,
             // Galaxy Bridge deliberately runs independent screen, application,
@@ -705,8 +725,20 @@ final class ScrcpySession: ObservableObject {
             quicTransport = transport; state = .connecting; transport.start()
             return
         }
+        let outputObserver = try beginApplicationDisplayObservation(for: applicationTarget)
         let port: UInt16?
-        if configuration.tunnelForward {
+        if let shellProvider {
+            let lease = try await shellProvider.prepare(configuration: configuration, outputObserver: outputObserver)
+            guard preparationID == request, !Task.isCancelled else {
+                try? await shellProvider.retire(lease); throw CancellationError()
+            }
+            shellLease = lease
+            if primaryDiagnosticsEnabled {
+                logger.notice("GBCAP route=shell-bridge fps=\(configuration.maxFPS, privacy: .public) bitrate=\(configuration.videoBitRate, privacy: .public) maxsize=\(configuration.maxSize, privacy: .public)")
+            }
+            guard let bridgePort = lease.port else { throw ShellCapabilityBridgeFailure.invalidResult }
+            port = bridgePort
+        } else if configuration.tunnelForward {
             let forwarded = try await Task.detached(priority: .userInitiated) { [adb, serial] in
                 try adb.forwardAutomatically(serial: serial, socketName: configuration.socketName)
             }.value
@@ -734,19 +766,16 @@ final class ScrcpySession: ObservableObject {
             }.value
             port = nil
         }
-        let outputObserver = try beginApplicationDisplayObservation(for: applicationTarget)
         // Record ownership before launch so cancellation during adb/app_process
         // startup can still retire only this exact server instance.
-        serverSCID = configuration.scid
-        serverProcess = try adb.launch(
-            serial: serial,
-            arguments: configuration.serverArguments,
-            outputObserver: outputObserver
-        )
-        if configuration.tunnelForward {
-            try await Task.detached(priority: .userInitiated) { [adb, serial] in
-                try adb.waitForAbstractSocket(serial: serial, socketName: configuration.socketName)
-            }.value
+        if shellProvider == nil {
+            serverSCID = configuration.scid
+            serverProcess = try adb.launch(serial: serial, arguments: configuration.serverArguments, outputObserver: outputObserver)
+            if configuration.tunnelForward {
+                try await Task.detached(priority: .userInitiated) { [adb, serial] in
+                    try adb.waitForAbstractSocket(serial: serial, socketName: configuration.socketName)
+                }.value
+            }
         }
         try checkPreparation(request)
         state = .connecting
@@ -1158,6 +1187,7 @@ final class ScrcpySession: ObservableObject {
 
     /// Transfers panel ownership without racing detached legacy brightness writes.
     func setAutomaticDisplayManagement(_ enabled: Bool) async throws {
+        guard shellProvider == nil else { return }
         if !enabled {
             if automaticDisplayManagement { handleScreenInterlock(.stopped) }
             automaticDisplayManagement = false
@@ -1278,6 +1308,12 @@ final class ScrcpySession: ObservableObject {
     }
 
     private func stopResources() {
+        if let shellLease, shellProvider != nil {
+            self.shellLease = nil
+            shellLease.cancelLocal()
+            retiredShellLeases.append(shellLease)
+            scheduleCleanup { [weak self] in await self?.retirePendingShellLeases() }
+        }
         cancelPlaybackEvidence()
         if let transport = quicTransport {
             let stagedCleanup = quicStagingCleanup
@@ -1393,7 +1429,7 @@ final class ScrcpySession: ObservableObject {
     private func checkPreparation(_ request: UUID) throws {
         try Task.checkCancellation()
         guard preparationID == request else { throw CancellationError() }
-        guard remoteRetirement.settled else { throw NativeMediaFailure.cleanupIncomplete }
+        guard remoteRetirement.settled, retiredShellLeases.isEmpty else { throw NativeMediaFailure.cleanupIncomplete }
         if let owner = nativeOwner, !owner.attempt.isAdmitted { throw NativeMediaFailure.cleanupIncomplete }
     }
 

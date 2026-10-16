@@ -49,6 +49,13 @@ public  final class Envelope extends
     TRANSFER_CANCEL(34),
     NOTIFICATION_SNAPSHOT(35),
     NOTIFICATION_ACTION_RESULT(36),
+    INTERNET_SHARING_REQUEST(37),
+    INTERNET_SHARING_STATUS(38),
+    DIRECT_LINK_REQUEST(39),
+    DIRECT_LINK_DESCRIPTOR(40),
+    DIRECT_LINK_STATUS(41),
+    SHELL_BRIDGE_REQUEST(42),
+    SHELL_BRIDGE_RESULT(43),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -91,6 +98,13 @@ public  final class Envelope extends
         case 34: return TRANSFER_CANCEL;
         case 35: return NOTIFICATION_SNAPSHOT;
         case 36: return NOTIFICATION_ACTION_RESULT;
+        case 37: return INTERNET_SHARING_REQUEST;
+        case 38: return INTERNET_SHARING_STATUS;
+        case 39: return DIRECT_LINK_REQUEST;
+        case 40: return DIRECT_LINK_DESCRIPTOR;
+        case 41: return DIRECT_LINK_STATUS;
+        case 42: return SHELL_BRIDGE_REQUEST;
+        case 43: return SHELL_BRIDGE_RESULT;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -1629,6 +1643,356 @@ public  final class Envelope extends
    */
   private void clearNotificationActionResult() {
     if (payloadCase_ == 36) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int INTERNET_SHARING_REQUEST_FIELD_NUMBER = 37;
+  /**
+   * <code>.galaxybridge.v1.InternetSharingRequest internet_sharing_request = 37;</code>
+   */
+  @java.lang.Override
+  public boolean hasInternetSharingRequest() {
+    return payloadCase_ == 37;
+  }
+  /**
+   * <code>.galaxybridge.v1.InternetSharingRequest internet_sharing_request = 37;</code>
+   */
+  @java.lang.Override
+  public com.xopmc.galaxybridge.protocol.v1.InternetSharingRequest getInternetSharingRequest() {
+    if (payloadCase_ == 37) {
+       return (com.xopmc.galaxybridge.protocol.v1.InternetSharingRequest) payload_;
+    }
+    return com.xopmc.galaxybridge.protocol.v1.InternetSharingRequest.getDefaultInstance();
+  }
+  /**
+   * <code>.galaxybridge.v1.InternetSharingRequest internet_sharing_request = 37;</code>
+   */
+  private void setInternetSharingRequest(com.xopmc.galaxybridge.protocol.v1.InternetSharingRequest value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 37;
+  }
+  /**
+   * <code>.galaxybridge.v1.InternetSharingRequest internet_sharing_request = 37;</code>
+   */
+  private void mergeInternetSharingRequest(com.xopmc.galaxybridge.protocol.v1.InternetSharingRequest value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 37 &&
+        payload_ != com.xopmc.galaxybridge.protocol.v1.InternetSharingRequest.getDefaultInstance()) {
+      payload_ = com.xopmc.galaxybridge.protocol.v1.InternetSharingRequest.newBuilder((com.xopmc.galaxybridge.protocol.v1.InternetSharingRequest) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 37;
+  }
+  /**
+   * <code>.galaxybridge.v1.InternetSharingRequest internet_sharing_request = 37;</code>
+   */
+  private void clearInternetSharingRequest() {
+    if (payloadCase_ == 37) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int INTERNET_SHARING_STATUS_FIELD_NUMBER = 38;
+  /**
+   * <code>.galaxybridge.v1.InternetSharingStatus internet_sharing_status = 38;</code>
+   */
+  @java.lang.Override
+  public boolean hasInternetSharingStatus() {
+    return payloadCase_ == 38;
+  }
+  /**
+   * <code>.galaxybridge.v1.InternetSharingStatus internet_sharing_status = 38;</code>
+   */
+  @java.lang.Override
+  public com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus getInternetSharingStatus() {
+    if (payloadCase_ == 38) {
+       return (com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus) payload_;
+    }
+    return com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus.getDefaultInstance();
+  }
+  /**
+   * <code>.galaxybridge.v1.InternetSharingStatus internet_sharing_status = 38;</code>
+   */
+  private void setInternetSharingStatus(com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 38;
+  }
+  /**
+   * <code>.galaxybridge.v1.InternetSharingStatus internet_sharing_status = 38;</code>
+   */
+  private void mergeInternetSharingStatus(com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 38 &&
+        payload_ != com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus.getDefaultInstance()) {
+      payload_ = com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus.newBuilder((com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 38;
+  }
+  /**
+   * <code>.galaxybridge.v1.InternetSharingStatus internet_sharing_status = 38;</code>
+   */
+  private void clearInternetSharingStatus() {
+    if (payloadCase_ == 38) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int DIRECT_LINK_REQUEST_FIELD_NUMBER = 39;
+  /**
+   * <code>.galaxybridge.v1.DirectLinkRequest direct_link_request = 39;</code>
+   */
+  @java.lang.Override
+  public boolean hasDirectLinkRequest() {
+    return payloadCase_ == 39;
+  }
+  /**
+   * <code>.galaxybridge.v1.DirectLinkRequest direct_link_request = 39;</code>
+   */
+  @java.lang.Override
+  public com.xopmc.galaxybridge.protocol.v1.DirectLinkRequest getDirectLinkRequest() {
+    if (payloadCase_ == 39) {
+       return (com.xopmc.galaxybridge.protocol.v1.DirectLinkRequest) payload_;
+    }
+    return com.xopmc.galaxybridge.protocol.v1.DirectLinkRequest.getDefaultInstance();
+  }
+  /**
+   * <code>.galaxybridge.v1.DirectLinkRequest direct_link_request = 39;</code>
+   */
+  private void setDirectLinkRequest(com.xopmc.galaxybridge.protocol.v1.DirectLinkRequest value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 39;
+  }
+  /**
+   * <code>.galaxybridge.v1.DirectLinkRequest direct_link_request = 39;</code>
+   */
+  private void mergeDirectLinkRequest(com.xopmc.galaxybridge.protocol.v1.DirectLinkRequest value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 39 &&
+        payload_ != com.xopmc.galaxybridge.protocol.v1.DirectLinkRequest.getDefaultInstance()) {
+      payload_ = com.xopmc.galaxybridge.protocol.v1.DirectLinkRequest.newBuilder((com.xopmc.galaxybridge.protocol.v1.DirectLinkRequest) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 39;
+  }
+  /**
+   * <code>.galaxybridge.v1.DirectLinkRequest direct_link_request = 39;</code>
+   */
+  private void clearDirectLinkRequest() {
+    if (payloadCase_ == 39) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int DIRECT_LINK_DESCRIPTOR_FIELD_NUMBER = 40;
+  /**
+   * <code>.galaxybridge.v1.DirectLinkDescriptor direct_link_descriptor = 40;</code>
+   */
+  @java.lang.Override
+  public boolean hasDirectLinkDescriptor() {
+    return payloadCase_ == 40;
+  }
+  /**
+   * <code>.galaxybridge.v1.DirectLinkDescriptor direct_link_descriptor = 40;</code>
+   */
+  @java.lang.Override
+  public com.xopmc.galaxybridge.protocol.v1.DirectLinkDescriptor getDirectLinkDescriptor() {
+    if (payloadCase_ == 40) {
+       return (com.xopmc.galaxybridge.protocol.v1.DirectLinkDescriptor) payload_;
+    }
+    return com.xopmc.galaxybridge.protocol.v1.DirectLinkDescriptor.getDefaultInstance();
+  }
+  /**
+   * <code>.galaxybridge.v1.DirectLinkDescriptor direct_link_descriptor = 40;</code>
+   */
+  private void setDirectLinkDescriptor(com.xopmc.galaxybridge.protocol.v1.DirectLinkDescriptor value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 40;
+  }
+  /**
+   * <code>.galaxybridge.v1.DirectLinkDescriptor direct_link_descriptor = 40;</code>
+   */
+  private void mergeDirectLinkDescriptor(com.xopmc.galaxybridge.protocol.v1.DirectLinkDescriptor value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 40 &&
+        payload_ != com.xopmc.galaxybridge.protocol.v1.DirectLinkDescriptor.getDefaultInstance()) {
+      payload_ = com.xopmc.galaxybridge.protocol.v1.DirectLinkDescriptor.newBuilder((com.xopmc.galaxybridge.protocol.v1.DirectLinkDescriptor) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 40;
+  }
+  /**
+   * <code>.galaxybridge.v1.DirectLinkDescriptor direct_link_descriptor = 40;</code>
+   */
+  private void clearDirectLinkDescriptor() {
+    if (payloadCase_ == 40) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int DIRECT_LINK_STATUS_FIELD_NUMBER = 41;
+  /**
+   * <code>.galaxybridge.v1.DirectLinkStatus direct_link_status = 41;</code>
+   */
+  @java.lang.Override
+  public boolean hasDirectLinkStatus() {
+    return payloadCase_ == 41;
+  }
+  /**
+   * <code>.galaxybridge.v1.DirectLinkStatus direct_link_status = 41;</code>
+   */
+  @java.lang.Override
+  public com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus getDirectLinkStatus() {
+    if (payloadCase_ == 41) {
+       return (com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus) payload_;
+    }
+    return com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus.getDefaultInstance();
+  }
+  /**
+   * <code>.galaxybridge.v1.DirectLinkStatus direct_link_status = 41;</code>
+   */
+  private void setDirectLinkStatus(com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 41;
+  }
+  /**
+   * <code>.galaxybridge.v1.DirectLinkStatus direct_link_status = 41;</code>
+   */
+  private void mergeDirectLinkStatus(com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 41 &&
+        payload_ != com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus.getDefaultInstance()) {
+      payload_ = com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus.newBuilder((com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 41;
+  }
+  /**
+   * <code>.galaxybridge.v1.DirectLinkStatus direct_link_status = 41;</code>
+   */
+  private void clearDirectLinkStatus() {
+    if (payloadCase_ == 41) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int SHELL_BRIDGE_REQUEST_FIELD_NUMBER = 42;
+  /**
+   * <code>.galaxybridge.v1.ShellBridgeRequest shell_bridge_request = 42;</code>
+   */
+  @java.lang.Override
+  public boolean hasShellBridgeRequest() {
+    return payloadCase_ == 42;
+  }
+  /**
+   * <code>.galaxybridge.v1.ShellBridgeRequest shell_bridge_request = 42;</code>
+   */
+  @java.lang.Override
+  public com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest getShellBridgeRequest() {
+    if (payloadCase_ == 42) {
+       return (com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest) payload_;
+    }
+    return com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.getDefaultInstance();
+  }
+  /**
+   * <code>.galaxybridge.v1.ShellBridgeRequest shell_bridge_request = 42;</code>
+   */
+  private void setShellBridgeRequest(com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 42;
+  }
+  /**
+   * <code>.galaxybridge.v1.ShellBridgeRequest shell_bridge_request = 42;</code>
+   */
+  private void mergeShellBridgeRequest(com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 42 &&
+        payload_ != com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.getDefaultInstance()) {
+      payload_ = com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.newBuilder((com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 42;
+  }
+  /**
+   * <code>.galaxybridge.v1.ShellBridgeRequest shell_bridge_request = 42;</code>
+   */
+  private void clearShellBridgeRequest() {
+    if (payloadCase_ == 42) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int SHELL_BRIDGE_RESULT_FIELD_NUMBER = 43;
+  /**
+   * <code>.galaxybridge.v1.ShellBridgeResult shell_bridge_result = 43;</code>
+   */
+  @java.lang.Override
+  public boolean hasShellBridgeResult() {
+    return payloadCase_ == 43;
+  }
+  /**
+   * <code>.galaxybridge.v1.ShellBridgeResult shell_bridge_result = 43;</code>
+   */
+  @java.lang.Override
+  public com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult getShellBridgeResult() {
+    if (payloadCase_ == 43) {
+       return (com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult) payload_;
+    }
+    return com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult.getDefaultInstance();
+  }
+  /**
+   * <code>.galaxybridge.v1.ShellBridgeResult shell_bridge_result = 43;</code>
+   */
+  private void setShellBridgeResult(com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 43;
+  }
+  /**
+   * <code>.galaxybridge.v1.ShellBridgeResult shell_bridge_result = 43;</code>
+   */
+  private void mergeShellBridgeResult(com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 43 &&
+        payload_ != com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult.getDefaultInstance()) {
+      payload_ = com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult.newBuilder((com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 43;
+  }
+  /**
+   * <code>.galaxybridge.v1.ShellBridgeResult shell_bridge_result = 43;</code>
+   */
+  private void clearShellBridgeResult() {
+    if (payloadCase_ == 43) {
       payloadCase_ = 0;
       payload_ = null;
     }
@@ -3221,6 +3585,342 @@ public  final class Envelope extends
       return this;
     }
 
+    /**
+     * <code>.galaxybridge.v1.InternetSharingRequest internet_sharing_request = 37;</code>
+     */
+    @java.lang.Override
+    public boolean hasInternetSharingRequest() {
+      return instance.hasInternetSharingRequest();
+    }
+    /**
+     * <code>.galaxybridge.v1.InternetSharingRequest internet_sharing_request = 37;</code>
+     */
+    @java.lang.Override
+    public com.xopmc.galaxybridge.protocol.v1.InternetSharingRequest getInternetSharingRequest() {
+      return instance.getInternetSharingRequest();
+    }
+    /**
+     * <code>.galaxybridge.v1.InternetSharingRequest internet_sharing_request = 37;</code>
+     */
+    public Builder setInternetSharingRequest(com.xopmc.galaxybridge.protocol.v1.InternetSharingRequest value) {
+      copyOnWrite();
+      instance.setInternetSharingRequest(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.InternetSharingRequest internet_sharing_request = 37;</code>
+     */
+    public Builder setInternetSharingRequest(
+        com.xopmc.galaxybridge.protocol.v1.InternetSharingRequest.Builder builderForValue) {
+      copyOnWrite();
+      instance.setInternetSharingRequest(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.InternetSharingRequest internet_sharing_request = 37;</code>
+     */
+    public Builder mergeInternetSharingRequest(com.xopmc.galaxybridge.protocol.v1.InternetSharingRequest value) {
+      copyOnWrite();
+      instance.mergeInternetSharingRequest(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.InternetSharingRequest internet_sharing_request = 37;</code>
+     */
+    public Builder clearInternetSharingRequest() {
+      copyOnWrite();
+      instance.clearInternetSharingRequest();
+      return this;
+    }
+
+    /**
+     * <code>.galaxybridge.v1.InternetSharingStatus internet_sharing_status = 38;</code>
+     */
+    @java.lang.Override
+    public boolean hasInternetSharingStatus() {
+      return instance.hasInternetSharingStatus();
+    }
+    /**
+     * <code>.galaxybridge.v1.InternetSharingStatus internet_sharing_status = 38;</code>
+     */
+    @java.lang.Override
+    public com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus getInternetSharingStatus() {
+      return instance.getInternetSharingStatus();
+    }
+    /**
+     * <code>.galaxybridge.v1.InternetSharingStatus internet_sharing_status = 38;</code>
+     */
+    public Builder setInternetSharingStatus(com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus value) {
+      copyOnWrite();
+      instance.setInternetSharingStatus(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.InternetSharingStatus internet_sharing_status = 38;</code>
+     */
+    public Builder setInternetSharingStatus(
+        com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus.Builder builderForValue) {
+      copyOnWrite();
+      instance.setInternetSharingStatus(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.InternetSharingStatus internet_sharing_status = 38;</code>
+     */
+    public Builder mergeInternetSharingStatus(com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus value) {
+      copyOnWrite();
+      instance.mergeInternetSharingStatus(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.InternetSharingStatus internet_sharing_status = 38;</code>
+     */
+    public Builder clearInternetSharingStatus() {
+      copyOnWrite();
+      instance.clearInternetSharingStatus();
+      return this;
+    }
+
+    /**
+     * <code>.galaxybridge.v1.DirectLinkRequest direct_link_request = 39;</code>
+     */
+    @java.lang.Override
+    public boolean hasDirectLinkRequest() {
+      return instance.hasDirectLinkRequest();
+    }
+    /**
+     * <code>.galaxybridge.v1.DirectLinkRequest direct_link_request = 39;</code>
+     */
+    @java.lang.Override
+    public com.xopmc.galaxybridge.protocol.v1.DirectLinkRequest getDirectLinkRequest() {
+      return instance.getDirectLinkRequest();
+    }
+    /**
+     * <code>.galaxybridge.v1.DirectLinkRequest direct_link_request = 39;</code>
+     */
+    public Builder setDirectLinkRequest(com.xopmc.galaxybridge.protocol.v1.DirectLinkRequest value) {
+      copyOnWrite();
+      instance.setDirectLinkRequest(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.DirectLinkRequest direct_link_request = 39;</code>
+     */
+    public Builder setDirectLinkRequest(
+        com.xopmc.galaxybridge.protocol.v1.DirectLinkRequest.Builder builderForValue) {
+      copyOnWrite();
+      instance.setDirectLinkRequest(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.DirectLinkRequest direct_link_request = 39;</code>
+     */
+    public Builder mergeDirectLinkRequest(com.xopmc.galaxybridge.protocol.v1.DirectLinkRequest value) {
+      copyOnWrite();
+      instance.mergeDirectLinkRequest(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.DirectLinkRequest direct_link_request = 39;</code>
+     */
+    public Builder clearDirectLinkRequest() {
+      copyOnWrite();
+      instance.clearDirectLinkRequest();
+      return this;
+    }
+
+    /**
+     * <code>.galaxybridge.v1.DirectLinkDescriptor direct_link_descriptor = 40;</code>
+     */
+    @java.lang.Override
+    public boolean hasDirectLinkDescriptor() {
+      return instance.hasDirectLinkDescriptor();
+    }
+    /**
+     * <code>.galaxybridge.v1.DirectLinkDescriptor direct_link_descriptor = 40;</code>
+     */
+    @java.lang.Override
+    public com.xopmc.galaxybridge.protocol.v1.DirectLinkDescriptor getDirectLinkDescriptor() {
+      return instance.getDirectLinkDescriptor();
+    }
+    /**
+     * <code>.galaxybridge.v1.DirectLinkDescriptor direct_link_descriptor = 40;</code>
+     */
+    public Builder setDirectLinkDescriptor(com.xopmc.galaxybridge.protocol.v1.DirectLinkDescriptor value) {
+      copyOnWrite();
+      instance.setDirectLinkDescriptor(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.DirectLinkDescriptor direct_link_descriptor = 40;</code>
+     */
+    public Builder setDirectLinkDescriptor(
+        com.xopmc.galaxybridge.protocol.v1.DirectLinkDescriptor.Builder builderForValue) {
+      copyOnWrite();
+      instance.setDirectLinkDescriptor(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.DirectLinkDescriptor direct_link_descriptor = 40;</code>
+     */
+    public Builder mergeDirectLinkDescriptor(com.xopmc.galaxybridge.protocol.v1.DirectLinkDescriptor value) {
+      copyOnWrite();
+      instance.mergeDirectLinkDescriptor(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.DirectLinkDescriptor direct_link_descriptor = 40;</code>
+     */
+    public Builder clearDirectLinkDescriptor() {
+      copyOnWrite();
+      instance.clearDirectLinkDescriptor();
+      return this;
+    }
+
+    /**
+     * <code>.galaxybridge.v1.DirectLinkStatus direct_link_status = 41;</code>
+     */
+    @java.lang.Override
+    public boolean hasDirectLinkStatus() {
+      return instance.hasDirectLinkStatus();
+    }
+    /**
+     * <code>.galaxybridge.v1.DirectLinkStatus direct_link_status = 41;</code>
+     */
+    @java.lang.Override
+    public com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus getDirectLinkStatus() {
+      return instance.getDirectLinkStatus();
+    }
+    /**
+     * <code>.galaxybridge.v1.DirectLinkStatus direct_link_status = 41;</code>
+     */
+    public Builder setDirectLinkStatus(com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus value) {
+      copyOnWrite();
+      instance.setDirectLinkStatus(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.DirectLinkStatus direct_link_status = 41;</code>
+     */
+    public Builder setDirectLinkStatus(
+        com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus.Builder builderForValue) {
+      copyOnWrite();
+      instance.setDirectLinkStatus(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.DirectLinkStatus direct_link_status = 41;</code>
+     */
+    public Builder mergeDirectLinkStatus(com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus value) {
+      copyOnWrite();
+      instance.mergeDirectLinkStatus(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.DirectLinkStatus direct_link_status = 41;</code>
+     */
+    public Builder clearDirectLinkStatus() {
+      copyOnWrite();
+      instance.clearDirectLinkStatus();
+      return this;
+    }
+
+    /**
+     * <code>.galaxybridge.v1.ShellBridgeRequest shell_bridge_request = 42;</code>
+     */
+    @java.lang.Override
+    public boolean hasShellBridgeRequest() {
+      return instance.hasShellBridgeRequest();
+    }
+    /**
+     * <code>.galaxybridge.v1.ShellBridgeRequest shell_bridge_request = 42;</code>
+     */
+    @java.lang.Override
+    public com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest getShellBridgeRequest() {
+      return instance.getShellBridgeRequest();
+    }
+    /**
+     * <code>.galaxybridge.v1.ShellBridgeRequest shell_bridge_request = 42;</code>
+     */
+    public Builder setShellBridgeRequest(com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest value) {
+      copyOnWrite();
+      instance.setShellBridgeRequest(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.ShellBridgeRequest shell_bridge_request = 42;</code>
+     */
+    public Builder setShellBridgeRequest(
+        com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Builder builderForValue) {
+      copyOnWrite();
+      instance.setShellBridgeRequest(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.ShellBridgeRequest shell_bridge_request = 42;</code>
+     */
+    public Builder mergeShellBridgeRequest(com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest value) {
+      copyOnWrite();
+      instance.mergeShellBridgeRequest(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.ShellBridgeRequest shell_bridge_request = 42;</code>
+     */
+    public Builder clearShellBridgeRequest() {
+      copyOnWrite();
+      instance.clearShellBridgeRequest();
+      return this;
+    }
+
+    /**
+     * <code>.galaxybridge.v1.ShellBridgeResult shell_bridge_result = 43;</code>
+     */
+    @java.lang.Override
+    public boolean hasShellBridgeResult() {
+      return instance.hasShellBridgeResult();
+    }
+    /**
+     * <code>.galaxybridge.v1.ShellBridgeResult shell_bridge_result = 43;</code>
+     */
+    @java.lang.Override
+    public com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult getShellBridgeResult() {
+      return instance.getShellBridgeResult();
+    }
+    /**
+     * <code>.galaxybridge.v1.ShellBridgeResult shell_bridge_result = 43;</code>
+     */
+    public Builder setShellBridgeResult(com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult value) {
+      copyOnWrite();
+      instance.setShellBridgeResult(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.ShellBridgeResult shell_bridge_result = 43;</code>
+     */
+    public Builder setShellBridgeResult(
+        com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult.Builder builderForValue) {
+      copyOnWrite();
+      instance.setShellBridgeResult(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.ShellBridgeResult shell_bridge_result = 43;</code>
+     */
+    public Builder mergeShellBridgeResult(com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult value) {
+      copyOnWrite();
+      instance.mergeShellBridgeResult(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.ShellBridgeResult shell_bridge_result = 43;</code>
+     */
+    public Builder clearShellBridgeResult() {
+      copyOnWrite();
+      instance.clearShellBridgeResult();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:galaxybridge.v1.Envelope)
   }
   @java.lang.Override
@@ -3271,14 +3971,21 @@ public  final class Envelope extends
             com.xopmc.galaxybridge.protocol.v1.TransferCancel.class,
             com.xopmc.galaxybridge.protocol.v1.NotificationSnapshot.class,
             com.xopmc.galaxybridge.protocol.v1.NotificationActionResult.class,
+            com.xopmc.galaxybridge.protocol.v1.InternetSharingRequest.class,
+            com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus.class,
+            com.xopmc.galaxybridge.protocol.v1.DirectLinkRequest.class,
+            com.xopmc.galaxybridge.protocol.v1.DirectLinkDescriptor.class,
+            com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus.class,
+            com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.class,
+            com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult.class,
           };
           java.lang.String info =
-              "\u0000 \u0001\u0000\u0001$ \u0000\u0000\u0000\u0001\u000b\u0002\u000b\u0003\u0208" +
+              "\u0000\'\u0001\u0000\u0001+\'\u0000\u0000\u0000\u0001\u000b\u0002\u000b\u0003\u0208" +
               "\u0004\u0208\u0005\u0003\n<\u0000\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f" +
               "<\u0000\u0010<\u0000\u0011<\u0000\u0012<\u0000\u0013<\u0000\u0014<\u0000\u0015<\u0000" +
               "\u0016<\u0000\u0017<\u0000\u0018<\u0000\u0019<\u0000\u001a<\u0000\u001b<\u0000\u001c" +
               "<\u0000\u001d<\u0000\u001e<\u0000\u001f<\u0000 <\u0000!<\u0000\"<\u0000#<\u0000$" +
-              "<\u0000";
+              "<\u0000%<\u0000&<\u0000\'<\u0000(<\u0000)<\u0000*<\u0000+<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

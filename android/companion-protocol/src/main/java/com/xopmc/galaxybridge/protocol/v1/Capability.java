@@ -71,6 +71,18 @@ public enum Capability
    * <code>CAPABILITY_NOTIFICATION_ACTION_RESULTS = 13;</code>
    */
   CAPABILITY_NOTIFICATION_ACTION_RESULTS(13),
+  /**
+   * <code>CAPABILITY_NEARBY_LINK = 14;</code>
+   */
+  CAPABILITY_NEARBY_LINK(14),
+  /**
+   * <code>CAPABILITY_INTERNET_GATEWAY = 15;</code>
+   */
+  CAPABILITY_INTERNET_GATEWAY(15),
+  /**
+   * <code>CAPABILITY_PRIVILEGED_BRIDGE = 16;</code>
+   */
+  CAPABILITY_PRIVILEGED_BRIDGE(16),
   UNRECOGNIZED(-1),
   ;
 
@@ -134,6 +146,18 @@ public enum Capability
    * <code>CAPABILITY_NOTIFICATION_ACTION_RESULTS = 13;</code>
    */
   public static final int CAPABILITY_NOTIFICATION_ACTION_RESULTS_VALUE = 13;
+  /**
+   * <code>CAPABILITY_NEARBY_LINK = 14;</code>
+   */
+  public static final int CAPABILITY_NEARBY_LINK_VALUE = 14;
+  /**
+   * <code>CAPABILITY_INTERNET_GATEWAY = 15;</code>
+   */
+  public static final int CAPABILITY_INTERNET_GATEWAY_VALUE = 15;
+  /**
+   * <code>CAPABILITY_PRIVILEGED_BRIDGE = 16;</code>
+   */
+  public static final int CAPABILITY_PRIVILEGED_BRIDGE_VALUE = 16;
 
 
   @java.lang.Override
@@ -170,6 +194,9 @@ public enum Capability
       case 11: return CAPABILITY_VIRTUAL_DISPLAY;
       case 12: return CAPABILITY_RECORDING;
       case 13: return CAPABILITY_NOTIFICATION_ACTION_RESULTS;
+      case 14: return CAPABILITY_NEARBY_LINK;
+      case 15: return CAPABILITY_INTERNET_GATEWAY;
+      case 16: return CAPABILITY_PRIVILEGED_BRIDGE;
       default: return null;
     }
   }

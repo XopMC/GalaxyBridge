@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import GalaxyBridgeCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -32,7 +33,11 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 420)
         } detail: {
             if let device = model.row(id: model.selectedDeviceID) {
-                DeviceWorkspace(device: device, setupRequest: workspaceSetupRequest)
+                // Isolate the split column from content ideal heights when controls expand.
+                GeometryReader { viewport in
+                    DeviceWorkspace(device: device, setupRequest: workspaceSetupRequest)
+                        .frame(width: viewport.size.width, height: viewport.size.height, alignment: .topLeading)
+                }
                     .toolbar {
                         ToolbarItemGroup {
                             Button { setupDevice = device } label: {
@@ -111,6 +116,10 @@ struct ContentView: View {
             .applicationLanguageLayout()
         }
 #if !GALAXYBRIDGE_APP_STORE
+        .sheet(isPresented: $model.isNearbyPairingPresented, onDismiss: { model.nearbyConnection.endOfflinePairing() }) {
+            NearbyPairingSheet(coordinator: model.nearbyConnection) { model.isNearbyPairingPresented = false }
+                .applicationLanguageLayout()
+        }
         .sheet(isPresented: $isWirelessSetupPresented) {
             WirelessSetupSheet(connected: { _ in model.refresh() }, dismiss: { isWirelessSetupPresented = false })
                 .applicationLanguageLayout()
@@ -247,6 +256,9 @@ struct ContentView: View {
                     Button { isWirelessSetupPresented = true } label: {
                         Label("WIFI_SETUP_TITLE", systemImage: "wifi")
                     }
+                    Button(action: model.beginNearbyPairing) {
+                        Label("NEARBY_PAIR", systemImage: "antenna.radiowaves.left.and.right")
+                    }
 #endif
                     Button {
                         openWindow(id: "about")
@@ -359,7 +371,7 @@ struct DeviceWorkspace: View {
                         .font(.caption)
                         .foregroundStyle(device.isReady ? .green : .orange)
 #if !GALAXYBRIDGE_APP_STORE
-                    if device.transport != .companionLAN {
+                    if model.hasEnhancedTransport(deviceID: device.id) {
                         Toggle("PHONE_DISPLAY_PRIVACY_TITLE", isOn: Binding(
                             get: { model.phoneDisplayPrivacyEnabled(deviceID: device.id) },
                             set: { model.setPhoneDisplayPrivacy($0, deviceID: device.id) }
@@ -393,6 +405,9 @@ struct DeviceWorkspace: View {
             }
             .padding(24)
             .background(.regularMaterial)
+#if !GALAXYBRIDGE_APP_STORE
+            NearbyInternetControls(device: device)
+#endif
             Divider()
             Picker("PANELS", selection: $selectedPanel) {
                 ForEach(Panel.allCases) { panel in
@@ -401,7 +416,7 @@ struct DeviceWorkspace: View {
             }
             .pickerStyle(.segmented)
             .padding(12)
-            panelContent.frame(maxWidth: .infinity, maxHeight: .infinity)
+            panelContent.frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
         }
         .navigationTitle(device.name)
         .onChange(of: setupRequest, initial: true) { _, request in
@@ -457,7 +472,7 @@ struct ScreenSurface: View {
                 screenCapabilityUnavailableReason: screenCapabilityUnavailableReason,
                 physicalDeviceActive: physicalDeviceActive,
                 mediaUnavailable: mediaUnavailable,
-                deviceTransport: device.transport,
+                usesPhoneAppCapture: !model.hasEnhancedTransport(deviceID: device.id),
                 aspectRatio: model.videoAspectRatios[device.id] ?? (9 / 19.5),
                 contentInset: contentInset,
                 videoContentMode: videoContentMode
@@ -466,7 +481,7 @@ struct ScreenSurface: View {
                 aspectRatio: model.videoAspectRatios[device.id] ?? (9 / 19.5),
                 contentInset: contentInset,
                 videoContentMode: videoContentMode,
-                preciseScrollUsesTouch: device.transport != .companionLAN,
+                preciseScrollUsesTouch: model.hasEnhancedTransport(deviceID: device.id),
                 onTouch: { action, x, y in
                     model.sendTouch(deviceID: device.id, action: action, normalizedX: x, normalizedY: y)
                 },
@@ -532,7 +547,7 @@ struct ScreenSurface: View {
                     Button { model.toggleRecording(deviceID: device.id) } label: {
                         Image(systemName: model.recordingDeviceIDs.contains(device.id) ? "stop.circle.fill" : "record.circle")
                     }
-                    if device.transport != .companionLAN {
+                    if model.hasEnhancedTransport(deviceID: device.id) {
                         Menu {
                             ForEach(model.enhancedDisplaysByDevice[device.id] ?? [ScrcpyDisplay(id: 0, width: nil, height: nil)], id: \.id) { display in
                                 Button {
@@ -573,14 +588,14 @@ struct ScreenSurface: View {
     }
 
     private var screenCapabilityUnavailableReason: String? {
-        guard device.transport == .companionLAN else { return nil }
+        guard !model.hasEnhancedTransport(deviceID: device.id) else { return nil }
         return model.capabilityReasonsByDevice[device.id]?["CAPABILITY_SCREEN_CAPTURE"]
     }
 
     private var screenMediaUnavailable: Bool {
         if model.enhancedScreenInterlocks[device.id] == .mediaUnavailable { return true }
 #if !GALAXYBRIDGE_APP_STORE
-        if device.transport != .companionLAN, case .failed = model.enhancedStates[device.id] { return true }
+        if model.hasEnhancedTransport(deviceID: device.id), case .failed = model.enhancedStates[device.id] { return true }
 #endif
         return false
     }
@@ -592,7 +607,7 @@ private struct ScreenVideoLayer: View {
     let screenCapabilityUnavailableReason: String?
     let physicalDeviceActive: Bool
     let mediaUnavailable: Bool
-    let deviceTransport: TransportKind
+    let usesPhoneAppCapture: Bool
     let aspectRatio: CGFloat
     let contentInset: CGFloat
     let videoContentMode: ContentMode
@@ -608,7 +623,7 @@ private struct ScreenVideoLayer: View {
             if let placeholder {
                 ScreenStreamPlaceholderView(
                     placeholder: placeholder,
-                    deviceTransport: deviceTransport
+                    usesPhoneAppCapture: usesPhoneAppCapture
                 )
                 .transition(.opacity)
             }
@@ -630,7 +645,7 @@ private struct ScreenVideoLayer: View {
 
 private struct ScreenStreamPlaceholderView: View {
     let placeholder: ScreenStreamPlaceholder
-    let deviceTransport: TransportKind
+    let usesPhoneAppCapture: Bool
 
     var body: some View {
         ZStack {
@@ -676,7 +691,7 @@ private struct ScreenStreamPlaceholderView: View {
         case .deviceUnavailable:
             UserFacingText.connectionStatus(
                 isReady: false,
-                usesPhoneApp: deviceTransport == .companionLAN
+                usesPhoneApp: usesPhoneAppCapture
             )
         case .mediaProjectionConsentRequired: UserFacingText.localized("SCREEN_PERMISSION_REQUIRED")
         case .capabilityUnavailable: UserFacingText.localized("SCREEN_CAPTURE_UNAVAILABLE")
@@ -842,7 +857,15 @@ private struct FilesPanel: View {
 #if !GALAXYBRIDGE_APP_STORE
             Divider()
             Label("FILES_FROM_PHONE", systemImage: "arrow.down.doc").font(.headline)
-            Button("FILES_RECEIVE_AUTHORIZE") { model.authorizeIncomingDownloads() }
+            if model.hasIncomingDownloadsSelection {
+                HStack {
+                    Label("FILES_RECEIVE_FOLDER_SELECTED", systemImage: "folder")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("FILES_RECEIVE_RESELECT") { model.authorizeIncomingDownloads() }.font(.caption)
+                }
+            } else {
+                Button("FILES_RECEIVE_AUTHORIZE") { model.authorizeIncomingDownloads() }
+            }
             let rows = model.incomingFilesByDevice[deviceID, default: []]
             if rows.isEmpty {
                 Text("FILES_RECEIVE_HINT").font(.caption).foregroundStyle(.secondary)
@@ -890,6 +913,9 @@ private struct CameraPanel: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 preview
+                if !model.canStartCamera(deviceID: deviceID) {
+                    Text("PANEL_CONNECT_HINT").font(.caption).foregroundStyle(.secondary)
+                }
                 statusNotice
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .bottom, spacing: 12) {
@@ -996,6 +1022,7 @@ private struct CameraPanel: View {
                 )
             }
             .buttonStyle(.borderedProminent)
+            .disabled(!model.canStartCamera(deviceID: deviceID))
             Button("CAMERA_STOP") { model.configureCamera(deviceID: deviceID, enabled: false) }
                 .buttonStyle(.bordered)
         }
@@ -1166,6 +1193,7 @@ private struct NotificationCard: View {
                     model.toggleNotificationPackage(deviceID: deviceID, packageName: notification.packageName)
                 } label: { Image(systemName: "bell.slash") }
                 .help("MUTE_APP")
+                .accessibilityLabel(Text("MUTE_APP"))
                 .buttonStyle(.plain)
                 Button {
                     model.performNotificationAction(
@@ -1176,6 +1204,7 @@ private struct NotificationCard: View {
                     )
                 } label: { Image(systemName: "xmark") }
                 .buttonStyle(.plain)
+                .accessibilityLabel(Text("CLOSE"))
                 .disabled(!model.canSendNotificationAction(deviceID: deviceID) || isPending)
             }
             if !notification.title.isEmpty {
@@ -1194,18 +1223,13 @@ private struct NotificationCard: View {
                     .lineLimit(3)
             }
             ForEach(notification.actions.prefix(2)) { action in
-                if action.acceptsText {
-                    replyEditors(actionID: action.id)
-                } else {
-                    Button(action.title) {
-                        model.performNotificationAction(
-                            deviceID: deviceID,
-                            notificationID: notification.id,
-                            actionID: action.id
-                        )
+                notificationAction(action)
+            }
+            if notification.actions.count > 2 {
+                DisclosureGroup("NOTIFICATION_MORE_ACTIONS") {
+                    ForEach(notification.actions.dropFirst(2)) { action in
+                        notificationAction(action).frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .disabled(!model.canSendNotificationAction(deviceID: deviceID) || isPending)
-                    actionStatus(actionID: action.id)
                 }
             }
             // A saved native response can outlive a phone action/notification revision.
@@ -1215,7 +1239,7 @@ private struct NotificationCard: View {
             actionStatus(actionID: "")
         }
         .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 138, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 138, maxHeight: .infinity, alignment: .topLeading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -1226,9 +1250,23 @@ private struct NotificationCard: View {
     private var isPending: Bool { model.notificationActionIsPending(deviceID: deviceID, notificationID: notification.id) }
 
     private var savedActionIDsOutsidePrimaryRows: [String] {
-        let rendered = Set(notification.actions.prefix(2).filter(\.acceptsText).map(\.id))
+        let rendered = Set(notification.actions.filter(\.acceptsText).map(\.id))
         return model.notificationSavedReplyActionIDs(deviceID: deviceID, notificationID: notification.id)
             .filter { !rendered.contains($0) }
+    }
+
+    @ViewBuilder
+    private func notificationAction(_ action: BridgeNotificationActionRow) -> some View {
+        if action.acceptsText {
+            replyEditors(actionID: action.id)
+        } else {
+            Button(action.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? String(localized: "NOTIFICATION_ACTION_FALLBACK") : action.title) {
+                model.performNotificationAction(deviceID: deviceID, notificationID: notification.id, actionID: action.id)
+            }
+            .disabled(!model.canSendNotificationAction(deviceID: deviceID) || isPending)
+            actionStatus(actionID: action.id)
+        }
     }
 
     @ViewBuilder

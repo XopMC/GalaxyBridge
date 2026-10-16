@@ -349,5 +349,82 @@ public interface EnvelopeOrBuilder extends
    */
   com.xopmc.galaxybridge.protocol.v1.NotificationActionResult getNotificationActionResult();
 
+  /**
+   * <code>.galaxybridge.v1.InternetSharingRequest internet_sharing_request = 37;</code>
+   * @return Whether the internetSharingRequest field is set.
+   */
+  boolean hasInternetSharingRequest();
+  /**
+   * <code>.galaxybridge.v1.InternetSharingRequest internet_sharing_request = 37;</code>
+   * @return The internetSharingRequest.
+   */
+  com.xopmc.galaxybridge.protocol.v1.InternetSharingRequest getInternetSharingRequest();
+
+  /**
+   * <code>.galaxybridge.v1.InternetSharingStatus internet_sharing_status = 38;</code>
+   * @return Whether the internetSharingStatus field is set.
+   */
+  boolean hasInternetSharingStatus();
+  /**
+   * <code>.galaxybridge.v1.InternetSharingStatus internet_sharing_status = 38;</code>
+   * @return The internetSharingStatus.
+   */
+  com.xopmc.galaxybridge.protocol.v1.InternetSharingStatus getInternetSharingStatus();
+
+  /**
+   * <code>.galaxybridge.v1.DirectLinkRequest direct_link_request = 39;</code>
+   * @return Whether the directLinkRequest field is set.
+   */
+  boolean hasDirectLinkRequest();
+  /**
+   * <code>.galaxybridge.v1.DirectLinkRequest direct_link_request = 39;</code>
+   * @return The directLinkRequest.
+   */
+  com.xopmc.galaxybridge.protocol.v1.DirectLinkRequest getDirectLinkRequest();
+
+  /**
+   * <code>.galaxybridge.v1.DirectLinkDescriptor direct_link_descriptor = 40;</code>
+   * @return Whether the directLinkDescriptor field is set.
+   */
+  boolean hasDirectLinkDescriptor();
+  /**
+   * <code>.galaxybridge.v1.DirectLinkDescriptor direct_link_descriptor = 40;</code>
+   * @return The directLinkDescriptor.
+   */
+  com.xopmc.galaxybridge.protocol.v1.DirectLinkDescriptor getDirectLinkDescriptor();
+
+  /**
+   * <code>.galaxybridge.v1.DirectLinkStatus direct_link_status = 41;</code>
+   * @return Whether the directLinkStatus field is set.
+   */
+  boolean hasDirectLinkStatus();
+  /**
+   * <code>.galaxybridge.v1.DirectLinkStatus direct_link_status = 41;</code>
+   * @return The directLinkStatus.
+   */
+  com.xopmc.galaxybridge.protocol.v1.DirectLinkStatus getDirectLinkStatus();
+
+  /**
+   * <code>.galaxybridge.v1.ShellBridgeRequest shell_bridge_request = 42;</code>
+   * @return Whether the shellBridgeRequest field is set.
+   */
+  boolean hasShellBridgeRequest();
+  /**
+   * <code>.galaxybridge.v1.ShellBridgeRequest shell_bridge_request = 42;</code>
+   * @return The shellBridgeRequest.
+   */
+  com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest getShellBridgeRequest();
+
+  /**
+   * <code>.galaxybridge.v1.ShellBridgeResult shell_bridge_result = 43;</code>
+   * @return Whether the shellBridgeResult field is set.
+   */
+  boolean hasShellBridgeResult();
+  /**
+   * <code>.galaxybridge.v1.ShellBridgeResult shell_bridge_result = 43;</code>
+   * @return The shellBridgeResult.
+   */
+  com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult getShellBridgeResult();
+
   public com.xopmc.galaxybridge.protocol.v1.Envelope.PayloadCase getPayloadCase();
 }

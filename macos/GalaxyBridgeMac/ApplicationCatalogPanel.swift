@@ -44,6 +44,9 @@ struct ApplicationCatalogPanel: View {
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
+                    if !model.hasEnhancedTransport(deviceID: device.id) {
+                        Text("NEARBY_SHELL_REQUIRED").font(.caption).foregroundStyle(.secondary)
+                    }
                     TextField("APPLICATIONS_SEARCH", text: $search)
                         .textFieldStyle(.roundedBorder)
                     let matches = filtered(items)
@@ -119,6 +122,7 @@ struct ApplicationCatalogPanel: View {
             applicationTile(application)
         }
         .buttonStyle(.plain)
+        .disabled(!model.hasEnhancedTransport(deviceID: device.id))
         .help(String(localized: "APPLICATION_OPEN_HINT"))
 #endif
     }

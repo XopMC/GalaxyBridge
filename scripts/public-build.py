@@ -12,7 +12,7 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.1.1'
+VERSION = '0.1.2'
 
 def build_environment(build, inherited):
     environment = dict(inherited, MACOSX_DEPLOYMENT_TARGET='14.0',
@@ -42,6 +42,7 @@ def generate_pins(build):
     }
     pins = {key: sha(path) for key, path in paths.items()}
     pins['quicHostSHA'] = sha(artifacts / 'quic-backend/libgalaxybridge_quic_backend-macos-arm64.a')
+    pins['internetHostSHA'] = sha(build / 'internet-runtime/artifacts/macos/libgalaxybridge_internet.a')
     identity = hashlib.sha256(json.dumps(pins, sort_keys=True).encode()).hexdigest()
     generated = ROOT / '.build/public-pins' / identity
     generated.mkdir(parents=True, exist_ok=True)
@@ -79,13 +80,17 @@ def native(build, env):
                 shutil.move(staged, runtime)
         else:
             run([sys.executable, ROOT / 'scripts/test-owned-adb-artifact.py', runtime / 'adb'], env)
+    run([sys.executable, ROOT / 'scripts/build-internet-runtime.py', '--platform', 'all', '--cache', build / 'internet-runtime'], env)
     generate_pins(build)
 
 def macos_app(build, env):
-    generated, identity = generate_pins(build)
+    generated, _ = generate_pins(build)
     archive = build / 'artifacts/quic-backend/libgalaxybridge_quic_backend-macos-arm64.a'
-    swift_env = dict(env, GALAXYBRIDGE_APP_STORE="0", GB_QUIC_BACKEND_LIBRARY=str(archive), GB_BUILD_PINS_DIRECTORY=str(generated.relative_to(ROOT)))
-    scratch = build / 'swift' / identity
+    swift_env = dict(env, GALAXYBRIDGE_APP_STORE="0", GB_QUIC_BACKEND_LIBRARY=str(archive), GB_BUILD_PINS_DIRECTORY=str(generated.relative_to(ROOT)), GB_INTERNET_LIBRARY=str(build / 'internet-runtime/artifacts/macos/libgalaxybridge_internet.a'))
+    # SwiftPM tracks the selected pin source directory in the package graph.
+    # Keep dependency/tool outputs reusable when only resource hashes change;
+    # the newly selected BuildPins.swift is still compiled into the application.
+    scratch = build / 'swift' / 'macos-release'
     run(['swift', 'build', '--package-path', ROOT, '--scratch-path', scratch, '--cache-path', build / 'dependency-cache/swiftpm', '-c', 'release', '--product', 'GalaxyBridgeMac', '-j', env.get('GB_BUILD_JOBS', '4')], swift_env)
     binary_directory = Path(subprocess.check_output(['swift', 'build', '--package-path', str(ROOT), '--scratch-path', str(scratch), '--cache-path', str(build / 'dependency-cache/swiftpm'), '-c', 'release', '--show-bin-path'], cwd=ROOT, env=swift_env, text=True).strip())
     output = build / 'artifacts/GalaxyBridge.app'
@@ -99,13 +104,15 @@ def macos_app(build, env):
     info.update(CFBundleIdentifier='com.xopmc.GalaxyBridge', CFBundleName='Galaxy Bridge',
                 CFBundleExecutable='GalaxyBridgeMac', GalaxyBridgeDistribution='github-direct',
                 GalaxyBridgeReleaseStatus='candidate', GalaxyBridgeCameraExtensionProvisioned=False,
-                CFBundleShortVersionString=VERSION, CFBundleVersion='2')
+                CFBundleShortVersionString=VERSION, CFBundleVersion='3')
     (contents / 'Info.plist').write_bytes(plistlib.dumps(info))
     for locale in (ROOT / 'macos/GalaxyBridgeMac/Resources').glob('*.lproj'):
         shutil.copytree(locale, resources / locale.name)
     for filename in ['GalaxyBridge.icns', 'PrivacyInfo.xcprivacy']:
         shutil.copy2(ROOT / 'macos/GalaxyBridgeMac/Resources' / filename, resources / filename)
     run([sys.executable, ROOT / 'scripts/test-macos-main-bundle-localization.py', app], env)
+    notices = ROOT / 'native/galaxybridge-internet/THIRD_PARTY_NOTICES.txt'
+    shutil.copy2(notices, resources / 'InternetRuntime-NOTICES.txt')
     shutil.copy2(build / 'BuildArtifacts.json', resources / 'BuildArtifacts.json')
     shutil.copy2(build / 'artifacts/scrcpy/scrcpy-server-v4.1', resources / 'scrcpy-server-v4.1')
     quic = resources / 'quic'; quic.mkdir()
@@ -119,10 +126,13 @@ def macos_app(build, env):
          '-o', extension / 'Contents/MacOS/GalaxyBridgeCameraExtension'], env)
     ei = plistlib.loads((ROOT / 'macos/GalaxyBridgeCameraExtension/Info.plist').read_bytes())
     ei.update(CFBundleExecutable='GalaxyBridgeCameraExtension', CFBundleIdentifier='com.xopmc.GalaxyBridge.CameraExtension',
-              CFBundleShortVersionString=VERSION, CFBundleVersion='2', CMIOExtensionMachServiceName='group.com.xopmc.GalaxyBridge.CameraExtension')
+              CFBundleShortVersionString=VERSION, CFBundleVersion='3', CMIOExtensionMachServiceName='group.com.xopmc.GalaxyBridge.CameraExtension')
     (extension / 'Contents/Info.plist').write_bytes(plistlib.dumps(ei))
     run(['codesign', '--force', '--timestamp=none', '--sign', '-', extension], env)
-    run(['codesign', '--force', '--timestamp=none', '--sign', '-', app], env)
+    run(['codesign', '--force', '--timestamp=none', '--options', 'runtime', '--sign', '-', app], env)
+    run(['codesign', '--verify', '--deep', '--strict', app], env)
+    run([sys.executable, ROOT / 'scripts/package-network-helper.py', '--app', app, '--output', resources / ('GalaxyBridge-Network-' + VERSION + '.pkg')], env)
+    run(['codesign', '--force', '--timestamp=none', '--options', 'runtime', '--sign', '-', app], env)
     run(['codesign', '--verify', '--deep', '--strict', app], env)
     if output.exists(): shutil.rmtree(output)  # Only CMake's declared app output, never an installed app.
     shutil.move(app, output)
@@ -135,7 +145,7 @@ def android_apk(build, env):
     # Gradle builds incrementally; remove only this executor's declared outputs.
     for path in (output, output.with_suffix('.signature.txt'), output.with_suffix('.sha256')):
         if path.exists(): path.unlink()
-    run([sys.executable, ROOT / 'scripts/package-android-direct.py', output], env)
+    run([sys.executable, ROOT / 'scripts/package-android-direct.py', output], dict(env, GB_INTERNET_ANDROID_LIBS=str(build / 'internet-runtime/artifacts/android')))
 
 def package(build, env):
     output = build / 'packages'

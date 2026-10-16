@@ -36,7 +36,8 @@ final class ApplicationWindowSession: ObservableObject {
         companionKeyHandler: @escaping @MainActor (Bool, UInt32, UInt32, UInt32) -> Bool,
         companionClipboardHandler: @escaping @MainActor (EnhancedClipboardOperation) -> Bool,
         clipboardEventHandler: @escaping @MainActor @Sendable (ScrcpyClipboardUpdate) -> Void,
-        freshFramePresentationReceipt: (@MainActor () -> (@MainActor @Sendable () -> Void)?)? = nil
+        freshFramePresentationReceipt: (@MainActor () -> (@MainActor @Sendable () -> Void)?)? = nil,
+        shellProvider: ShellCapabilityBridgeProvider? = nil
     ) throws {
         self.application = application
         self.companionTextHandler = companionTextHandler
@@ -47,7 +48,8 @@ final class ApplicationWindowSession: ObservableObject {
             serial: serial,
             adb: adb,
             physicalDisplayPolicy: .leaveUnchanged,
-            quicSelection: quicSelection
+            quicSelection: quicSelection,
+            shellProvider: shellProvider
         )
         surface.freshFramePresentationReceipt = { [weak self] in
             guard let self, !self.closed,
@@ -66,8 +68,9 @@ final class ApplicationWindowSession: ObservableObject {
             self.handlePresentation(.controlReady)
             self.deliverResize(self.resizeDeliveryState.controlBecameReady())
         }
-        scrcpy.clipboardEventHandler = { update in
-            Task { @MainActor in clipboardEventHandler(update) }
+        scrcpy.clipboardEventHandler = { [weak self] update in
+            guard let self, !self.closed else { return }
+            clipboardEventHandler(update)
         }
         scrcpy.ownedDecodedFrameHandler = { [weak self] frame in
             guard let self, !self.closed, frame.isAdmitted else {
@@ -77,7 +80,7 @@ final class ApplicationWindowSession: ObservableObject {
             if let frameAspectRatio = ApplicationWindowVideoGeometry.aspectRatio(
                 pixelWidth: CVPixelBufferGetWidth(frame.pixelBuffer),
                 pixelHeight: CVPixelBufferGetHeight(frame.pixelBuffer)
-            ) {
+            ), frameAspectRatio != self.aspectRatio {
                 self.aspectRatio = frameAspectRatio
             }
             self.surface.present(frame.pixelBuffer, presentationTime: frame.presentationTime,

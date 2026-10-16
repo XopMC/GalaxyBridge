@@ -110,4 +110,15 @@
     <string name="clipboard_share_send">Senden</string>
     <string name="clipboard_share_retry">Erneut versuchen</string>
     <string name="file_send_forget">Aus Liste entfernen</string>
+    <string name="nearby_connection">Direktverbindung</string>
+    <string name="nearby_enable">Verbindung in der Nähe aktivieren</string>
+    <string name="nearby_disable">Verbindung in der Nähe deaktivieren</string>
+    <string name="internet_sharing">Internetfreigabe</string>
+    <string name="internet_enable">Internet teilen</string>
+    <string name="internet_disable">Internetfreigabe beenden</string>
+    <string name="nearby_permission_required">Erlaube den Zugriff auf Geräte in der Nähe in den Einstellungen und versuche es erneut.</string>
+    <string name="nearby_starting">Gerätesuche in der Nähe wird gestartet…</string>
+    <string name="nearby_discovery_ready">Die Gerätesuche in der Nähe ist aktiv. Verbinde dich von deinem Mac aus.</string>
+    <string name="nearby_unavailable">Die Gerätesuche konnte nicht gestartet werden. Prüfe Bluetooth und den Zugriff auf Geräte in der Nähe und versuche es erneut.</string>
+    <string name="qr_camera_unavailable">Die Kamera konnte nicht gestartet werden. Schließe andere Apps, die die Kamera verwenden, und versuche es erneut.</string>
 </resources>

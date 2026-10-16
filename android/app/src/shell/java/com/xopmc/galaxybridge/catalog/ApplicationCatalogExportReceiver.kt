@@ -3,11 +3,6 @@ package com.xopmc.galaxybridge.catalog
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ApplicationInfo
-import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.os.Build
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -55,56 +50,14 @@ class ApplicationCatalogExportReceiver : BroadcastReceiver() {
             check(mkdirs()) { "Unable to create icon export" }
         }
 
-        val packageManager = context.packageManager
-        val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        val resolved = if (Build.VERSION.SDK_INT >= 33) {
-            packageManager.queryIntentActivities(
-                launcherIntent,
-                PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL.toLong()),
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            packageManager.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
-        }
-        val seen = HashSet<String>()
         val applications = JSONArray()
-        resolved.sortedWith(
-            compareBy<android.content.pm.ResolveInfo> {
-                it.loadLabel(packageManager).toString().lowercase()
-            }.thenBy { it.activityInfo.packageName },
-        ).forEach { resolveInfo ->
-            val activity = resolveInfo.activityInfo ?: return@forEach
-            val packageName = activity.packageName
-            if (!seen.add(packageName)) return@forEach
-            val iconName = "${applications.length()}.png"
-            val iconFile = File(iconDirectory, iconName)
-            val hasIcon = runCatching {
-                val drawable = resolveInfo.loadIcon(packageManager)
-                val bitmap = Bitmap.createBitmap(ICON_SIZE, ICON_SIZE, Bitmap.Config.ARGB_8888)
-                val canvas = Canvas(bitmap)
-                drawable.setBounds(0, 0, ICON_SIZE, ICON_SIZE)
-                drawable.draw(canvas)
-                FileOutputStream(iconFile).use { stream ->
-                    check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream))
-                    stream.fd.sync()
-                }
-                bitmap.recycle()
-                true
-            }.getOrElse {
-                iconFile.delete()
-                false
+        ApplicationCatalogExporter.collect(context).forEachIndexed { index, entry ->
+            val iconName = "$index.png"
+            val icon = entry.iconPNG
+            if (icon != null) FileOutputStream(File(iconDirectory, iconName)).use { stream ->
+                stream.write(icon); stream.fd.sync()
             }
-            applications.put(
-                JSONObject()
-                    .put("package", packageName)
-                    .put("component", "${activity.packageName}/${activity.name}")
-                    .put("label", resolveInfo.loadLabel(packageManager).toString())
-                    .put(
-                        "system",
-                        activity.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0,
-                    )
-                    .put("icon", if (hasIcon) "icons/$iconName" else JSONObject.NULL),
-            )
+            applications.put(entry.json(if (icon != null) "icons/$iconName" else JSONObject.NULL))
         }
 
         val temporaryManifest = File(output, "manifest.json.part")
@@ -133,7 +86,6 @@ class ApplicationCatalogExportReceiver : BroadcastReceiver() {
         private const val RESULT_OK = 0
         private const val RESULT_INVALID_REQUEST = 2
         private const val RESULT_EXPORT_FAILED = 3
-        private const val ICON_SIZE = 128
         private const val EXPORT_RETENTION_MILLIS = 7L * 24L * 60L * 60L * 1_000L
         private val REQUEST_ID = Regex("^[0-9a-f]{32}$")
         private val EXECUTOR = Executors.newSingleThreadExecutor { runnable ->

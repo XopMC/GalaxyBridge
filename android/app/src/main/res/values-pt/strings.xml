@@ -111,4 +111,15 @@
     <string name="clipboard_share_send">Enviar</string>
     <string name="clipboard_share_retry">Tente novamente</string>
     <string name="file_send_forget">Remover da lista</string>
+    <string name="nearby_connection">Conexão direta</string>
+    <string name="nearby_enable">Ativar conexão próxima</string>
+    <string name="nearby_disable">Desativar conexão próxima</string>
+    <string name="internet_sharing">Partilha de Internet</string>
+    <string name="internet_enable">Partilhar Internet</string>
+    <string name="internet_disable">Parar partilha de Internet</string>
+    <string name="nearby_permission_required">Permita o acesso a dispositivos próximos nas definições e tente novamente.</string>
+    <string name="nearby_starting">A iniciar a descoberta de dispositivos próximos…</string>
+    <string name="nearby_discovery_ready">A descoberta de dispositivos próximos está ativa. Ligue-se a partir do Mac.</string>
+    <string name="nearby_unavailable">Não foi possível iniciar a descoberta. Verifique o Bluetooth e o acesso a dispositivos próximos e tente novamente.</string>
+    <string name="qr_camera_unavailable">Não foi possível iniciar a câmara. Feche outras apps que utilizem a câmara e tente novamente.</string>
 </resources>

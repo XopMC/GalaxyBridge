@@ -21,27 +21,32 @@ struct DownloadsFolderAccessSpec {
         var access: DownloadsFolderAccess? = DownloadsFolderAccess(
             downloads: expected, defaults: defaults, operations: operations
         )
+        precondition(access?.hasSelection == false)
         do {
             try access!.grant(URL(fileURLWithPath: "/tmp/another-folder"))
             fatalError("An unrelated directory was accepted")
         } catch {}
         precondition(starts == 0 && defaults.data(forKey: DownloadsFolderAccess.bookmarkKey) == nil)
         try access!.grant(expected)
+        precondition(access?.hasSelection == true, "A successful selection must be visible to the receiving UI")
         precondition(starts == 1 && stops == 0)
         precondition(defaults.data(forKey: DownloadsFolderAccess.bookmarkKey) == Data([1, 2, 3]))
         failBookmark = true
         do { try access!.grant(expected); fatalError("Failed persistence was accepted") } catch {}
         precondition(starts == 2 && stops == 1, "Only the failed new scope should be released")
+        precondition(access?.hasSelection == true, "A failed replacement must preserve the configured folder")
         access = nil
         precondition(stops == 2, "The retained successful scope should be released once")
         failBookmark = false
         access = DownloadsFolderAccess(downloads: expected, defaults: defaults, operations: operations)
         precondition(starts == 3, "Saved selection was not restored")
+        precondition(access?.hasSelection == true)
         access = nil
         precondition(stops == 3)
         resolved = URL(fileURLWithPath: "/tmp/wrong-restored-folder")
         access = DownloadsFolderAccess(downloads: expected, defaults: defaults, operations: operations)
         precondition(starts == 3, "A bookmark resolving outside Downloads acquired access")
+        precondition(access?.hasSelection == false)
         access = nil
         print("PASS Downloads access: restricted selection, retained scope, restart restore, failed-save cleanup, invalid bookmark isolation")
     }

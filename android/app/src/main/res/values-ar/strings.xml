@@ -111,4 +111,15 @@
     <string name="clipboard_share_send">أرسل</string>
     <string name="clipboard_share_retry">حاول مرة أخرى</string>
     <string name="file_send_forget">إزالة من القائمة</string>
+    <string name="nearby_connection">اتصال مباشر</string>
+    <string name="nearby_enable">تفعيل الاتصال القريب</string>
+    <string name="nearby_disable">إيقاف الاتصال القريب</string>
+    <string name="internet_sharing">مشاركة الإنترنت</string>
+    <string name="internet_enable">مشاركة الإنترنت</string>
+    <string name="internet_disable">إيقاف مشاركة الإنترنت</string>
+    <string name="nearby_permission_required">اسمح بالوصول إلى الأجهزة القريبة في الإعدادات، ثم حاول مرة أخرى.</string>
+    <string name="nearby_starting">جارٍ بدء اكتشاف الأجهزة القريبة…</string>
+    <string name="nearby_discovery_ready">اكتشاف الأجهزة القريبة مفعّل. اتصل من جهاز Mac.</string>
+    <string name="nearby_unavailable">تعذّر بدء اكتشاف الأجهزة القريبة. تحقق من Bluetooth وإذن الوصول إلى الأجهزة القريبة، ثم حاول مرة أخرى.</string>
+    <string name="qr_camera_unavailable">تعذّر تشغيل الكاميرا. أغلق التطبيقات الأخرى التي تستخدم الكاميرا، ثم حاول مرة أخرى.</string>
 </resources>

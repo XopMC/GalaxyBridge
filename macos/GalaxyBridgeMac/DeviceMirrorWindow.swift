@@ -152,7 +152,7 @@ private struct MirrorHoverHeader: View {
     @Binding var isPinned: Bool
 
     private var primaryControls: [MirrorHeaderControlID] {
-        MirrorHeaderControlID.primaryControls(enhanced: device.transport != .companionLAN)
+        MirrorHeaderControlID.primaryControls(enhanced: model.hasEnhancedTransport(deviceID: device.id))
     }
 
     var body: some View {

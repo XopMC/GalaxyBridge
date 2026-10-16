@@ -20,6 +20,8 @@ for inherited in ({}, {'GALAXYBRIDGE_APP_STORE': '1'}):
     def capture_build(arguments, env):
         assert arguments[0:2] == ['swift', 'build']
         assert Path(arguments[arguments.index('--cache-path') + 1]) == build / 'dependency-cache/swiftpm'
+        assert Path(arguments[arguments.index('--scratch-path') + 1]) == build / 'swift/macos-release'
+        assert env['GB_BUILD_PINS_DIRECTORY'] == '.build/public-pins/probe'
         assert env['GALAXYBRIDGE_APP_STORE'] == '0'
         calls.append('compile')
     def capture_path(arguments, **kwargs):

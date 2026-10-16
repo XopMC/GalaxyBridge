@@ -40,3 +40,6 @@ ninja==1.11.1.4 \
     --hash=sha256:f6186d7607bb090c3be1e10c8a56b690be238f953616626f5032238c66e56867
 meson==1.11.1 \
     --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
+
+# Finder layout and drag-to-Applications disk image metadata.
+-r dmg-layout-requirements.txt

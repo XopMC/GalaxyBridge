@@ -26,6 +26,16 @@ internal object CompanionCapabilityResolver {
             Capability.CAPABILITY_NOTIFICATION_ACTION_RESULTS,
         )
         val unavailable = linkedMapOf<String, String>()
+        if (BuildConfig.DISTRIBUTION != "play" && com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current?.shell?.isAvailable == true) {
+            available += Capability.CAPABILITY_PRIVILEGED_BRIDGE
+        } else unavailable[Capability.CAPABILITY_PRIVILEGED_BRIDGE.name] = "shell_bridge_not_activated"
+        if (com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current != null &&
+            com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.hasNearbyPermissions(context)) {
+            available += Capability.CAPABILITY_NEARBY_LINK
+        } else unavailable[Capability.CAPABILITY_NEARBY_LINK.name] = "nearby_permission_required"
+        if (com.xopmc.galaxybridge.internet.NativeInternetGateway.load()) {
+            available += Capability.CAPABILITY_INTERNET_GATEWAY
+        } else unavailable[Capability.CAPABILITY_INTERNET_GATEWAY.name] = "native_gateway_unavailable"
 
         if (EncodedVideoBus.captureState.value) {
             available += Capability.CAPABILITY_SCREEN_CAPTURE

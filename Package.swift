@@ -13,11 +13,15 @@ var galaxyBridgeMacDependencies: [Target.Dependency] = [
 if !isMacAppStoreBuild {
     galaxyBridgeMacDependencies.append("GalaxyBridgeEnhancedCore")
     galaxyBridgeMacDependencies.append("GalaxyBridgeQuicBackend")
+    galaxyBridgeMacDependencies.append("CNetworkLease")
+    galaxyBridgeMacDependencies.append("CInternetRuntime")
 }
 let quicBackendLibrary = ProcessInfo.processInfo.environment["GB_QUIC_BACKEND_LIBRARY"]
     ?? "\(URL(fileURLWithPath: #filePath).deletingLastPathComponent().path)/out/macos-arm64-release/artifacts/quic-backend/libgalaxybridge_quic_backend-macos-arm64.a"
+let internetLibrary = ProcessInfo.processInfo.environment["GB_INTERNET_LIBRARY"]
+    ?? "\(URL(fileURLWithPath: #filePath).deletingLastPathComponent().path)/out/internet-runtime/artifacts/macos/libgalaxybridge_internet.a"
 let quicBackendLink: [LinkerSetting] = isMacAppStoreBuild ? [] : [
-    .unsafeFlags([quicBackendLibrary]), .linkedLibrary("c++"), .linkedLibrary("iconv"),
+    .unsafeFlags([quicBackendLibrary, internetLibrary]), .linkedLibrary("c++"), .linkedLibrary("iconv"),
     .linkedFramework("SystemConfiguration"),
 ]
 
@@ -42,6 +46,8 @@ let package = Package(
     ],
     targets: [
         .target(name: "GalaxyBridgeBuildPins", path: ProcessInfo.processInfo.environment["GB_BUILD_PINS_DIRECTORY"] ?? "Sources/GalaxyBridgeBuildPins"),
+        .systemLibrary(name: "CInternetRuntime", path: "native/galaxybridge-internet/include"),
+        .target(name: "CNetworkLease", path: "macos/GalaxyBridgeNetworkHelper", sources: ["GBNetworkClient.c"], publicHeadersPath: "."),
         .systemLibrary(name: "GalaxyBridgeQuicBackend", path: "native/galaxybridge-quic-backend/include"),
         .systemLibrary(
             name: "CSQLite",
@@ -92,6 +98,9 @@ let package = Package(
                 .linkedFramework("GameController"),
                 .linkedFramework("MetalKit"),
                 .linkedFramework("Network"),
+                .linkedFramework("CoreBluetooth"),
+                .linkedFramework("CoreWLAN"),
+                .linkedFramework("CoreLocation"),
                 .linkedFramework("Security"),
                 .linkedFramework("SystemExtensions"),
                 .linkedFramework("VideoToolbox"),

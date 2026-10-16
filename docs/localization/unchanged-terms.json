@@ -28,7 +28,8 @@
       "CAMERA_PANEL": "GalaxyBridge Camera",
       "UI_TEXT_GENERIC": "Galaxy Bridge",
       "CAPABILITY_NAME_NOTIFICATIONS": "Notifications",
-      "ABOUT_VERSION": "Version %@"
+      "ABOUT_VERSION": "Version %@",
+      "NOTIFICATION_ACTION_FALLBACK": "Action"
     },
     "ja": {
       "SMS": "SMS",
