@@ -57,6 +57,7 @@ sh "$GB_ROOT/scripts/create-macos-dmg-layout.sh" "$GB_SOURCE" "$GB_DMG"
 GB_ATTACHED=1
 test "$(/usr/bin/readlink "$GB_MOUNT/Applications")" = /Applications
 test -d "$GB_MOUNT/Galaxy Bridge.app/Contents"
+python3 "$GB_ROOT/scripts/verify-macos-dmg-layout.py" "$GB_MOUNT"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$GB_MOUNT/Galaxy Bridge.app/Contents/Info.plist")" = com.xopmc.GalaxyBridge
 /usr/bin/codesign --verify --deep --strict "$GB_MOUNT/Galaxy Bridge.app"
 /usr/bin/cmp "$GB_SOURCE/Contents/MacOS/GalaxyBridgeMac" "$GB_MOUNT/Galaxy Bridge.app/Contents/MacOS/GalaxyBridgeMac"

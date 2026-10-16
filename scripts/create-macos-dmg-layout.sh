@@ -2,6 +2,7 @@
 # Internal layout primitive only. It does not sign, notarize, or approve a
 # release. Use package-macos-dmg.sh for a distributable installer.
 set -eu
+GB_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
 gb_fail() { printf 'DMG layout error: %s\n' "$1" >&2; exit 2; }
 [ "$#" = 2 ] || gb_fail 'usage: create-macos-dmg-layout.sh SOURCE.app OUTPUT.dmg'
@@ -32,11 +33,7 @@ GB_TMP=$(mktemp -d "$GB_PARENT/.galaxybridge-dmg-layout.XXXXXX")
 trap '/bin/rm -rf -- "$GB_TMP"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' HUP TERM
-/bin/mkdir "$GB_TMP/content"
-/usr/bin/ditto "$GB_APP" "$GB_TMP/content/Galaxy Bridge.app"
-/bin/ln -s /Applications "$GB_TMP/content/Applications"
-/usr/bin/hdiutil create -srcfolder "$GB_TMP/content" -volname 'Galaxy Bridge' \
-  -fs HFS+ -format UDZO -nospotlight -quiet "$GB_TMP/installer.dmg"
+python3 "$GB_ROOT/scripts/build-macos-dmg-layout.py" "$GB_APP" "$GB_TMP/installer.dmg"
 /usr/bin/hdiutil verify "$GB_TMP/installer.dmg" -quiet
 /bin/link "$GB_TMP/installer.dmg" "$GB_OUTPUT" || gb_fail 'could not publish image without overwriting an existing output.'
 printf 'Created unsigned DMG layout (not release-approved): %s\n' "$GB_OUTPUT"

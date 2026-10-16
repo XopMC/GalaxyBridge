@@ -14,6 +14,7 @@
 - Optional Mac network installer, owned route/DNS leases, heartbeat recovery and caller checks against the approved hardened application.
 - Per-boot enhanced access over an ADB-activated Binder/FD bridge, with bounded requests, ordered media streams and exact child retirement.
 - Eleven system-language catalogs with English fallback; bundled ADB remains included.
+- A One UI-inspired DMG with aligned app/Applications icons, a clear transfer arrow and Russian/English installation instructions.
 - Serialized shared-group creation for simultaneous nearby connections, basic connection fallback after optional bridge activation errors, and cancellation retained before the tunnel worker starts.
 - Cancellable setup, clear phone-update/permission guidance, pairing-sheet dismissal, compact connection controls and stable small-window layout. Fixed gateway selection cannot silently use another phone.
 - Background clipboard image conversion and history writes, bounded pending work and recipient trust checks. App windows publish geometry changes only when needed; video frames and QUIC remain unchanged.
@@ -41,6 +42,7 @@ macOS 14+ on Apple Silicon and Android 12+ remain required. The Mac app is ad-ho
 - Необязательный сетевой установщик Mac, собственные временные маршруты и DNS, восстановление по heartbeat и проверка вызывающего hardened-приложения.
 - Расширенный доступ до перезагрузки через активированный по ADB мост Binder/FD: ограниченные запросы, правильный порядок медиаканалов и завершение принадлежащих сеансу процессов.
 - Одиннадцать системных языков с английским fallback; ADB по-прежнему встроен.
+- DMG в стиле One UI: выровненные значки приложения и «Программ», заметная стрелка переноса и инструкция на русском и английском.
 - Последовательное создание общей группы при одновременном подключении, сохранение базового подключения при ошибке дополнительного моста и обработка отмены до запуска туннеля.
 - Отмена настройки, понятные подсказки об обновлении и разрешениях телефона, закрытие QR после привязки и компактный блок подключений с корректными размерами небольшого окна. Выбор конкретного шлюза не приводит к скрытому использованию другого телефона.
 - Обработка изображений буфера и запись истории в фоне, ограниченная очередь и проверка доверия получателей. Окна приложений сообщают об изменении геометрии только при необходимости; видеокадры и QUIC сохранены.

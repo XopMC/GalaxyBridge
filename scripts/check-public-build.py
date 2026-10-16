@@ -26,6 +26,7 @@ if (build / 'BuildArtifacts.json').is_file():
 def run(args, extra=None):
     subprocess.run([str(x) for x in args], cwd=ROOT, env=dict(env, **(extra or {})), check=True)
 for script in ['public-build.py', 'package-macos-direct.py', 'package-android-direct.py',
+               'build-macos-dmg-layout.py', 'verify-macos-dmg-layout.py',
                'test-android-direct-components.py', 'bootstrap-build-tools.py',
                'build-internet-runtime.py', 'package-network-helper.py',
                'network-test-guardian.py', 'test-nearby-bootstrap-interop.py',
@@ -35,6 +36,8 @@ run([sys.executable, ROOT / 'scripts/test-public-build.py'])
 run([sys.executable, ROOT / 'scripts/test-macos-main-bundle-localization.py'])
 run([sys.executable, ROOT / 'scripts/test-macos-direct-package.py', '--metadata-only'])
 run(['bash', ROOT / 'scripts/test-macos-distribution-resources.sh'])
+run(['bash', ROOT / 'scripts/test-macos-dmg-layout.sh'])
+run(['bash', ROOT / 'scripts/test-macos-dmg-release-policy.sh'])
 run(['swift', ROOT / 'scripts/verify-localizations.swift'])
 run(['swift', ROOT / 'scripts/test-app-icons.swift'])
 for product in ['GalaxyBridgeCoreSpec', 'GalaxyBridgeProtocolSpec']:
