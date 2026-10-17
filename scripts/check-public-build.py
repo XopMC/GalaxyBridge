@@ -77,7 +77,8 @@ for script in ['test-clipboard-agent-protocol.sh', 'test-clipboard-primary-read-
     run(['sh', ROOT / 'scripts' / script])
 for script in ['test-nearby-connectivity-policy.sh', 'test-nearby-bootstrap-crypto.sh',
                'test-nearby-transport.sh', 'test-nearby-discovery.sh', 'test-raw-channel-upgrade.sh',
-               'test-shell-capability-bridge.sh', 'test-display-power-controller.sh', 'test-network-helper.sh',
+               'test-shell-capability-bridge.sh', 'test-display-power-controller.sh', 'test-display-state-snapshot.sh',
+               'test-display-state-ownership.sh', 'test-network-helper.sh',
                'test-macos-internet-sharing-lifecycle.sh',
                'test-macos-nearby-preparation.sh', 'test-internet-tunnel-lifecycle.sh']:
     run(['bash', ROOT / 'scripts' / script])
