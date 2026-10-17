@@ -19,9 +19,15 @@ bridge_lambda="$bridge_sdk/build-tools/${GB_ANDROID_BUILD_TOOLS:-37.0.0}/core-la
 # Compile the real runtime against Android's bootclasspath, not JDK-only APIs.
 "$bridge_jdk/bin/javac" -source 8 -target 8 -Xlint:-options -bootclasspath "$bridge_platform" \
   -cp "$bridge_classes:$bridge_lambda" -d "$bridge_tmp" "$bridge_root/third_party/scrcpy-gb-sync/DisplayPowerController.java" \
+  "$bridge_root/third_party/scrcpy-gb-sync/DisplayStateSnapshot.java" \
+  "$bridge_root/third_party/scrcpy-gb-sync/DisplayStateOwnership.java" \
+  "$bridge_root/third_party/scrcpy-gb-sync/DisplayStatePowerCalls.java" \
+  "$bridge_root/third_party/scrcpy-gb-sync/DisplayStateRuntimeBackend.java" \
+  "$bridge_root/third_party/scrcpy-gb-sync/DisplayStateController.java" \
   "$bridge_root/third_party/scrcpy-gb-sync/ShellCapabilityBridge.java"
 "$bridge_jdk/bin/javac" -source 8 -target 8 -Xlint:-options \
   -cp "$bridge_tmp:$bridge_platform:$bridge_classes" -d "$bridge_tmp" \
+  "$bridge_root/third_party/scrcpy-gb-sync/DisplayStateRuntimeBackendTest.java" \
   "$bridge_root/third_party/scrcpy-gb-sync/ShellCapabilityBridgePolicyTest.java" \
   "$bridge_root/third_party/scrcpy-gb-sync/ShellCaptureRetirementProbeSpec.java"
 cc -std=c11 -Wall -Wextra -Werror -pthread "$bridge_root/scripts/fixtures/shell-broker-socket-retirement.c" -o "$bridge_tmp/socket-retirement"

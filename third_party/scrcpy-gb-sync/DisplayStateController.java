@@ -93,7 +93,7 @@ public final class DisplayStateController {
         String type = current.getClass().getSimpleName();
         return type.matches("[A-Za-z0-9_]{1,96}") ? type : "unknown_failure";
     }
-    private static String snapshot(DisplayStateSnapshot value) {
+    static String snapshot(DisplayStateSnapshot value) {
         if (value == null) return "null";
         StringBuilder out = new StringBuilder("{\"panels\":[");
         for (Map.Entry<String, DisplayStateSnapshot.Mode> panel : value.panels.entrySet()) {

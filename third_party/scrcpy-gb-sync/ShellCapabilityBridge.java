@@ -104,6 +104,285 @@ public final class ShellCapabilityBridge implements AutoCloseable {
         synchronized void stop() { stopped = true; notifyAll(); }
     }
     private static final int MAX_FRAME = 65536;
+    static final class CompositeCommand {
+        private static final Set<String> FIELDS = Collections.unmodifiableSet(new HashSet<>(
+                Arrays.asList("action", "interactive", "panel_policy", "revision")));
+        final int action, panelPolicy;
+        final boolean interactive;
+        final long revision;
+        private CompositeCommand(int action, boolean interactive, int panelPolicy, long revision) {
+            this.action = action; this.interactive = interactive; this.panelPolicy = panelPolicy; this.revision = revision;
+        }
+        static CompositeCommand parse(Map<String, Object> fields) {
+            if (fields == null || !fields.keySet().equals(FIELDS) || !(fields.get("interactive") instanceof Boolean))
+                throw new IllegalArgumentException("display_state_command_invalid");
+            long action = integer(fields.get("action")), policy = integer(fields.get("panel_policy"));
+            long revision = integer(fields.get("revision"));
+            boolean interactive = (Boolean) fields.get("interactive");
+            if (action < 0 || action > 2 || policy < 0 || policy > 2 || revision < 0
+                    || (action == 2 ? revision == 0 : interactive || policy != 0 || revision != 0))
+                throw new IllegalArgumentException("display_state_command_invalid");
+            return new CompositeCommand((int) action, interactive, (int) policy, revision);
+        }
+        private static long integer(Object value) {
+            if (!(value instanceof Integer) && !(value instanceof Long))
+                throw new IllegalArgumentException("display_state_command_invalid");
+            return ((Number) value).longValue();
+        }
+    }
+    private static Map<String, Object> objectFields(Object raw) {
+        if (!(raw instanceof Map)) throw new IllegalArgumentException("display_receipt_object");
+        Map<?, ?> source = (Map<?, ?>) raw; Map<String, Object> result = new HashMap<>();
+        for (Map.Entry<?, ?> field : source.entrySet()) {
+            if (!(field.getKey() instanceof String)) throw new IllegalArgumentException("display_receipt_key");
+            result.put((String) field.getKey(), field.getValue());
+        }
+        return result;
+    }
+    private static void exactFields(Map<String, Object> fields, String... expected) {
+        if (!fields.keySet().equals(new HashSet<>(Arrays.asList(expected)))) throw new IllegalArgumentException("display_receipt_fields");
+    }
+    private static String strictText(Object value) {
+        if (!(value instanceof String)) throw new IllegalArgumentException("display_receipt_text"); return (String) value;
+    }
+    private static boolean strictFlag(Object value) {
+        if (!(value instanceof Boolean)) throw new IllegalArgumentException("display_receipt_flag"); return (Boolean) value;
+    }
+    private static String strictTime(Object raw, boolean positive) {
+        String value = strictText(raw);
+        if (!value.matches(positive ? "[1-9][0-9]{0,18}" : "0|[1-9][0-9]{0,18}")) throw new IllegalArgumentException("display_receipt_time");
+        Long.parseLong(value); return value;
+    }
+    static final class CompositeSnapshot {
+        final Map<String, DisplayStateSnapshot.Mode> panels;
+        final String activeID;
+        final boolean interactive;
+        final DisplayStateSnapshot.Wakefulness group, global;
+        final Map<String, String> times;
+        CompositeSnapshot(Object raw) {
+            Map<String, Object> fields = objectFields(raw);
+            exactFields(fields, "panels", "activeID", "defaultInteractive", "defaultWakefulness", "globalWakefulness", "transitionScope",
+                "lastGlobalWakeTime", "lastGlobalSleepTime", "defaultActivityTime", "defaultActivityNoChangeLightsTime");
+            activeID = strictText(fields.get("activeID")); interactive = strictFlag(fields.get("defaultInteractive"));
+            group = DisplayStateSnapshot.Wakefulness.valueOf(strictText(fields.get("defaultWakefulness")));
+            global = DisplayStateSnapshot.Wakefulness.valueOf(strictText(fields.get("globalWakefulness")));
+            if (!"GLOBAL".equals(fields.get("transitionScope")) || interactive != group.interactive()
+                    || (interactive && !global.interactive()) || group.aggregateRank() > global.aggregateRank())
+                throw new IllegalArgumentException("display_receipt_power");
+            Object rawPanels = fields.get("panels");
+            if (!(rawPanels instanceof List)) throw new IllegalArgumentException("display_receipt_panels");
+            List<?> list = (List<?>) rawPanels;
+            if (list.isEmpty() || list.size() > 8) throw new IllegalArgumentException("display_receipt_panels");
+            Map<String, DisplayStateSnapshot.Mode> parsed = new HashMap<>();
+            for (Object panel : list) {
+                Map<String, Object> item = objectFields(panel); exactFields(item, "id", "mode");
+                String id = strictText(item.get("id"));
+                if (!DisplayStateSnapshot.validID(id) || parsed.put(id,
+                        DisplayStateSnapshot.Mode.valueOf(strictText(item.get("mode")))) != null)
+                    throw new IllegalArgumentException("display_receipt_panel_identity");
+            }
+            if (!parsed.containsKey(activeID)) throw new IllegalArgumentException("display_receipt_active_panel");
+            panels = Collections.unmodifiableMap(parsed);
+            Map<String, String> stamps = new HashMap<>();
+            for (String key : Arrays.asList("lastGlobalWakeTime", "lastGlobalSleepTime", "defaultActivityTime", "defaultActivityNoChangeLightsTime"))
+                stamps.put(key, strictTime(fields.get(key), false));
+            times = Collections.unmodifiableMap(stamps);
+        }
+        boolean sameOwnedState(CompositeSnapshot other) {
+            return other != null && panels.equals(other.panels) && activeID.equals(other.activeID)
+                && interactive == other.interactive && group == other.group;
+        }
+        boolean sameSnapshot(CompositeSnapshot other) {
+            return sameOwnedState(other) && global == other.global && times.equals(other.times);
+        }
+    }
+    static final class CompositeReceipt {
+        final int pid;
+        final String start, event, state, error, reason;
+        final long revision;
+        final boolean ok, draining, settled;
+        final CompositeSnapshot initial, current;
+        private CompositeReceipt(Map<String, Object> fields) {
+            exactFields(fields, "version", "event", "pid", "startTime", "revision", "state", "draining", "mutation_settled", "initial", "current", "ok", "error", "reason");
+            long version = CompositeCommand.integer(fields.get("version")), rawPID = CompositeCommand.integer(fields.get("pid"));
+            revision = CompositeCommand.integer(fields.get("revision"));
+            if (version != 2 || rawPID <= 1 || rawPID > Integer.MAX_VALUE || revision < 0) throw new IllegalArgumentException("display_receipt_identity");
+            pid = (int) rawPID; start = strictTime(fields.get("startTime"), true);
+            event = strictText(fields.get("event")); state = strictText(fields.get("state")); error = strictText(fields.get("error"));
+            reason = strictText(fields.get("reason"));
+            ok = strictFlag(fields.get("ok")); draining = strictFlag(fields.get("draining")); settled = strictFlag(fields.get("mutation_settled"));
+            if (!Arrays.asList("ready", "reply", "retired", "startup_failed").contains(event)
+                    || !Arrays.asList("NOT_STARTED", "SNAPSHOTTED", "READY", "SUSPENDED", "RESTORED", "YIELDED_EXTERNAL", "YIELDED_ACTIVITY", "UNCONFIRMED").contains(state)
+                    || !error.matches("[a-z0-9_]{0,96}") || !reason.matches("[a-z0-9_]{1,96}") || ok != error.isEmpty())
+                throw new IllegalArgumentException("display_receipt_state");
+            if (event.equals("startup_failed")) {
+                if (!state.equals("NOT_STARTED") || ok || !draining || !settled || revision != 0
+                        || fields.get("initial") != null || fields.get("current") != null || error.isEmpty() || !reason.equals("startup"))
+                    throw new IllegalArgumentException("display_receipt_startup");
+                initial = current = null;
+            } else {
+                if (state.equals("NOT_STARTED")) throw new IllegalArgumentException("display_receipt_startup");
+                initial = new CompositeSnapshot(fields.get("initial")); current = new CompositeSnapshot(fields.get("current"));
+                if (state.equals("RESTORED") && !current.sameOwnedState(initial)) throw new IllegalArgumentException("display_receipt_restoration");
+                if (event.equals("ready")) header();
+                if (event.equals("retired") && (!ok || !draining || !settled
+                        || !Arrays.asList("RESTORED", "YIELDED_EXTERNAL", "YIELDED_ACTIVITY").contains(state)))
+                    throw new IllegalArgumentException("display_receipt_terminal");
+            }
+        }
+        static CompositeReceipt parse(Map<String, Object> value) { return new CompositeReceipt(value); }
+        void header() {
+            if (!event.equals("ready") || !state.equals("SNAPSHOTTED") || !ok || draining || !settled || revision != 0
+                    || !initial.sameSnapshot(current) || !reason.equals("startup")) throw new IllegalArgumentException("display_receipt_header");
+        }
+        void sameOwner(CompositeReceipt header) {
+            if (header == null || pid != header.pid || !start.equals(header.start) || initial == null || !initial.sameSnapshot(header.initial))
+                throw new IllegalArgumentException("display_receipt_owner_changed");
+        }
+        void policy(CompositeReceipt header, CompositeCommand command) {
+            sameOwner(header);
+            if (command == null || command.action != 2 || !event.equals("reply") || !ok || !state.equals("READY") || draining || !settled
+                    || revision != command.revision || !current.panels.keySet().equals(initial.panels.keySet()) || !current.activeID.equals(initial.activeID)
+                    || (command.interactive && !current.interactive)) throw new IllegalArgumentException("display_receipt_policy");
+            for (Map.Entry<String, DisplayStateSnapshot.Mode> panel : current.panels.entrySet()) {
+                if (command.panelPolicy == 1 && panel.getValue() != DisplayStateSnapshot.Mode.OFF
+                        || command.panelPolicy == 2 && panel.getValue() != (panel.getKey().equals(current.activeID) ? DisplayStateSnapshot.Mode.ON : DisplayStateSnapshot.Mode.OFF))
+                    throw new IllegalArgumentException("display_receipt_panel_policy");
+            }
+        }
+        void terminal(CompositeReceipt header, long confirmed, long attempted) {
+            sameOwner(header);
+            if (!event.equals("retired") || !ok || !draining || !settled || confirmed < 0 || attempted < confirmed || revision < confirmed || revision > attempted
+                    || !Arrays.asList("RESTORED", "YIELDED_EXTERNAL", "YIELDED_ACTIVITY").contains(state))
+                throw new IllegalArgumentException("display_receipt_terminal");
+        }
+    }
+    /** Lease admission is distinct from the child's physical state machine. */
+    static final class CompositeLeaseAdmission {
+        private enum Phase { SNAPSHOT_PENDING, SNAPSHOTTED, POLICY, DRAINING }
+        private static final class Entry {
+            Phase phase = Phase.SNAPSHOT_PENDING;
+            boolean policyAttempted;
+            CompositeCommand lastPolicy;
+        }
+        private final int maximumIdentities;
+        private final Map<String, Entry> active = new HashMap<>();
+        private final Set<String> retired = new HashSet<>();
+        CompositeLeaseAdmission(int maximumIdentities) {
+            if (maximumIdentities < 1 || maximumIdentities > 65536) throw new IllegalArgumentException("display_owner_capacity");
+            this.maximumIdentities = maximumIdentities;
+        }
+        private void valid(String lease) {
+            if (!canonicalUUID(lease)) throw new IllegalArgumentException("display_owner_identity");
+        }
+        private Entry entry(String lease) {
+            valid(lease); Entry value = active.get(lease);
+            if (value == null) throw new IllegalArgumentException("display_owner_unknown");
+            return value;
+        }
+        private void capacity() {
+            // Tombstones are never evicted within a broker generation. Reject
+            // further admission rather than resurrect a previously stopped UUID.
+            if (active.size() + retired.size() >= maximumIdentities) throw new IllegalArgumentException("display_owner_capacity");
+        }
+        synchronized boolean reserveSnapshot(String lease) {
+            valid(lease);
+            if (retired.contains(lease)) throw new IllegalArgumentException("display_owner_retired");
+            Entry existing = active.get(lease);
+            if (existing != null) {
+                if (existing.phase != Phase.SNAPSHOT_PENDING && existing.phase != Phase.SNAPSHOTTED)
+                    throw new IllegalArgumentException("display_owner_cannot_rebase");
+                return false;
+            }
+            capacity(); active.put(lease, new Entry()); return true;
+        }
+        synchronized void snapshotReady(String lease) {
+            Entry value = entry(lease);
+            if (value.phase != Phase.SNAPSHOT_PENDING) throw new IllegalArgumentException("display_owner_not_pending");
+            value.phase = Phase.SNAPSHOTTED;
+        }
+        synchronized void requireStatus(String lease) {
+            Entry value = entry(lease);
+            if (value.phase != Phase.SNAPSHOTTED && value.phase != Phase.POLICY)
+                throw new IllegalArgumentException("display_owner_not_ready");
+        }
+        synchronized void admitApply(String lease, CompositeCommand policy) {
+            requireStatus(lease); Entry value = entry(lease);
+            if (policy == null || policy.action != 2) throw new IllegalArgumentException("display_owner_policy_required");
+            CompositeCommand previous = value.lastPolicy;
+            if (previous != null && (policy.revision < previous.revision || (policy.revision == previous.revision
+                    && (policy.interactive != previous.interactive || policy.panelPolicy != previous.panelPolicy))))
+                throw new IllegalArgumentException("display_owner_revision");
+            // This happens before I/O, including a write that partially succeeds
+            // and then throws. Neither drain nor a lost ACK may clear the fact.
+            value.policyAttempted = true; value.lastPolicy = policy; value.phase = Phase.POLICY;
+        }
+        synchronized void beginRetirement(String lease) {
+            valid(lease); if (retired.contains(lease)) return;
+            Entry value = active.get(lease);
+            if (value != null) value.phase = Phase.DRAINING;
+            else { capacity(); retired.add(lease); } // Seal an overtaken SNAPSHOT too.
+        }
+        /** Caller must first prove child/mutation/resource retirement. This
+         * admission book does not itself provide any physical retirement proof. */
+        synchronized void finishRetirement(String lease) {
+            valid(lease); if (retired.contains(lease)) return;
+            Entry value = entry(lease);
+            if (value.phase != Phase.DRAINING) throw new IllegalArgumentException("display_owner_not_draining");
+            active.remove(lease); retired.add(lease);
+        }
+        synchronized boolean mayHaveMutated(String lease) { return entry(lease).policyAttempted; }
+        synchronized boolean isRetired(String lease) { valid(lease); return retired.contains(lease); }
+        synchronized int retainedCount() { return active.size() + retired.size(); }
+    }
+    static final class CompositeRetirementProbe {
+        interface Factory { DisplayStateOwnership.Backend open() throws Exception; }
+        private final Factory factory;
+        private DisplayStateOwnership.Backend backend;
+        private Exception initializationFailure;
+        private FutureTask<DisplayStateOwnership.Backend> initialization;
+        private final long initializationTimeoutMillis;
+        CompositeRetirementProbe(Factory factory) { this(factory, 2500); }
+        CompositeRetirementProbe(Factory factory, long timeoutMillis) {
+            if (factory == null || timeoutMillis <= 0 || timeoutMillis > 2500) throw new IllegalArgumentException();
+            this.factory = factory; initializationTimeoutMillis = timeoutMillis;
+        }
+        synchronized DisplayStateSnapshot read() throws Exception {
+            if (initializationFailure != null) throw initializationFailure;
+            if (backend == null) {
+                if (initialization == null) {
+                    initialization = new FutureTask<>(() -> {
+                        DisplayStateOwnership.Backend value = factory.open();
+                        if (value == null) throw new IOException("display_proof_backend_unavailable");
+                        return value;
+                    });
+                    Thread worker = new Thread(initialization, "gb-display-proof-initialization"); worker.setDaemon(true); worker.start();
+                }
+                try { backend = initialization.get(initializationTimeoutMillis, TimeUnit.MILLISECONDS); }
+                catch (TimeoutException pending) { throw new IOException("display_proof_initialization_pending"); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new IOException("display_proof_initialization_interrupted"); }
+                catch (ExecutionException failed) {
+                    Throwable cause = failed.getCause();
+                    initializationFailure = cause instanceof Exception ? (Exception)cause : new IOException("display_proof_initialization_failed", cause);
+                    throw initializationFailure;
+                }
+                // Never cancel/relaunch a timed-out initializer. Once it
+                // settles, the retained backend takes a fresh bounded sample.
+            }
+            return backend.read();
+        }
+    }
+    static final class CompositeRetirementStore {
+        private final Map<String, String> receipts = new HashMap<>();
+        synchronized void remember(String lease, String receipt) {
+            if (!canonicalUUID(lease) || receipt == null || receipt.isEmpty() || receipt.length() > MAX_FRAME) throw new IllegalArgumentException();
+            if (receipts.size() >= 4096 && !receipts.containsKey(lease)) throw new IllegalArgumentException("display_retirement_capacity");
+            String prior = receipts.get(lease);
+            if (prior != null && !prior.equals(receipt)) throw new IllegalArgumentException("display_retirement_rebase");
+            receipts.put(lease, receipt);
+        }
+        synchronized String get(String lease) { return receipts.get(lease); }
+    }
     private final String token, generation, activationID, helperPackage;
     private final int helperUID;
     private final BinderAdmission admission;
@@ -114,6 +393,10 @@ public final class ShellCapabilityBridge implements AutoCloseable {
     private final File sourceJar, directory;
     private final Map<String, Lease> leases = new LinkedHashMap<>();
     private final Map<String, String> receipts = new LinkedHashMap<>();
+    private final CompositeLeaseAdmission compositeAdmission = new CompositeLeaseAdmission(4096);
+    private final Map<String, JSONObject> compositeProofs = new HashMap<>();
+    private final CompositeRetirementProbe compositeProbe = new CompositeRetirementProbe(DisplayStateRuntimeBackend::open);
+    private final CompositeRetirementStore compositeRetiredResponses = new CompositeRetirementStore();
     private final Set<FDChannel> clients = Collections.synchronizedSet(new HashSet<>());
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicBoolean ownerAccepted = new AtomicBoolean();
@@ -315,7 +598,7 @@ public final class ShellCapabilityBridge implements AutoCloseable {
         String id = request.optString("request_id"), leaseID = request.optString("lease_id");
         if (!canonicalUUID(id) || !generation.equals(request.optString("boot_generation")))
             return result(id, leaseID, "failed", "invalid_request", Collections.emptyList());
-        Set<String> allowed = new HashSet<>(Arrays.asList("request_id", "lease_id", "boot_generation", "operation", "options", "power_on", "retirement"));
+        Set<String> allowed = new HashSet<>(Arrays.asList("request_id", "lease_id", "boot_generation", "operation", "options", "power_on", "retirement", "display_state"));
         for (Iterator<String> keys = request.keys(); keys.hasNext();) if (!allowed.contains(keys.next()))
             return result(id, leaseID, "failed", "unsupported_field", Collections.emptyList());
         // Same request UUID has one exact body and outcome. Different bodies
@@ -332,9 +615,10 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             Object rawOperation = request.get("operation");
             if (!(rawOperation instanceof Integer) && !(rawOperation instanceof Long)) throw new IllegalArgumentException();
             long operationValue = ((Number) rawOperation).longValue();
-            if (operationValue < 0 || operationValue > 7 || operationValue == 5) throw new IllegalArgumentException();
+            if (operationValue < 0 || operationValue > 8 || operationValue == 5) throw new IllegalArgumentException();
             int operation = (int) operationValue;
             if (operation != 6 && operation != 7 && request.has("retirement")) throw new IllegalArgumentException();
+            if (operation != 8 && request.has("display_state")) throw new IllegalArgumentException();
             if (operation == 6 || operation == 7) {
                 if (!leaseID.isEmpty() || request.optBoolean("power_on")) throw new IllegalArgumentException();
                 JSONObject raw = request.getJSONObject("retirement");
@@ -349,15 +633,37 @@ public final class ShellCapabilityBridge implements AutoCloseable {
                 } else proof = retirementProof(query);
                 response = result(id, leaseID, operation == 7 ? "resources_released" : query.kind == 0 ? "retirement_supported" : "retired", "", Collections.emptyList())
                     .put("retirement_proof", proof);
+            } else if (operation == 8) {
+                if (request.has("options") || request.optBoolean("power_on") || !request.has("display_state")) throw new IllegalArgumentException();
+                JSONObject rawState = request.getJSONObject("display_state");
+                Map<String, Object> fields = new HashMap<>();
+                for (Iterator<String> keys = rawState.keys(); keys.hasNext();) { String key = keys.next(); fields.put(key, rawState.get(key)); }
+                response = compositeCommand(id, leaseID, CompositeCommand.parse(fields));
             } else if (operation == 0) {
                 if (!leaseID.isEmpty() && !canonicalUUID(leaseID)) throw new IllegalArgumentException();
+                if (!leaseID.isEmpty() && leases.containsKey(leaseID) && leases.get(leaseID).policy.operation == 8)
+                    throw new IllegalArgumentException("typed_display_state_required");
                 response = result(id, leaseID, !leaseID.isEmpty() && !leases.containsKey(leaseID) ? "stopped" :
                     readOnlyPanelStatus(() -> panelState()), "", Collections.emptyList());
             } else if (operation == 4) {
                 if (!canonicalUUID(leaseID)) throw new IllegalArgumentException();
                 Lease lease = leases.get(leaseID);
-                if (lease != null) { lease.retire(); leases.remove(leaseID); }
-                response = result(id, leaseID, "stopped", "", Collections.emptyList());
+                if (lease != null) {
+                    if (lease.policy.operation == 8) compositeAdmission.beginRetirement(leaseID);
+                    lease.retire();
+                    if (lease.policy.operation == 8) {
+                        response = rememberCompositeRetirement(id, leaseID, lease);
+                        compositeAdmission.finishRetirement(leaseID);
+                    } else response = result(id, leaseID, "stopped", "", Collections.emptyList());
+                    leases.remove(leaseID);
+                } else if (compositeRetiredResponses.get(leaseID) != null) {
+                    response = new JSONObject(compositeRetiredResponses.get(leaseID)).put("request_id", id);
+                } else {
+                    // Seal an overtaken SNAPSHOT; unknown STOP is not a v2
+                    // physical retirement receipt and never carries an ACK.
+                    compositeAdmission.beginRetirement(leaseID);
+                    response = result(id, leaseID, "stopped", "", Collections.emptyList());
+                }
             } else {
                 JSONObject raw = request.optJSONObject("options");
                 Map<String, Object> options = new HashMap<>();
@@ -366,7 +672,9 @@ public final class ShellCapabilityBridge implements AutoCloseable {
                 Lease lease = leases.get(leaseID);
                 if (lease == null) {
                     if (leases.size() >= 8) throw new IOException("capacity");
-                    if (operation == 3) for (Lease existing : leases.values()) if (existing.policy.operation == 3) throw new IOException("panel_owner_busy");
+                    if (compositeAdmission.isRetired(leaseID)) throw new IOException("display_owner_retired");
+                    if (operation == 3) for (Lease existing : leases.values())
+                        if (existing.policy.operation == 3 || existing.policy.operation == 8) throw new IOException("panel_owner_busy");
                     for (Lease existing : leases.values()) if (existing.policy.scid == policy.scid && operation != 3) throw new IOException("scid_reused");
                     lease = new Lease(policy); leases.put(leaseID, lease);
                     try { lease.start(); } catch (Exception failure) { lease.retire(); leases.remove(leaseID); throw failure; }
@@ -378,6 +686,71 @@ public final class ShellCapabilityBridge implements AutoCloseable {
         if (receipts.size() >= 512) receipts.remove(receipts.keySet().iterator().next());
         receipts.put(id, new JSONObject().put("fingerprint", fingerprint).put("result", response).toString());
         return response;
+    }
+
+    private static Object jsonValue(Object value) throws Exception {
+        if (value == JSONObject.NULL) return null;
+        if (value instanceof JSONObject) return jsonFields((JSONObject)value);
+        if (value instanceof JSONArray) {
+            JSONArray array = (JSONArray)value; List<Object> result = new ArrayList<>();
+            for (int i = 0; i < array.length(); ++i) result.add(jsonValue(array.get(i)));
+            return result;
+        }
+        return value;
+    }
+    private static Map<String, Object> jsonFields(JSONObject object) throws Exception {
+        Map<String, Object> result = new HashMap<>();
+        for (Iterator<String> keys = object.keys(); keys.hasNext();) { String key = keys.next(); result.put(key, jsonValue(object.get(key))); }
+        return result;
+    }
+    /** Called only after physical/resource retirement, or before any child was
+     * created. Preserve negative startup evidence as well as terminal ACKs. */
+    private JSONObject rememberCompositeRetirement(String requestID, String leaseID, Lease lease) throws Exception {
+        JSONObject response = result(requestID, leaseID, lease == null || lease.compositeHeader == null
+            ? "display_state_not_started" : "display_state_retired", "", Collections.emptyList());
+        if (lease != null) {
+            JSONObject acknowledgement = lease.compositeTerminalJSON != null ? lease.compositeTerminalJSON : lease.compositeStartupFailure;
+            if (acknowledgement != null) response.put("display_state_acknowledgement", acknowledgement);
+            if (lease.compositeHeader != null) response.put("retirement_proof", lease.compositeProof());
+        }
+        // Cache before removing the lease; retries never have to invent a
+        // Boolean/v1 proof or perform another possibly unavailable read.
+        compositeRetiredResponses.remember(leaseID, response.toString());
+        return response;
+    }
+    private JSONObject compositeCommand(String requestID, String leaseID, CompositeCommand command) throws Exception {
+        Lease lease = leases.get(leaseID);
+        if (lease != null && lease.policy.operation != 8) throw new IOException("display_owner_lease_kind");
+        if (command.action == 0) {
+            boolean reserved = compositeAdmission.reserveSnapshot(leaseID);
+            if (reserved) {
+                try {
+                    if (leases.size() >= 8) throw new IOException("capacity");
+                    for (Lease existing : leases.values()) if (existing.policy.operation == 3 || existing.policy.operation == 8)
+                        throw new IOException("display_owner_busy");
+                    lease = new Lease(Policy.parse(8, leaseID, Collections.emptyMap())); leases.put(leaseID, lease);
+                    lease.start(); compositeAdmission.snapshotReady(leaseID);
+                } catch (Exception failed) {
+                    compositeAdmission.beginRetirement(leaseID);
+                    if (lease == null) { rememberCompositeRetirement(requestID, leaseID, null); compositeAdmission.finishRetirement(leaseID); }
+                    else try {
+                        lease.retire(); rememberCompositeRetirement(requestID, leaseID, lease);
+                        compositeAdmission.finishRetirement(leaseID); leases.remove(leaseID);
+                    } catch (Exception pending) { /* Retain owner and physical cleanup fence. */ }
+                    throw failed;
+                }
+            }
+            if (lease == null || lease.policy.operation != 8 || lease.stopped.get() || lease.compositeHeaderJSON == null)
+                throw new IOException("display_owner_unknown");
+            return result(requestID, leaseID, "display_state_snapshotted", "", Collections.emptyList())
+                .put("display_state_acknowledgement", lease.compositeHeaderJSON);
+        }
+        compositeAdmission.requireStatus(leaseID);
+        if (lease == null || lease.policy.operation != 8 || lease.stopped.get()) throw new IOException("display_owner_unknown");
+        if (command.action == 2) compositeAdmission.admitApply(leaseID, command);
+        JSONObject acknowledgement = lease.composite(command);
+        return result(requestID, leaseID, "display_state_reply", "", Collections.emptyList())
+            .put("display_state_acknowledgement", acknowledgement);
     }
 
     private void stream(FDChannel remote, JSONObject request, Lease lease) throws Exception {
@@ -432,6 +805,14 @@ public final class ShellCapabilityBridge implements AutoCloseable {
         String panelStartTime;
         String panelCurrentState;
         boolean panelFailureRestored;
+        Process compositeChild;
+        Thread compositeReader;
+        final ArrayBlockingQueue<JSONObject> compositeReplies = new ArrayBlockingQueue<>(8);
+        volatile boolean compositeReplyInvalid;
+        volatile CompositeReceipt compositeHeader;
+        volatile JSONObject compositeHeaderJSON, compositeStartupFailure, compositeTerminalJSON;
+        JSONObject compositePhysicalProof;
+        volatile long compositeConfirmedRevision, compositeAttemptedRevision;
         Lease(Policy policy) {
             this.policy = policy;
             streamOrder = new StreamOrder(policy.operation == 2 ? Collections.singletonList("control") :
@@ -440,7 +821,12 @@ public final class ShellCapabilityBridge implements AutoCloseable {
         String socketName() { return String.format(Locale.ROOT, "scrcpy_%08x", policy.scid); }
         String clipboardName() { return String.format(Locale.ROOT, "gb_clip_%08x", policy.scid); }
         void start() throws Exception {
-            if (policy.operation == 3) {
+            if (policy.operation == 8) {
+                compositeChild = spawn("display-state", new String[] {"--owner-lease"});
+                JSONObject startup = compositeReply();
+                CompositeReceipt receipt = CompositeReceipt.parse(jsonFields(startup)); receipt.header();
+                if (compositeHeader == null) throw new IOException("display_header_unavailable");
+            } else if (policy.operation == 3) {
                 panel = spawn("panel", new String[0]);
                 panelReply(); // The child owns the exact mixed physical snapshot.
             } else {
@@ -469,14 +855,61 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             List<String> args = new ArrayList<>(Arrays.asList("/system/bin/app_process", "/", "com.genymobile.scrcpy.ShellCapabilityBridge$ChildMain", mode));
             args.addAll(Arrays.asList(arguments));
             ProcessBuilder builder = new ProcessBuilder(args); builder.environment().put("CLASSPATH", owned.getPath());
-            if (mode.equals("panel")) builder.redirectError(new File("/dev/null"));
+            if (mode.equals("panel") || mode.equals("display-state")) builder.redirectError(new File("/dev/null"));
             else builder.redirectErrorStream(true);
             Process child = builder.start(); children.add(child);
-            Thread drain = new Thread(() -> drainAnnouncements(child, mode.equals("panel")), "gb-shell-owned-output"); drain.setDaemon(true); drain.start();
-            timer.schedule(() -> { if (opened.isEmpty() && !stopped.get() && policy.operation != 3) {
+            Thread drain = new Thread(() -> drainAnnouncements(child, mode), "gb-shell-owned-output");
+            if (mode.equals("display-state")) compositeReader = drain;
+            drain.setDaemon(true); drain.start();
+            timer.schedule(() -> { if (opened.isEmpty() && !stopped.get() && policy.operation != 3 && policy.operation != 8) {
                 synchronized (ShellCapabilityBridge.this) { try { retire(); leases.remove(policy.lease); } catch (Exception ignored) {} }
             } }, 15, TimeUnit.SECONDS);
             return child;
+        }
+        JSONObject compositeReply() throws Exception {
+            JSONObject reply = compositeReplies.poll(8, TimeUnit.SECONDS);
+            if (reply == null || compositeReplyInvalid) throw new IOException("display_reply_unavailable");
+            return reply;
+        }
+        JSONObject composite(CompositeCommand command) throws Exception {
+            if (compositeChild == null || !compositeChild.isAlive() || compositeHeader == null || compositeReplyInvalid)
+                throw new IOException("display_owner_unavailable");
+            DataOutputStream output = new DataOutputStream(compositeChild.getOutputStream());
+            if (command.action == 2) {
+                // Arm before even the first byte can be accepted remotely.
+                compositeAttemptedRevision = command.revision;
+                output.writeByte(1); output.writeByte(command.interactive ? 1 : 0); output.writeByte(command.panelPolicy);
+                output.writeLong(command.revision);
+            } else output.writeByte(0);
+            output.flush();
+            JSONObject frame = compositeReply(); CompositeReceipt receipt = CompositeReceipt.parse(jsonFields(frame));
+            receipt.sameOwner(compositeHeader);
+            if (command.action == 2) { receipt.policy(compositeHeader, command); compositeConfirmedRevision = command.revision; }
+            else if (!receipt.event.equals("reply") || !receipt.ok || receipt.draining || !receipt.settled)
+                throw new IOException("display_status_unconfirmed");
+            return frame;
+        }
+        void compositeLine(String line, boolean overflow) {
+            try {
+                if (overflow || line.getBytes(StandardCharsets.UTF_8).length > DisplayStateController.MAX_REPLY) throw new IOException();
+                JSONObject raw = new JSONObject(line); CompositeReceipt receipt = CompositeReceipt.parse(jsonFields(raw));
+                if (receipt.event.equals("ready")) {
+                    receipt.header();
+                    if (compositeHeader != null || compositeStartupFailure != null) throw new IOException();
+                    compositeHeader = receipt; compositeHeaderJSON = raw;
+                } else if (receipt.event.equals("startup_failed")) {
+                    if (compositeHeader != null || compositeAttemptedRevision != 0 || compositeStartupFailure != null) throw new IOException();
+                    compositeStartupFailure = raw;
+                } else {
+                    receipt.sameOwner(compositeHeader);
+                    if (receipt.event.equals("retired")) {
+                        receipt.terminal(compositeHeader, compositeConfirmedRevision, compositeAttemptedRevision);
+                        if (compositeTerminalJSON != null) throw new IOException();
+                        compositeTerminalJSON = raw;
+                    }
+                }
+                if (!compositeReplies.offer(raw)) throw new IOException();
+            } catch (Exception invalid) { compositeReplyInvalid = true; }
         }
         void power(boolean on) throws Exception {
             if (panel == null || !panel.isAlive()) throw new IOException("panel_owner_gone");
@@ -521,21 +954,28 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             panelFailureRestored = !reply.getBoolean("ok") && error.equals("panel_operation_failed_restored") && current.equals(initialPanels);
             if (!reply.getBoolean("ok") || !error.isEmpty()) throw new IOException(error.isEmpty() ? "panel_unconfirmed" : error);
         }
-        void drainAnnouncements(Process child, boolean panelChild) {
+        void drainAnnouncements(Process child, String mode) {
+            boolean panelChild = mode.equals("panel"), composite = mode.equals("display-state");
             try (InputStream input = child.getInputStream()) {
                 ByteArrayOutputStream line = new ByteArrayOutputStream(); boolean overflow = false;
                 int b;
                 while ((b = input.read()) != -1) {
                     if (b == '\n') {
                         String value = new String(line.toByteArray(), StandardCharsets.UTF_8);
-                        if (panelChild) {
+                        if (composite) compositeLine(value, overflow);
+                        else if (panelChild) {
                             if (overflow || !panelReplies.offer(value)) panelReplyOverflow = true;
                         } else if (!overflow && value.matches("\\[server\\] INFO: New display: [0-9]+x[0-9]+/[0-9]+ \\(id=[0-9]+\\)"))
                             announcements.offer((value + "\n").getBytes(StandardCharsets.UTF_8));
                         line.reset(); overflow = false;
-                    } else if (line.size() < (panelChild ? DisplayPowerController.MAX_REPLY_BYTES : 1024)) line.write(b); else overflow = true;
+                    } else if (line.size() < (composite ? DisplayStateController.MAX_REPLY : panelChild ? DisplayPowerController.MAX_REPLY_BYTES : 1024)) line.write(b); else overflow = true;
                 }
             } catch (IOException ignored) {}
+        }
+        JSONObject compositeProof() throws Exception {
+            if (compositePhysicalProof == null || compositeChild != null && compositeChild.isAlive()) throw new IOException("display_retirement_unconfirmed");
+            for (File owned : jars) if (owned.exists()) throw new IOException("display_resource_retirement_unconfirmed");
+            return new JSONObject(compositePhysicalProof.toString());
         }
         void retire() throws Exception {
             stopped.set(true);
@@ -549,7 +989,7 @@ public final class ShellCapabilityBridge implements AutoCloseable {
                 long remaining = Math.max(1, deadline - System.nanoTime());
                 if (!child.waitFor(remaining, TimeUnit.NANOSECONDS)) {
                     // Do not SIGKILL a panel child while it may be restoring.
-                    if (child == panel) throw new IOException("panel_retirement_unsettled");
+                    if (child == panel || child == compositeChild) throw new IOException("display_retirement_unsettled");
                     child.destroy();
                     if (!child.waitFor(500, TimeUnit.MILLISECONDS)) { child.destroyForcibly(); child.waitFor(500, TimeUnit.MILLISECONDS); }
                     if (child.isAlive()) throw new IOException("child_retirement_unsettled");
@@ -558,11 +998,37 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             // CleanUp is independently surviving: exact unique CLASSPATH plus
             // class + PID/start identity must disappear before allowing reuse.
             for (File owned : jars) awaitCleanup(owned, deadline);
+            if (policy.operation == 8) {
+                if (compositeReader != null) compositeReader.join(200);
+                if (compositeReader != null && compositeReader.isAlive()) throw new IOException("display_reply_unsettled");
+                if (compositeHeader != null && compositePhysicalProof == null) {
+                    confirmControllerAbsent(compositeHeader.pid, Long.parseLong(compositeHeader.start), () -> readControllerStat(compositeHeader.pid));
+                    JSONObject proof = new JSONObject().put("kind", 3).put("scid", 0).put("pid", compositeHeader.pid)
+                        .put("process_start_ticks", Long.parseLong(compositeHeader.start)).put("supported", true).put("absent", true)
+                        .put("panels", new JSONArray()).put("owned_resource_id", "").put("resource_removed", false);
+                    if (compositeTerminalJSON != null && !compositeReplyInvalid) {
+                        CompositeReceipt.parse(jsonFields(compositeTerminalJSON)).terminal(compositeHeader, compositeConfirmedRevision, compositeAttemptedRevision);
+                        proof.put("display_state_terminal_acknowledgement", compositeTerminalJSON);
+                    } else {
+                        // Exact-restored fallback only. A changed final state
+                        // requires the retained typed YIELD/barrier receipt.
+                        JSONObject observed = new JSONObject(DisplayStateController.snapshot(compositeProbe.read()));
+                        if (!new CompositeSnapshot(jsonFields(observed)).sameOwnedState(compositeHeader.initial))
+                            throw new IOException("display_retirement_unconfirmed");
+                        proof.put("display_state_snapshot", observed);
+                    }
+                    compositePhysicalProof = proof;
+                    compositeProofs.put(compositeHeader.pid + ":" + compositeHeader.start, proof);
+                } else if (compositeHeader == null && compositeAttemptedRevision != 0) throw new IOException("display_startup_retirement_unconfirmed");
+            }
             // The child exits0 only after confirmed exact per-panel restoration.
             // An operation error can also prove rollback explicitly in its ack.
             if (policy.operation == 3 && panel != null && initialPanels != null && panel.exitValue() != 0 && !panelFailureRestored)
                 throw new IOException("panel_restore_unconfirmed");
-            for (File owned : jars) owned.delete();
+            for (File owned : jars) {
+                if (policy.operation == 8) { Files.deleteIfExists(owned.toPath()); if (owned.exists()) throw new IOException("display_resource_retirement_unconfirmed"); }
+                else owned.delete();
+            }
         }
     }
 
@@ -616,6 +1082,11 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             if (mode.equals("panel")) {
                 if (values.length != 0) return;
                 DisplayPowerController.main(values);
+            } else if (mode.equals("display-state")) {
+                if (values.length != 1 || !values[0].equals("--owner-lease")) return;
+                // The composite controller owns drain/restore. Never attach
+                // the capture wrapper's unconditional System.exit deadline.
+                DisplayStateController.main(values);
             } else if ((mode.equals("scrcpy") || mode.equals("clipboard")) && values.length > 0 && values[0].equals("--owner-lease")) {
                 try (OwnedCaptureLifetime lifetime = new OwnedCaptureLifetime(System.in, 12000, 200, () -> System.exit(0))) {
                     String[] payload = Arrays.copyOfRange(values, 1, values.length);
@@ -691,7 +1162,7 @@ public final class ShellCapabilityBridge implements AutoCloseable {
                 if (!fields.contains("com.genymobile.scrcpy.ShellCapabilityBridge$ChildMain") && !fields.contains("com.genymobile.scrcpy.CleanUp")) continue;
                 String env = new String(Files.readAllBytes(new File(entry, "environ").toPath()), StandardCharsets.UTF_8);
                 boolean owned = false;
-                for (String value : env.split("\u0000")) if (value.matches("CLASSPATH=/data/local/tmp/galaxybridge-shell-[a-f0-9-]{36}/[a-f0-9-]{36}-(?:scrcpy|clipboard|panel)\\.jar")) owned = true;
+                for (String value : env.split("\u0000")) if (value.matches("CLASSPATH=/data/local/tmp/galaxybridge-shell-[a-f0-9-]{36}/[a-f0-9-]{36}-(?:scrcpy|clipboard|panel|display-state)\\.jar")) owned = true;
                 if (!owned) continue;
                 String stat = new String(Files.readAllBytes(new File(entry, "stat").toPath()), StandardCharsets.UTF_8);
                 String[] state = stat.substring(stat.lastIndexOf(')') + 1).trim().split("\\s+");
@@ -750,17 +1221,17 @@ public final class ShellCapabilityBridge implements AutoCloseable {
         final long startTicks;
         final String resourceID, resourceSHA;
         private RetirementQuery(Map<String, Object> fields, boolean release) {
-            kind = (int) Policy.number(fields, "kind", 0, 2);
+            kind = (int) Policy.number(fields, "kind", 0, 3);
             scid = (int) Policy.number(fields, "scid", 0, 0x7fffffffL);
             pid = (int) Policy.number(fields, "pid", 0, 0x7fffffffL);
             startTicks = Policy.number(fields, "process_start_ticks", 0, Long.MAX_VALUE);
             resourceID = Policy.text(fields, "owned_resource_id"); resourceSHA = Policy.text(fields, "resource_sha256");
             if (release) {
-                if (kind != 2 || !canonicalUUID(resourceID) || !resourceSHA.matches("[a-f0-9]{64}")) throw new IllegalArgumentException();
+                if ((kind != 2 && kind != 3) || !canonicalUUID(resourceID) || !resourceSHA.matches("[a-f0-9]{64}")) throw new IllegalArgumentException();
             } else if (!resourceID.isEmpty() || !resourceSHA.isEmpty()) throw new IllegalArgumentException();
             if (kind == 0 && (scid != 0 || pid != 0 || startTicks != 0)) throw new IllegalArgumentException();
             if (kind == 1 && (scid <= 0 || pid != 0 || startTicks != 0)) throw new IllegalArgumentException();
-            if (kind == 2 && (scid != 0 || pid <= 1 || startTicks <= 0)) throw new IllegalArgumentException();
+            if ((kind == 2 || kind == 3) && (scid != 0 || pid <= 1 || startTicks <= 0)) throw new IllegalArgumentException();
         }
         static RetirementQuery parse(Map<String, Object> fields) { return parse(fields, false); }
         static RetirementQuery parse(Map<String, Object> fields, boolean release) {
@@ -804,6 +1275,15 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             for (Map.Entry<String, Boolean> panel : frame.states.entrySet())
                 panels.put(new JSONObject().put("physical_id", panel.getKey()).put("on", panel.getValue()));
             proof.put("absent", true);
+        }
+        if (query.kind == 3) {
+            confirmControllerAbsent(query.pid, query.startTicks, () -> readControllerStat(query.pid));
+            proof.put("absent", true);
+            JSONObject retained = compositeProofs.get(query.pid + ":" + query.startTicks);
+            if (retained != null) {
+                if (retained.has("display_state_terminal_acknowledgement")) proof.put("display_state_terminal_acknowledgement", retained.get("display_state_terminal_acknowledgement"));
+                if (retained.has("display_state_snapshot")) proof.put("display_state_snapshot", retained.get("display_state_snapshot"));
+            } else proof.put("display_state_snapshot", new JSONObject(DisplayStateController.snapshot(compositeProbe.read())));
         }
         return proof.put("panels", panels);
     }
@@ -937,7 +1417,8 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             for (File entry : entries) if (entry.getName().matches("[0-9]+")) {
                 try {
                     String command = new String(Files.readAllBytes(new File(entry, "cmdline").toPath()), StandardCharsets.UTF_8).replace('\0', ' ');
-                    if (!Arrays.asList(command.trim().split("\\s+")).contains("com.genymobile.scrcpy.CleanUp")) continue;
+                    List<String> commands = Arrays.asList(command.trim().split("\\s+"));
+                    if (!commands.contains("com.genymobile.scrcpy.CleanUp") && !commands.contains("com.genymobile.scrcpy.ShellCapabilityBridge$ChildMain")) continue;
                     String env = new String(Files.readAllBytes(new File(entry, "environ").toPath()), StandardCharsets.UTF_8);
                     if (!Arrays.asList(env.split("\u0000")).contains("CLASSPATH=" + jar.getPath())) continue;
                     String stat = new String(Files.readAllBytes(new File(entry, "stat").toPath()), StandardCharsets.UTF_8);
@@ -960,6 +1441,12 @@ public final class ShellCapabilityBridge implements AutoCloseable {
         final String lease, codec, application;
         private Policy(int operation, String lease, Map<String, Object> options) {
             this.operation = operation; this.lease = lease;
+            if (operation == 8) {
+                if (!options.isEmpty()) throw new IllegalArgumentException("display_owner_media_options");
+                scid = display = size = fps = width = height = 0;
+                bitrate = 0; audio = control = false; codec = application = "";
+                return;
+            }
             scid = (int) number(options, "scid", 1, 0x7fffffffL);
             display = (int) number(options, "display_id", 0, 4095);
             size = (int) number(options, "max_size", 0, 8192);
@@ -973,7 +1460,7 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             if ((width == 0) != (height == 0) || (!control && operation != 1)) throw new IllegalArgumentException();
         }
         static Policy parse(int operation, String lease, Map<String, Object> options) {
-            if (operation < 1 || operation > 3 || !canonicalUUID(lease)) throw new IllegalArgumentException();
+            if ((operation < 1 || operation > 3) && operation != 8 || !canonicalUUID(lease)) throw new IllegalArgumentException();
             Set<String> fields = new HashSet<>(Arrays.asList("scid", "display_id", "package_name", "max_size", "max_fps", "video_bit_rate", "codec", "width", "height", "audio", "control"));
             if (!fields.containsAll(options.keySet())) throw new IllegalArgumentException();
             return new Policy(operation, lease, options);
@@ -985,13 +1472,14 @@ public final class ShellCapabilityBridge implements AutoCloseable {
         }
         private static String text(Map<String, Object> source, String key) { Object value = source.getOrDefault(key, ""); if (!(value instanceof String)) throw new IllegalArgumentException(); return (String) value; }
         private static boolean flag(Map<String, Object> source, String key) { Object value = source.getOrDefault(key, false); if (!(value instanceof Boolean)) throw new IllegalArgumentException(); return (Boolean) value; }
-        boolean equivalent(Policy other) { return operation == other.operation && (operation == 3 || Arrays.equals(serverArguments(), other.serverArguments())); }
+        boolean equivalent(Policy other) { return operation == other.operation && (operation == 3 || operation == 8 || Arrays.equals(serverArguments(), other.serverArguments())); }
         List<String> streams() {
-            if (operation == 3) return Collections.emptyList();
+            if (operation == 3 || operation == 8) return Collections.emptyList();
             List<String> types = operation == 2 ? Arrays.asList("control", "clipboard") : audio ? Arrays.asList("video", "audio", "control", "log") : Arrays.asList("video", "control", "log");
             List<String> ids = new ArrayList<>(); for (String type : types) ids.add(lease + "/" + type); return ids;
         }
         String[] serverArguments() {
+            if (operation == 8) return new String[0];
             List<String> args = new ArrayList<>(Arrays.asList(BuildConfig.VERSION_NAME, String.format(Locale.ROOT, "scid=%08x", scid),
                 "log_level=info", "tunnel_forward=true", "cleanup=true", "power_on=false", "clipboard_autosync=false",
                 "send_device_meta=" + (operation == 1), "send_stream_meta=true", "send_frame_meta=true",

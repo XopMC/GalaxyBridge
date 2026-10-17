@@ -5,6 +5,151 @@ import java.util.Map;
 
 /** Host execution of the actual server's typed policy; no Android APIs invoked. */
 public final class ShellCapabilityBridgePolicyTest {
+    private static void testCompositeRetirementStore() {
+        String lease = "69830b65-6352-4b3a-8a21-70bcda45787e";
+        ShellCapabilityBridge.CompositeRetirementStore store = new ShellCapabilityBridge.CompositeRetirementStore();
+        assert store.get(lease) == null;
+        store.remember(lease, "exact validated typed terminal and absence receipt");
+        store.remember(lease, "exact validated typed terminal and absence receipt");
+        reject(() -> store.remember(lease, "stopped"));
+        assert store.get(lease).equals("exact validated typed terminal and absence receipt");
+        assert store.get("181892ff-7429-4d94-95b6-f425e01f4b06") == null;
+    }
+    private static void testCompositeProofInitializationQuarantine() throws Exception {
+        java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1), release = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger created = new java.util.concurrent.atomic.AtomicInteger();
+        ShellCapabilityBridge.CompositeRetirementProbe probe = new ShellCapabilityBridge.CompositeRetirementProbe(() -> {
+            created.incrementAndGet(); entered.countDown(); release.await();
+            return new DisplayStateRuntimeBackend(new DisplayStateRuntimeBackendTest.Platform());
+        }, 25);
+        java.util.concurrent.FutureTask<Exception> caller = new java.util.concurrent.FutureTask<>(() -> {
+            try { probe.read(); return null; } catch (Exception expected) { return expected; }
+        });
+        Thread thread = new Thread(caller, "test-proof-initialization-caller"); thread.setDaemon(true); thread.start();
+        try {
+            assert entered.await(1, java.util.concurrent.TimeUnit.SECONDS);
+            Exception timeout;
+            try { timeout = caller.get(500, java.util.concurrent.TimeUnit.MILLISECONDS); }
+            catch (java.util.concurrent.TimeoutException hung) { throw new AssertionError("proof initialization held the broker monitor indefinitely", hung); }
+            assert timeout instanceof java.io.IOException;
+            for (int i = 0; i < 2; ++i) {
+                try { probe.read(); throw new AssertionError("unsettled initialization admitted"); } catch (java.io.IOException expected) {}
+            }
+            assert created.get() == 1 : "timed-out initialization must not spawn replacements";
+        } finally { release.countDown(); }
+        DisplayStateSnapshot observed = null;
+        for (int i = 0; i < 100 && observed == null; ++i) {
+            try { observed = probe.read(); } catch (java.io.IOException pending) { Thread.sleep(5); }
+        }
+        assert observed != null && created.get() == 1 : "settled late initialization must be reused for a fresh observation";
+        System.out.println("PASS bounded proof initialization: one retained task, no cancellation/relaunch, late completion followed by fresh snapshot");
+    }
+    private static void testCompositeProofReaderQuarantine() throws Exception {
+        java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1), release = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger created = new java.util.concurrent.atomic.AtomicInteger(), calls = new java.util.concurrent.atomic.AtomicInteger();
+        ShellCapabilityBridge.CompositeRetirementProbe probe = new ShellCapabilityBridge.CompositeRetirementProbe(() -> {
+            created.incrementAndGet();
+            return new DisplayStateRuntimeBackend(new DisplayStateRuntimeBackendTest.Platform() {
+                public boolean defaultInteractive() {
+                    calls.incrementAndGet(); entered.countDown();
+                    try { release.await(); } catch (InterruptedException failure) { throw new AssertionError(failure); }
+                    return false;
+                }
+            }, 25);
+        });
+        try {
+            for (int i = 0; i < 3; ++i) {
+                try { probe.read(); throw new AssertionError("blocked proof reader admitted"); } catch (java.io.IOException expected) {}
+            }
+            assert entered.await(1, java.util.concurrent.TimeUnit.SECONDS);
+            assert created.get() == 1 && calls.get() == 1 : "proof retry bypassed the pending-read quarantine";
+        } finally { release.countDown(); }
+        DisplayStateSnapshot observed = null;
+        for (int i = 0; i < 100 && observed == null; ++i) {
+            try { observed = probe.read(); } catch (java.io.IOException pending) { Thread.sleep(5); }
+        }
+        assert observed != null && created.get() == 1 : "proof retry must reuse the settled backend and discard its late result";
+        System.out.println("PASS composite retirement proof retries retain one actual bounded backend and quarantine a pending Binder read");
+    }
+    private static Map<String, Object> compositeSnapshot() {
+        Map<String, Object> value = new HashMap<>();
+        Map<String, Object> panel = new HashMap<>(); panel.put("id", "20"); panel.put("mode", "DOZE");
+        value.put("panels", java.util.Collections.singletonList(panel)); value.put("activeID", "20");
+        value.put("defaultInteractive", false); value.put("defaultWakefulness", "DOZING");
+        value.put("globalWakefulness", "DOZING"); value.put("transitionScope", "GLOBAL");
+        for (String key : new String[]{"lastGlobalWakeTime", "lastGlobalSleepTime", "defaultActivityTime", "defaultActivityNoChangeLightsTime"}) value.put(key, "100");
+        return value;
+    }
+    private static Map<String, Object> compositeFrame() {
+        Map<String, Object> value = new HashMap<>();
+        value.put("version", 2); value.put("event", "ready"); value.put("pid", 123); value.put("startTime", "456");
+        value.put("revision", 0L); value.put("state", "SNAPSHOTTED"); value.put("draining", false);
+        value.put("mutation_settled", true); value.put("initial", compositeSnapshot()); value.put("current", compositeSnapshot());
+        value.put("ok", true); value.put("error", ""); value.put("reason", "startup"); return value;
+    }
+    private static void testCompositeReceipts() {
+        ShellCapabilityBridge.CompositeReceipt header = ShellCapabilityBridge.CompositeReceipt.parse(compositeFrame()); header.header();
+        for (String key : compositeFrame().keySet()) {
+            Map<String, Object> missing = compositeFrame(); missing.remove(key);
+            reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(missing));
+        }
+        for (Object invalid : new Object[]{true, 2.0, "2", -1, 1, 3}) {
+            Map<String, Object> value = compositeFrame(); value.put("version", invalid);
+            reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(value));
+        }
+        for (Object invalid : new Object[]{"0456", "0", "-1", "9223372036854775808", 456}) {
+            Map<String, Object> value = compositeFrame(); value.put("startTime", invalid);
+            reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(value));
+        }
+        Map<String, Object> extra = compositeFrame(); extra.put("legacy_on", true);
+        reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(extra));
+        Map<String, Object> nonBoolean = compositeFrame(); nonBoolean.put("mutation_settled", 1);
+        reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(nonBoolean));
+        Map<String, Object> wrongReason = compositeFrame(); wrongReason.put("reason", "command");
+        reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(wrongReason).header());
+        Map<String, Object> missingError = compositeFrame(); missingError.put("event", "reply"); missingError.put("ok", false);
+        reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(missingError));
+        Map<String, Object> unknownGroup = compositeFrame(), snapshot = compositeSnapshot(); snapshot.put("defaultWakefulness", null);
+        unknownGroup.put("initial", snapshot); reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(unknownGroup));
+        Map<String, Object> duplicatePanels = compositeFrame(), panels = compositeSnapshot();
+        Object panel = ((java.util.List<?>)panels.get("panels")).get(0); panels.put("panels", java.util.Arrays.asList(panel, panel));
+        duplicatePanels.put("current", panels); reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(duplicatePanels));
+        Map<String, Object> command = new HashMap<>(); command.put("action", 2); command.put("interactive", true);
+        command.put("panel_policy", 1); command.put("revision", 7L);
+        ShellCapabilityBridge.CompositeCommand hide = ShellCapabilityBridge.CompositeCommand.parse(command);
+        Map<String, Object> ready = compositeFrame(), awake = compositeSnapshot();
+        awake.put("defaultInteractive", true); awake.put("defaultWakefulness", "AWAKE"); awake.put("globalWakefulness", "AWAKE");
+        Map<String, Object> off = new HashMap<>(); off.put("id", "20"); off.put("mode", "OFF"); awake.put("panels", java.util.Collections.singletonList(off));
+        ready.put("event", "reply"); ready.put("state", "READY"); ready.put("revision", 7L); ready.put("current", awake);
+        ShellCapabilityBridge.CompositeReceipt.parse(ready).policy(header, hide);
+        Map<String, Object> wrongPID = new HashMap<>(ready); wrongPID.put("pid", 124);
+        reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(wrongPID).policy(header, hide));
+        Map<String, Object> rebase = new HashMap<>(ready), changed = compositeSnapshot(); changed.put("lastGlobalWakeTime", "101"); rebase.put("initial", changed);
+        reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(rebase).policy(header, hide));
+        Map<String, Object> stale = new HashMap<>(ready); stale.put("revision", 6L);
+        reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(stale).policy(header, hide));
+        Map<String, Object> notInteractive = new HashMap<>(ready); notInteractive.put("current", compositeSnapshot());
+        reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(notInteractive).policy(header, hide));
+        Map<String, Object> terminal = compositeFrame(), restored = compositeSnapshot();
+        terminal.put("event", "retired"); terminal.put("state", "RESTORED"); terminal.put("draining", true);
+        restored.put("lastGlobalWakeTime", "200"); restored.put("globalWakefulness", "AWAKE"); terminal.put("current", restored);
+        ShellCapabilityBridge.CompositeReceipt.parse(terminal).terminal(header, 0, 7);
+        reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(terminal).terminal(header, 7, 7));
+        Map<String, Object> falseRestoration = new HashMap<>(terminal); falseRestoration.put("current", awake);
+        reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(falseRestoration));
+        for (String disposition : new String[]{"YIELDED_ACTIVITY", "YIELDED_EXTERNAL"}) {
+            Map<String, Object> yielded = new HashMap<>(falseRestoration); yielded.put("state", disposition);
+            ShellCapabilityBridge.CompositeReceipt.parse(yielded).terminal(header, 0, 7);
+        }
+        Map<String, Object> pending = new HashMap<>(terminal); pending.put("mutation_settled", false);
+        reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(pending).terminal(header, 0, 7));
+        Map<String, Object> startupFailed = compositeFrame(); startupFailed.put("event", "startup_failed"); startupFailed.put("state", "NOT_STARTED");
+        startupFailed.put("ok", false); startupFailed.put("draining", true); startupFailed.put("initial", null); startupFailed.put("current", null);
+        startupFailed.put("error", "display_default_wakefulness_unknown");
+        reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(startupFailed).header());
+        startupFailed.put("reason", "command"); reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(startupFailed));
+        System.out.println("PASS v2 broker receipts: strict native fields, immutable initial identity, exact policy correlation and typed conditional retirement");
+    }
     private static Map<String, Object> options() {
         Map<String, Object> value = new HashMap<>();
         value.put("scid", 123); value.put("display_id", 0); value.put("package_name", "com.example.notes");
@@ -36,6 +181,19 @@ public final class ShellCapabilityBridgePolicyTest {
             System.out.println("ready"); System.out.flush(); Thread.sleep(30000); return;
         }
         String lease = "69830b65-6352-4b3a-8a21-70bcda45787e";
+        testCompositeProofInitializationQuarantine();
+        testCompositeProofReaderQuarantine();
+        testCompositeRetirementStore();
+        testCompositeReceipts();
+        testCompositeCommands();
+        testCompositeAdmission();
+        ShellCapabilityBridge.Policy composite = ShellCapabilityBridge.Policy.parse(8, lease, new HashMap<String, Object>());
+        assert composite.streams().isEmpty() && composite.serverArguments().length == 0
+            : "display-state owner must never start media or expose a stream";
+        assert composite.scid == 0 && !composite.control && !composite.audio;
+        reject(() -> ShellCapabilityBridge.Policy.parse(8, lease, options()));
+        Map<String, Object> disguised = new HashMap<>(); disguised.put("scid", 0);
+        reject(() -> ShellCapabilityBridge.Policy.parse(8, lease, disguised));
         testVerifiedSourceCleanup();
         testPanelStatusReadinessIsolation();
         testRegistrationAgainstStop();
@@ -294,4 +452,87 @@ public final class ShellCapabilityBridgePolicyTest {
         try { result.get(1, java.util.concurrent.TimeUnit.SECONDS); throw new AssertionError("connection unexpectedly succeeded"); }
         catch (java.util.concurrent.ExecutionException expected) { assert expected.getCause() instanceof java.io.IOException; }
     }
+    private static Map<String, Object> composite(int action, boolean interactive, int policy, long revision) {
+        Map<String, Object> fields = new HashMap<>(); fields.put("action", action); fields.put("interactive", interactive);
+        fields.put("panel_policy", policy); fields.put("revision", revision); return fields;
+    }
+    private static void testCompositeCommands() {
+        for (int action : new int[] {0, 1}) {
+            ShellCapabilityBridge.CompositeCommand parsed = ShellCapabilityBridge.CompositeCommand.parse(composite(action, false, 0, 0));
+            assert parsed.action == action && !parsed.interactive && parsed.panelPolicy == 0 && parsed.revision == 0;
+            reject(() -> ShellCapabilityBridge.CompositeCommand.parse(composite(action, true, 0, 0)));
+            reject(() -> ShellCapabilityBridge.CompositeCommand.parse(composite(action, false, 1, 0)));
+            reject(() -> ShellCapabilityBridge.CompositeCommand.parse(composite(action, false, 0, 1)));
+        }
+        for (int policy : new int[] {0, 1, 2}) {
+            ShellCapabilityBridge.CompositeCommand parsed = ShellCapabilityBridge.CompositeCommand.parse(composite(2, true, policy, Long.MAX_VALUE));
+            assert parsed.action == 2 && parsed.interactive && parsed.panelPolicy == policy && parsed.revision == Long.MAX_VALUE;
+        }
+        reject(() -> ShellCapabilityBridge.CompositeCommand.parse(composite(2, true, 1, 0)));
+        reject(() -> ShellCapabilityBridge.CompositeCommand.parse(composite(2, true, 1, -1)));
+        reject(() -> ShellCapabilityBridge.CompositeCommand.parse(composite(3, true, 1, 1)));
+        reject(() -> ShellCapabilityBridge.CompositeCommand.parse(composite(2, true, 3, 1)));
+        for (String key : new String[] {"action", "interactive", "panel_policy", "revision"}) {
+            Map<String, Object> missing = composite(2, true, 1, 1); missing.remove(key);
+            reject(() -> ShellCapabilityBridge.CompositeCommand.parse(missing));
+        }
+        Map<String, Object> unknown = composite(2, true, 1, 1); unknown.put("scid", 123);
+        reject(() -> ShellCapabilityBridge.CompositeCommand.parse(unknown));
+        for (Object value : new Object[] {"1", 1.0, null}) {
+            Map<String, Object> malformed = composite(2, true, 1, 1); malformed.put("revision", value);
+            reject(() -> ShellCapabilityBridge.CompositeCommand.parse(malformed));
+        }
+        Map<String, Object> booleanString = composite(2, true, 1, 1); booleanString.put("interactive", "true");
+        reject(() -> ShellCapabilityBridge.CompositeCommand.parse(booleanString));
+        System.out.println("PASS native composite command format: zero-field snapshot/status, explicit bounded policy action");
+    }
+
+    private static void testCompositeAdmission() throws Exception {
+        String lease = "69830b65-6352-4b3a-8a21-70bcda45787e", other = "d5e1590c-47fb-4d73-9ac2-45988ba0a876";
+        ShellCapabilityBridge.CompositeLeaseAdmission admission = new ShellCapabilityBridge.CompositeLeaseAdmission(4);
+        reject(() -> admission.requireStatus(lease));
+        reject(() -> admission.admitApply(lease, ShellCapabilityBridge.CompositeCommand.parse(composite(2, true, 0, 1))));
+        assert admission.reserveSnapshot(lease) : "first SNAPSHOT did not reserve a read-only lifetime";
+        assert !admission.mayHaveMutated(lease);
+        assert !admission.reserveSnapshot(lease) : "duplicate SNAPSHOT rebased the initial snapshot";
+        reject(() -> admission.requireStatus(lease));
+        reject(() -> admission.admitApply(lease, ShellCapabilityBridge.CompositeCommand.parse(composite(2, true, 0, 1))));
+        admission.snapshotReady(lease); admission.requireStatus(lease);
+        assert !admission.mayHaveMutated(lease) && !admission.reserveSnapshot(lease);
+        admission.admitApply(lease, ShellCapabilityBridge.CompositeCommand.parse(composite(2, true, 0, 1)));
+        assert admission.mayHaveMutated(lease) : "possible mutation must be armed before a write can fail";
+        admission.requireStatus(lease);
+        admission.admitApply(lease, ShellCapabilityBridge.CompositeCommand.parse(composite(2, true, 0, 1)));
+        reject(() -> admission.admitApply(lease, ShellCapabilityBridge.CompositeCommand.parse(composite(2, true, 1, 1))));
+        reject(() -> admission.reserveSnapshot(lease));
+        admission.admitApply(lease, ShellCapabilityBridge.CompositeCommand.parse(composite(2, true, 1, 2)));
+        reject(() -> admission.admitApply(lease, ShellCapabilityBridge.CompositeCommand.parse(composite(2, true, 0, 1))));
+        admission.beginRetirement(lease);
+        assert admission.mayHaveMutated(lease) : "drain discarded uncertainty about an earlier attempted policy";
+        reject(() -> admission.requireStatus(lease));
+        reject(() -> admission.snapshotReady(lease));
+        reject(() -> admission.admitApply(lease, ShellCapabilityBridge.CompositeCommand.parse(composite(2, true, 1, 3))));
+        admission.finishRetirement(lease); admission.finishRetirement(lease);
+        assert admission.isRetired(lease); reject(() -> admission.reserveSnapshot(lease));
+        admission.beginRetirement(other); assert admission.isRetired(other);
+        reject(() -> admission.reserveSnapshot(other));
+        String late = new java.util.UUID(0, 3).toString(); assert admission.reserveSnapshot(late);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicBoolean lateRejected = new java.util.concurrent.atomic.AtomicBoolean();
+        Thread callback = new Thread(() -> {
+            try { release.await(); admission.snapshotReady(late); }
+            catch (IllegalArgumentException expected) { lateRejected.set(true); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+        }); callback.start(); admission.beginRetirement(late); release.countDown(); callback.join(2000);
+        assert !callback.isAlive() && lateRejected.get() : "late startup callback revived a draining owner";
+        assert !admission.mayHaveMutated(late); admission.finishRetirement(late);
+        String last = new java.util.UUID(0, 4).toString(); assert admission.reserveSnapshot(last);
+        admission.beginRetirement(last); admission.finishRetirement(last);
+        assert admission.retainedCount() == 4;
+        reject(() -> admission.reserveSnapshot(new java.util.UUID(0, 5).toString()));
+        reject(() -> admission.reserveSnapshot(lease));
+        reject(() -> new ShellCapabilityBridge.CompositeLeaseAdmission(0));
+        System.out.println("PASS native composite admission: immutable snapshot phase, pre-write uncertainty, drain fencing, late callbacks and bounded STOP tombstones");
+    }
+
 }

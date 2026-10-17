@@ -18,9 +18,11 @@ fi
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/gb-display-controller.XXXXXX")
 trap 'rm -rf -- "$tmp"' EXIT
 platform="$sdk/platforms/${GB_ANDROID_PLATFORM:-android-37.0}/android.jar"
-"$jdk/bin/javac" -source 8 -target 8 -Xlint:-options -bootclasspath "$platform" -cp "$classes" -d "$tmp" \
+"$jdk/bin/javac" -source 8 -target 8 -Xlint:-options -bootclasspath "$platform" -cp "$classes:$sdk/build-tools/${GB_ANDROID_BUILD_TOOLS:-37.0.0}/core-lambda-stubs.jar" -d "$tmp" \
   "$root/third_party/scrcpy-gb-sync/DisplayStateSnapshot.java" "$root/third_party/scrcpy-gb-sync/DisplayStateOwnership.java" \
   "$root/third_party/scrcpy-gb-sync/DisplayStatePowerCalls.java" "$root/third_party/scrcpy-gb-sync/DisplayStateRuntimeBackend.java" \
+  "$root/third_party/scrcpy-gb-sync/DisplayPowerController.java" \
+  "$root/third_party/scrcpy-gb-sync/ShellCapabilityBridge.java" \
   "$root/third_party/scrcpy-gb-sync/DisplayStateController.java"
 "$jdk/bin/javac" -source 8 -target 8 -Xlint:-options -cp "$tmp:$platform:$classes" -d "$tmp" \
   "$root/third_party/scrcpy-gb-sync/DisplayStateOwnershipTest.java" "$root/third_party/scrcpy-gb-sync/DisplayStateControllerTest.java"
@@ -53,3 +55,49 @@ xcrun swiftc -swift-version 6 \
   "$root/macos/GalaxyBridgeMacTests/DisplayStateControllerProtocolSpec.swift" \
   -o "$tmp/swift-wire-spec"
 "$tmp/swift-wire-spec" "$tmp/wire.jsonl" "$tmp/startup-failed.jsonl"
+python3 - "$tmp" <<'PY'
+import json, sys
+from pathlib import Path
+directory = Path(sys.argv[1])
+frames = [json.loads(line) for line in (directory / 'wire.jsonl').read_text().splitlines()]
+failed = json.loads((directory / 'startup-failed.jsonl').read_text())
+def literal(value):
+    if value is None: return 'null'
+    if type(value) is bool: return 'Boolean.TRUE' if value else 'Boolean.FALSE'
+    if type(value) is int: return 'Long.valueOf("' + str(value) + '")'
+    if type(value) is str: return json.dumps(value, ensure_ascii=True)
+    if type(value) is list: return 'java.util.Arrays.<Object>asList(' + ','.join(map(literal, value)) + ')'
+    if type(value) is dict:
+        return 'fields(' + ','.join(literal(item) for pair in value.items() for item in pair) + ')'
+    raise TypeError(type(value))
+source = '''package com.genymobile.scrcpy;
+import java.util.*;
+public final class CompositeActualWireSpec {
+ static Map<String,Object> fields(Object... values) {
+  Map<String,Object> result = new HashMap<>();
+  for (int i=0;i<values.length;i+=2) result.put((String)values[i],values[i+1]);
+  return result;
+ }
+ public static void main(String[] args) {
+  Map<String,Object>[] frames = new Map[]{FRAMES};
+  ShellCapabilityBridge.CompositeReceipt header = ShellCapabilityBridge.CompositeReceipt.parse(frames[0]); header.header();
+  for(int i=1;i<frames.length;i++) ShellCapabilityBridge.CompositeReceipt.parse(frames[i]).sameOwner(header);
+  for(int i:new int[]{1,3,4}) {
+   long revision = i==1?1:i==3?2:3; int mode = i==3?0:1;
+   ShellCapabilityBridge.CompositeCommand command = ShellCapabilityBridge.CompositeCommand.parse(
+     fields("action",2,"interactive",true,"panel_policy",mode,"revision",revision));
+   ShellCapabilityBridge.CompositeReceipt.parse(frames[i]).policy(header,command);
+  }
+  ShellCapabilityBridge.CompositeReceipt.parse(frames[frames.length-1]).terminal(header,3,3);
+  ShellCapabilityBridge.CompositeReceipt startup = ShellCapabilityBridge.CompositeReceipt.parse(FAILED);
+  assert startup.event.equals("startup_failed") && startup.initial==null && startup.settled;
+  try {startup.header(); throw new AssertionError("startup failure admitted");} catch(IllegalArgumentException expected){}
+  System.out.println("PASS actual native v2 lifecycle and startup failure accepted by independent broker receipt validator");
+ }
+}
+'''.replace('FRAMES', ','.join(map(literal, frames))).replace('FAILED', literal(failed))
+(directory / 'CompositeActualWireSpec.java').write_text(source)
+PY
+"$jdk/bin/javac" -source 8 -target 8 -Xlint:-options -cp "$tmp:$platform:$classes" \
+  -d "$tmp" "$tmp/CompositeActualWireSpec.java"
+"$jdk/bin/java" -ea -cp "$tmp:$platform:$classes" com.genymobile.scrcpy.CompositeActualWireSpec

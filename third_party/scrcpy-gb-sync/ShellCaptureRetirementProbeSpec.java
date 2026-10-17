@@ -120,6 +120,8 @@ public final class ShellCaptureRetirementProbeSpec {
         assert parse.invoke(null,fields)!=null : "typed exact capture";
         fields.put("kind",2); fields.put("scid",0); fields.put("pid",42); fields.put("process_start_ticks",123456L);
         assert parse.invoke(null,fields)!=null : "typed exact display controller";
+        fields.put("kind",3);
+        assert parse.invoke(null,fields)!=null : "typed composite display controller requires its own proof kind";
         for (String key : Arrays.asList("kind","scid","pid","process_start_ticks")) {
             Map<String,Object> invalid=new HashMap<>(fields); invalid.put(key,"1");
             boolean rejected=false;
