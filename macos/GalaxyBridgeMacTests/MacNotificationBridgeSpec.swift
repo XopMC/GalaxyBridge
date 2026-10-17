@@ -222,8 +222,7 @@ enum MacNotificationBridgeSpec {
         try expectEqual(request.content.body, "Private body", "Android body reaches the native banner")
         try expect(!request.content.threadIdentifier.contains("device-private-id"), "thread IDs do not expose raw device identifiers")
         try expectEqual(request.content.attachments.count, 1, "valid source app icon is attached")
-        let firstAttachmentURL = try require(request.content.attachments.first?.url, "source app attachment URL")
-        try expect(FileManager.default.fileExists(atPath: firstAttachmentURL.path), "attachment remains readable when submitted")
+        try expect(center.readableAttachmentsAtSubmission[0], "attachment remains readable when submitted")
         try expect(center.installedDelegate === bridge, "the real notification delegate is installed")
 
         let category = try require(
@@ -380,6 +379,9 @@ enum MacNotificationBridgeSpec {
         try verifyAcceptedCompletion(directory: directory, row: row)
         try verifyFailedSubmissionCanRetry(directory: directory, row: row)
         try verifyDuplicatePendingSubmission(directory: directory, row: row)
+        try verifyReplacementIconSurvivesNativeConsumption(directory: directory, row: row)
+        try verifyDuplicateDoesNotStageUnusedIcons(directory: directory, row: row)
+        try verifyFailedIconImportCleansAndRestages(directory: directory, row: row)
         try verifyLatestReplacementWins(directory: directory, row: row)
         try verifyIntentReversions(directory: directory, row: row)
         try verifyAcceptedStateSurvivesFailedReplacement(directory: directory, row: row)
@@ -390,6 +392,55 @@ enum MacNotificationBridgeSpec {
         try verifyDeferredAcceptanceReceipts(directory: directory, row: row)
 
         print("PASS Mac notifications surface native submission completion with serialized dedupe, replacement, removal, filters, and retry")
+    }
+
+    private static func verifyReplacementIconSurvivesNativeConsumption(directory: URL, row: BridgeNotificationRow) throws {
+        let staging = directory.appendingPathComponent("consumable-update", isDirectory: true)
+        let (center, bridge, outcomes) = authorizedControlledBridge(directory: staging)
+        _ = bridge.publish(deviceID: "icon-update", deviceName: "Galaxy", notification: row, mutedPackages: [])
+        let first = try require(center.requests[0].content.attachments.first, "initial icon")
+        _ = bridge.publish(deviceID: "icon-update", deviceName: "Galaxy", notification: replacing(row, body: "newest"), mutedPackages: [])
+        // The native service consumes the first source after the replacement was queued.
+        // Exercise the real staging files rather than assuming add() copies them immediately.
+        try FileManager.default.moveItem(at: first.url, to: directory.appendingPathComponent("consumed-first.png"))
+        center.completeSubmission(at: 0)
+        try expectEqual(center.requests.count, 2, "the queued update is submitted after native acceptance")
+        let replacement = try require(center.requests[1].content.attachments.first, "replacement icon")
+        try expect(FileManager.default.fileExists(atPath: replacement.url.path),
+                   "replacement icon must remain readable after the first native request consumed its file")
+        let replacementBytes = try Data(contentsOf: replacement.url)
+        try expectEqual(replacementBytes, row.appIconPNG!, "replacement retains its exact source icon")
+        center.completeSubmission(at: 1)
+        try expectEqual(outcomes.values, [.accepted, .accepted], "both real submissions are accepted")
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: staging.path)
+        try expectEqual(leftovers.count, 0, "completed requests leave no owned staging files even if the center copies rather than moves")
+    }
+
+    private static func verifyDuplicateDoesNotStageUnusedIcons(directory: URL, row: BridgeNotificationRow) throws {
+        let staging = directory.appendingPathComponent("duplicate-icons", isDirectory: true)
+        let (center, bridge, _) = authorizedControlledBridge(directory: staging)
+        _ = bridge.publish(deviceID: "icon-duplicate", deviceName: "Galaxy", notification: row, mutedPackages: [])
+        center.completeSubmission(at: 0)
+        _ = bridge.publish(deviceID: "icon-duplicate", deviceName: "Galaxy", notification: row, mutedPackages: [])
+        try expectEqual(center.requests.count, 1, "identical events remain deduplicated")
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: staging.path)
+        try expectEqual(leftovers.count, 0, "a duplicate event cannot recreate an unused consumable icon")
+    }
+
+    private static func verifyFailedIconImportCleansAndRestages(directory: URL, row: BridgeNotificationRow) throws {
+        let staging = directory.appendingPathComponent("failed-icon", isDirectory: true)
+        let (center, bridge, outcomes) = authorizedControlledBridge(directory: staging)
+        _ = bridge.publish(deviceID: "failed-icon", deviceName: "Galaxy", notification: row, mutedPackages: [])
+        let first = try require(center.requests[0].content.attachments.first, "failed icon source")
+        center.completeSubmission(at: 0, error: NSError(domain: UNErrorDomain, code: 104))
+        try expect(!FileManager.default.fileExists(atPath: first.url.path), "failed native import releases only its own staging file")
+        try expectEqual(outcomes.values.count, 1, "native import failure remains visible to the caller")
+        _ = bridge.publish(deviceID: "failed-icon", deviceName: "Galaxy", notification: row, mutedPackages: [])
+        let retry = try require(center.requests[1].content.attachments.first, "retry icon")
+        let bytes = try Data(contentsOf: retry.url)
+        try expectEqual(bytes, row.appIconPNG!, "retry stages exact bytes after failed import")
+        center.completeSubmission(at: 1)
+        try expectEqual(outcomes.values.last, .accepted, "retry reports actual native acceptance")
     }
 
     private static func verifyAuthoritativeNativeReconciliation(directory: URL, row: BridgeNotificationRow) throws {
@@ -938,6 +989,7 @@ private final class RecordingNotificationCenter: MacNotificationCenterClient, @u
     var authorizationRequests = 0
     var categories = Set<UNNotificationCategory>()
     var requests: [UNNotificationRequest] = []
+    var readableAttachmentsAtSubmission: [Bool] = []
     var removedPending: [[String]] = []
     var removedDelivered: [[String]] = []
     var installedRequests: [String: UNNotificationRequest] = [:]
@@ -977,6 +1029,9 @@ private final class RecordingNotificationCenter: MacNotificationCenterClient, @u
     }
 
     func add(_ request: UNNotificationRequest, completion: @escaping @Sendable (Error?) -> Void) {
+        readableAttachmentsAtSubmission.append(request.content.attachments.allSatisfy {
+            (try? Data(contentsOf: $0.url)) != nil
+        })
         requests.append(request)
         submissionCompletions.append(completion)
         if completeSubmissionsSynchronously {

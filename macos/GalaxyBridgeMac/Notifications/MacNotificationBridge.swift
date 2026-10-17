@@ -213,6 +213,7 @@ struct MacNotificationIconAttachmentStore: Sendable {
 
     func attachment(for pngData: Data?, requestIdentifier: String) -> UNNotificationAttachment? {
         guard let pngData, Self.isSafePNG(pngData) else { return nil }
+        var stagedURL: URL?
         do {
             try FileManager.default.createDirectory(
                 at: directoryURL,
@@ -225,18 +226,18 @@ struct MacNotificationIconAttachmentStore: Sendable {
                 .map { String(format: "%02x", $0) }
                 .joined()
             let iconURL = directoryURL
-                .appendingPathComponent("\(requestDigest)-\(digest)", isDirectory: false)
+                .appendingPathComponent("\(requestDigest)-\(digest)-\(UUID().uuidString)", isDirectory: false)
                 .appendingPathExtension("png")
-            if !FileManager.default.fileExists(atPath: iconURL.path) {
-                try pngData.write(to: iconURL, options: [.atomic])
-                try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: iconURL.path)
-            }
+            stagedURL = iconURL
+            try pngData.write(to: iconURL, options: [.atomic])
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: iconURL.path)
             prune(keeping: iconURL)
             return try UNNotificationAttachment(
                 identifier: "galaxybridge.android-app-icon.\(requestDigest)",
                 url: iconURL
             )
         } catch {
+            if let stagedURL { try? FileManager.default.removeItem(at: stagedURL) }
             return nil
         }
     }
@@ -375,12 +376,13 @@ final class MacNotificationBridge: NSObject, @unchecked Sendable {
         let category: UNNotificationCategory
         let request: UNNotificationRequest
         let hasIconAttachment: Bool
+        let iconPNG: Data?
         let onAccepted: (@Sendable () -> Void)?
     }
 
     private struct InFlightPublication {
         let generation: UInt64
-        let current: PreparedPublication
+        var current: PreparedPublication
         var desired: PreparedPublication?
         var disposition: InFlightDisposition
     }
@@ -566,13 +568,6 @@ final class MacNotificationBridge: NSObject, @unchecked Sendable {
         content.sound = .default
         content.categoryIdentifier = categoryID
         content.threadIdentifier = Self.deviceThreadIdentifier(deviceID: deviceID)
-        let attachment = iconStore.attachment(
-            for: notification.appIconPNG,
-            requestIdentifier: identifier
-        )
-        if let attachment {
-            content.attachments = [attachment]
-        }
         content.userInfo = [
             "deviceID": deviceID,
             "notificationID": notification.id,
@@ -585,7 +580,8 @@ final class MacNotificationBridge: NSObject, @unchecked Sendable {
             fingerprint: fingerprint,
             category: category,
             request: UNNotificationRequest(identifier: identifier, content: content, trigger: nil),
-            hasIconAttachment: attachment != nil,
+            hasIconAttachment: false,
+            iconPNG: notification.appIconPNG,
             onAccepted: onAccepted
         )
     }
@@ -597,9 +593,28 @@ final class MacNotificationBridge: NSObject, @unchecked Sendable {
             lock.unlock()
             return
         }
+        // Each native add consumes its own source file. Queueing/deduplicating
+        // an Android update must never share or recreate another add's file.
+        let attachment = iconStore.attachment(for: publication.iconPNG, requestIdentifier: identifier)
+        let content = publication.request.content.mutableCopy() as! UNMutableNotificationContent
+        content.attachments = attachment.map { [$0] } ?? []
+        let staged = PreparedPublication(
+            deviceID: publication.deviceID,
+            packageName: publication.packageName,
+            fingerprint: publication.fingerprint,
+            category: publication.category,
+            request: UNNotificationRequest(identifier: identifier, content: content, trigger: nil),
+            hasIconAttachment: attachment != nil,
+            iconPNG: nil,
+            onAccepted: publication.onAccepted
+        )
+        inFlight[identifier]?.current = staged
         categories[publication.category.identifier] = publication.category
         center.setNotificationCategories(Set(categories.values))
-        center.add(publication.request) { [weak self, completionGate] error in
+        center.add(staged.request) { [weak self, completionGate, sourceURL = attachment?.url] error in
+            // Completion means the service has finished importing the source.
+            // Its store owns the delivered copy; only our unique staging URL is removed.
+            if let sourceURL { try? FileManager.default.removeItem(at: sourceURL) }
             guard completionGate.shouldDeliverAfterReturn(error) else { return }
             self?.completeSubmission(identifier: identifier, generation: generation, error: error)
         }
