@@ -34,6 +34,7 @@ final class ShellCapabilityBridgeLease {
     private let relays: [ShellCapabilityBridgeRelay]
     private let log: CompanionTLSClient?
     private let outputObserver: ScrcpyOwnedProcessOutputObserver?
+    var displayState: DisplayStateLeaseState?
     init(id: String, generation: String, context: ShellCapabilityBridgeContext, relays: [ShellCapabilityBridgeRelay],
          port: UInt16?, clipboardPort: UInt16?, log: CompanionTLSClient?, observer: ScrcpyOwnedProcessOutputObserver?) {
         self.id = id; self.generation = generation; self.context = context; self.relays = relays
@@ -407,6 +408,7 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
     }
 
     func retire(_ lease: ShellCapabilityBridgeLease) async throws {
+        if lease.displayState != nil { try await retireDisplayState(lease); return }
         lease.cancelLocal()
         if control()?.authenticatedSessionID != lease.context.sessionID {
             // Old Helper control EOF owns retirement. A read-only exact-lease
@@ -438,6 +440,114 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
         notifyRuntimeUpgradeIfIdle()
     }
 
+    /// Reserve a locally retained handle before the first remote SNAPSHOT.
+    func beginDisplayStateOwnership() async throws -> ShellCapabilityBridgeLease {
+        guard control()?.supportsCompositeDisplayState == true else { throw ShellCapabilityBridgeFailure.unavailable }
+        let lease = try await beginPanelOwnership()
+        lease.displayState = DisplayStateLeaseState()
+        do { try validateDisplayStateAdmission(lease) }
+        catch {
+            // No remote command has been sent; this local reservation owns no
+            // child. Once returned, the caller must retain it through cleanup.
+            leases.removeValue(forKey: lease.id); notifyRuntimeUpgradeIfIdle(); throw error
+        }
+        return lease
+    }
+    func snapshotDisplayState(_ lease: ShellCapabilityBridgeLease) async throws {
+        do {
+            try validateDisplayStateAdmission(lease)
+            guard lease.displayState?.header == nil, lease.displayState?.mayHaveMutated == false else {
+                throw ShellCapabilityBridgeFailure.invalidResult
+            }
+            let response = try await perform(operation: .startDisplayState, lease: lease.id, generation: lease.generation,
+                context: lease.context, displayState: GBDisplayStateCommand())
+            guard response.available, response.errorCode.isEmpty, response.bootGeneration == lease.generation,
+                  response.state == "display_state_snapshotted", response.streamIds.isEmpty else {
+                throw ShellCapabilityBridgeFailure.operationFailed
+            }
+            // Retain the immutable baseline even if cancellation raced the
+            // reply. Admission is rechecked only after retaining that evidence.
+            try lease.displayState!.acceptSnapshot(DisplayStateControllerAcknowledgement.decode(response.displayStateAcknowledgement))
+            try validateDisplayStateAdmission(lease)
+        } catch { lease.displayState?.beginDraining(); throw error }
+    }
+    func applyDisplayState(_ lease: ShellCapabilityBridgeLease,
+                           policy: DisplayStateControllerAcknowledgement.PanelPolicy) async throws {
+        do {
+            try validateDisplayStateAdmission(lease)
+            let revision = try lease.displayState!.beginPolicy()
+            var command = GBDisplayStateCommand()
+            command.action = .apply; command.interactive = true; command.revision = revision
+            switch policy { case .preserve: command.panelPolicy = .preserve
+            case .hide: command.panelPolicy = .hide
+            case .show: command.panelPolicy = .show }
+            let response = try await perform(operation: .startDisplayState, lease: lease.id, generation: lease.generation,
+                context: lease.context, displayState: command)
+            guard response.available, response.errorCode.isEmpty, response.bootGeneration == lease.generation,
+                  response.state == "display_state_reply", response.streamIds.isEmpty else {
+                throw ShellCapabilityBridgeFailure.operationFailed
+            }
+            try lease.displayState!.acceptPolicy(DisplayStateControllerAcknowledgement.decode(response.displayStateAcknowledgement),
+                                                 revision: revision, policy: policy)
+            try validateDisplayStateAdmission(lease)
+        } catch { lease.displayState?.beginDraining(); throw error }
+    }
+    private func validateDisplayStateAdmission(_ lease: ShellCapabilityBridgeLease) throws {
+        try Task.checkCancellation()
+        guard leases[lease.id] === lease, control() === lease.context.control,
+              control()?.authenticatedSessionID == lease.context.sessionID, bootGeneration == lease.generation else {
+            throw ShellCapabilityBridgeFailure.sessionChanged
+        }
+        guard available, currentRuntimeVerified, control()?.supportsCompositeDisplayState == true,
+              let state = lease.displayState, !state.draining, !state.retired else {
+            throw ShellCapabilityBridgeFailure.unavailable
+        }
+    }
+    /// Separate v2 retirement never uses the legacy stopped/status fallback.
+    private func retireDisplayState(_ lease: ShellCapabilityBridgeLease) async throws {
+        if lease.displayState?.retired == true { return }
+        guard leases[lease.id] === lease, lease.displayState != nil else {
+            throw ShellCapabilityBridgeFailure.invalidResult
+        }
+        lease.displayState!.beginDraining()
+        let proof: GBCaptureRetirementProof
+        if control()?.authenticatedSessionID == lease.context.sessionID, bootGeneration == lease.generation {
+            let response = try await perform(operation: .stop, lease: lease.id, generation: lease.generation, context: lease.context)
+            guard response.available, response.errorCode.isEmpty, response.bootGeneration == lease.generation,
+                  response.streamIds.isEmpty else { throw ShellCapabilityBridgeFailure.operationFailed }
+            if response.state == "display_state_not_started" {
+                guard !response.hasRetirementProof else { throw ShellCapabilityBridgeFailure.invalidResult }
+                if !response.displayStateAcknowledgement.isEmpty {
+                    let failed = try DisplayStateControllerAcknowledgement.decode(response.displayStateAcknowledgement)
+                    guard failed.event == .startupFailed else { throw ShellCapabilityBridgeFailure.invalidResult }
+                }
+                try lease.displayState!.confirmNotStarted()
+                leases.removeValue(forKey: lease.id); notifyRuntimeUpgradeIfIdle(); return
+            }
+            guard response.state == "display_state_retired", response.hasRetirementProof else {
+                throw ShellCapabilityBridgeFailure.operationFailed
+            }
+            proof = response.retirementProof
+        } else {
+            // A new authenticated session may observe the exact frozen child,
+            // but never inherits the preceding session's mutation authority.
+            guard let identity = lease.displayState?.header?.identity else {
+                throw ShellCapabilityBridgeFailure.sessionChanged
+            }
+            var query = GBCaptureRetirementQuery()
+            query.kind = .displayStateController; query.pid = UInt32(identity.pid); query.processStartTicks = identity.startTicks
+            proof = try await verifiedRetirementResult(query)
+        }
+        guard proof.pid <= UInt32(Int32.max) else { throw ShellCapabilityBridgeFailure.invalidResult }
+        let evidence = DisplayStateRetirementEvidence(kind: proof.kind.rawValue, scid: proof.scid,
+            identity: .init(pid: Int32(proof.pid), startTicks: proof.processStartTicks),
+            supported: proof.supported, absent: proof.absent, legacyPanelCount: proof.panels.count,
+            ownedResourceID: proof.ownedResourceID, resourceRemoved: proof.resourceRemoved,
+            snapshotData: proof.displayStateSnapshot, terminalAcknowledgement: proof.displayStateTerminalAcknowledgement)
+        _ = try lease.displayState!.confirmRetirement(evidence)
+        leases.removeValue(forKey: lease.id); notifyRuntimeUpgradeIfIdle()
+    }
+
     private enum RetirementDiagnosticStage: String { case previousSession = "previous_session", stop, status }
     private func reportUnconfirmedRetirement(_ lease: ShellCapabilityBridgeLease, stage: RetirementDiagnosticStage,
                                             result: GBShellBridgeResult) {
@@ -448,14 +558,17 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
 
     private func perform(operation: GBShellBridgeRequest.Operation, lease: String, generation: String,
                          context: ShellCapabilityBridgeContext, options: GBShellCaptureOptions? = nil, powerOn: Bool = false,
-                         retirement: GBCaptureRetirementQuery? = nil) async throws -> GBShellBridgeResult {
+                         retirement: GBCaptureRetirementQuery? = nil,
+                         displayState: GBDisplayStateCommand? = nil) async throws -> GBShellBridgeResult {
         guard control()?.authenticatedSessionID == context.sessionID else { throw ShellCapabilityBridgeFailure.sessionChanged }
         guard pending.count < 32 else { throw ShellCapabilityBridgeFailure.capacity }
         try Task.checkCancellation()
+        let timeoutSeconds = operation == .startDisplayState || leases[lease]?.displayState != nil
+            || retirement?.kind == .displayStateController ? 25 : 10
         let id = UUID().uuidString.lowercased()
         return try await withCheckedThrowingContinuation { continuation in
             let timeout = Task { [weak self] in
-                do { try await Task.sleep(for: .seconds(10)) } catch { return }
+                do { try await Task.sleep(for: .seconds(timeoutSeconds)) } catch { return }
                 guard let item = self?.pending.removeValue(forKey: id) else { return }
                 item.continuation.resume(throwing: ShellCapabilityBridgeFailure.timeout)
             }
@@ -464,6 +577,7 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
             request.operation = operation; request.powerOn = powerOn
             if let options { request.options = options }
             if let retirement { request.retirement = retirement }
+            if let displayState { request.displayState = displayState }
             do { try context.control.sendShellBridge(request) }
             catch { pending.removeValue(forKey: id)?.timeout.cancel(); continuation.resume(throwing: error) }
         }

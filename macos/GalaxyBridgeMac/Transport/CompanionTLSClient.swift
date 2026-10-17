@@ -65,6 +65,7 @@ final class CompanionTLSClient: @unchecked Sendable {
     var supportsShellBridge: Bool { connectivityCapabilities.supportsShellBridge }
     var supportsCaptureRetirementProof: Bool { connectivityCapabilities.supportsCaptureRetirementProof }
     var supportsShellRuntimeIdentity: Bool { connectivityCapabilities.supportsShellRuntimeIdentity }
+    var supportsCompositeDisplayState: Bool { connectivityCapabilities.supportsCompositeDisplayState }
 
     var connectivityCapabilities: CompanionConnectivityCapabilities {
         notificationActionCapabilityLock.lock(); defer { notificationActionCapabilityLock.unlock() }
@@ -431,7 +432,8 @@ final class CompanionTLSClient: @unchecked Sendable {
                 nearbyLink: update.available.contains(.nearbyLink), internetGateway: update.available.contains(.internetGateway),
                 privilegedBridge: update.available.contains(.privilegedBridge),
                 captureRetirementProof: update.available.contains(.captureRetirementProof),
-                shellRuntimeIdentity: update.available.contains(.shellRuntimeIdentity), unavailableReasons: update.unavailableReasons)
+                shellRuntimeIdentity: update.available.contains(.shellRuntimeIdentity),
+                compositeDisplayState: update.available.contains(.compositeDisplayState), unavailableReasons: update.unavailableReasons)
             notificationActionCapabilityLock.unlock()
     }
         if case let .internetSharingStatus(status)? = envelope.payload,

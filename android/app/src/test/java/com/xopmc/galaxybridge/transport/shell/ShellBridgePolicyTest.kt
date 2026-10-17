@@ -14,6 +14,21 @@ import org.junit.Test
 class ShellBridgePolicyTest {
     private val lease = "69830b65-6352-4b3a-8a21-70bcda45787e"
     private val request = "d5e1590c-47fb-4d73-9ac2-45988ba0a876"
+    @Test fun authenticatedRetirementStopsProducersBeforeTheirSharedDisplayOwner() {
+        val registry = ShellStreamLeaseRegistry()
+        val snapshot = ShellBridgeRequest.newBuilder().setRequestId(request).setLeaseId(lease).setBootGeneration(request)
+            .setOperation(ShellBridgeRequest.Operation.START_DISPLAY_STATE).setDisplayState(DisplayStateCommand.getDefaultInstance()).build()
+        assertTrue(registry.admitComposite("peer", "session", snapshot))
+        val first = "10d52c21-4115-42fc-9d8e-5062bf2e92ef"
+        val second = "c7ec9d2e-cbab-49b6-9c0c-d96ef03d2dbe"
+        assertTrue(registry.admit("peer", "session", first))
+        assertTrue(registry.admit("peer", "session", second))
+        assertTrue(registry.admit("other", "session", request))
+        assertEquals(listOf(first, second, lease), registry.owned("peer", "session"))
+        assertEquals(listOf(request), registry.owned("other", "session"))
+        registry.remove(first)
+        assertEquals(listOf(second, lease), registry.owned("peer", "session"))
+    }
     @Test fun compositeDisplayCommandsRequireTheirOwnTypedAuthenticatedChildLease() {
         val command = DisplayStateCommand.newBuilder().setAction(DisplayStateCommand.Action.APPLY)
             .setInteractive(true).setPanelPolicy(DisplayStateCommand.PanelPolicy.HIDE).setRevision(1).build()

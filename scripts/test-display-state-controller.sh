@@ -52,9 +52,39 @@ print('PASS actual v2 header/policy/status/terminal JSON independently decoded; 
 PY
 xcrun swiftc -swift-version 6 \
   "$root/macos/GalaxyBridgeMac/Transport/DisplayStateControllerProtocol.swift" \
+  "$root/macos/GalaxyBridgeMac/Transport/DisplayStateRetirementEvidence.swift" \
+  "$root/macos/GalaxyBridgeMac/Transport/DisplayStateLeaseState.swift" \
   "$root/macos/GalaxyBridgeMacTests/DisplayStateControllerProtocolSpec.swift" \
   -o "$tmp/swift-wire-spec"
 "$tmp/swift-wire-spec" "$tmp/wire.jsonl" "$tmp/startup-failed.jsonl"
+python3 - "$root" "$tmp" <<'PY'
+from pathlib import Path
+import sys
+root, out = map(Path, sys.argv[1:])
+source = (root / 'macos/GalaxyBridgeMac/Transport/ShellCapabilityBridgeProvider.swift').read_text()
+def member(signature):
+    start = source.index(signature)
+    opening = source.index('{', start)
+    depth = 0
+    for end in range(opening, len(source)):
+        if source[end] == '{': depth += 1
+        elif source[end] == '}':
+            depth -= 1
+            if depth == 0: return source[start:end + 1].replace('private func ', 'func ', 1)
+    raise AssertionError(signature)
+fixture = (root / 'macos/GalaxyBridgeMacTests/CompositeDisplayProviderSpec.swift').read_text()
+for marker, signature in [('BEGIN', 'func beginDisplayStateOwnership('), ('SNAPSHOT', 'func snapshotDisplayState('),
+                          ('APPLY', 'func applyDisplayState('), ('VALIDATE', 'private func validateDisplayStateAdmission('),
+                          ('RETIRE', 'private func retireDisplayState(')]:
+    fixture = fixture.replace('// ACTUAL_' + marker + '_DISPLAY_STATE', member(signature))
+(out / 'CompositeDisplayProviderSpec.swift').write_text(fixture)
+PY
+xcrun swiftc -swift-version 6 -parse-as-library \
+  "$root/macos/GalaxyBridgeMac/Transport/DisplayStateControllerProtocol.swift" \
+  "$root/macos/GalaxyBridgeMac/Transport/DisplayStateRetirementEvidence.swift" \
+  "$root/macos/GalaxyBridgeMac/Transport/DisplayStateLeaseState.swift" \
+  "$tmp/CompositeDisplayProviderSpec.swift" -o "$tmp/swift-provider-spec"
+"$tmp/swift-provider-spec" "$tmp/wire.jsonl"
 python3 - "$tmp" <<'PY'
 import json, sys
 from pathlib import Path

@@ -35,6 +35,16 @@ final class NearbyConnectionCoordinator {
         model.companionStates[id] = .connected
         precondition(model.internetSharingAvailabilityKey(deviceID: id) == "INTERNET_WAITING")
         let old = CompanionConnectivityCapabilities(negotiated: true)
+        precondition(!old.supportsCompositeDisplayState)
+        var composite = CompanionConnectivityCapabilities(negotiated: true, privilegedBridge: true,
+            captureRetirementProof: true, shellRuntimeIdentity: true, compositeDisplayState: true)
+        precondition(composite.supportsCompositeDisplayState, "V2 display admission needs an explicitly negotiated complete capability set")
+        composite.captureRetirementProof = false
+        precondition(!composite.supportsCompositeDisplayState, "No retirement proof means no composite mutation")
+        composite.captureRetirementProof = true; composite.shellRuntimeIdentity = false
+        precondition(!composite.supportsCompositeDisplayState, "Unverified native runtime cannot admit composite mutation")
+        composite.shellRuntimeIdentity = true; composite.negotiated = false
+        precondition(!composite.supportsCompositeDisplayState, "A stale pre-negotiation bit cannot enable a new protocol")
         model.companionClients[id]?.control.connectivityCapabilities = old
         precondition(!old.supportsShellBridge, "An old Helper must never receive optional shell requests")
         precondition(!model.canConnectNearby(deviceID: id) && model.nearbyConnectionHint(deviceID: id) == "NEARBY_HELPER_UPDATE_REQUIRED")

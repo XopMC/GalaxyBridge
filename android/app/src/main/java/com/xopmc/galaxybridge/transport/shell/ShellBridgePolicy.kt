@@ -165,7 +165,11 @@ internal class ShellStreamLeaseRegistry {
     fun allows(peer: String, session: String, stream: String): Boolean = ShellBridgePolicy.stream(stream)?.let { (lease, _) ->
         owns(peer, session, lease) && !leases.getValue(lease).composite && stream in leases.getValue(lease).streams
     } == true
-    fun owned(peer: String, session: String): List<String> = leases.filterValues { it.peer == peer && it.session == session }.keys.toList()
+    // Producers are created after the shared display owner, but must retire
+    // before it. Stable sorting retains the existing producer cleanup order.
+    fun owned(peer: String, session: String): List<String> = leases.entries
+        .filter { it.value.peer == peer && it.value.session == session }
+        .sortedBy { it.value.composite }.map { it.key }
     fun remove(lease: String) {
         leases.remove(lease)?.let { if (it.composite && lease !in retiredComposite) retiredComposite[lease] = RetiredComposite(it.peer, it.session) }
     }

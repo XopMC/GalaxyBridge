@@ -8,6 +8,7 @@ struct CompanionConnectivityCapabilities: Equatable, Sendable {
     var privilegedBridge = false
     var captureRetirementProof = false
     var shellRuntimeIdentity = false
+    var compositeDisplayState = false
     var unavailableReasons: [String: String] = [:]
 
     var supportsShellBridge: Bool {
@@ -15,6 +16,9 @@ struct CompanionConnectivityCapabilities: Equatable, Sendable {
     }
     var supportsCaptureRetirementProof: Bool { negotiated && captureRetirementProof }
     var supportsShellRuntimeIdentity: Bool { negotiated && shellRuntimeIdentity }
+    var supportsCompositeDisplayState: Bool {
+        negotiated && supportsShellBridge && compositeDisplayState && captureRetirementProof && shellRuntimeIdentity
+    }
     var nearbyConnectionHint: String? {
         guard negotiated, !nearbyLink else { return nil }
         return unavailableReasons["CAPABILITY_NEARBY_LINK"] == "nearby_permission_required"

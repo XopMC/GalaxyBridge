@@ -34,6 +34,59 @@ enum DisplayStateControllerProtocolSpec {
         let decoded = try frames.map(DisplayStateControllerAcknowledgement.decode)
         let startup = decoded[0], first = decoded[1], terminal = decoded[5]
         let initial = startup.initial!
+        var leaseState = DisplayStateLeaseState()
+        try rejects("No APPLY can precede the immutable startup snapshot") { _ = try leaseState.beginPolicy() }
+        try leaseState.acceptSnapshot(startup)
+        let revision = try leaseState.beginPolicy()
+        try require(revision == 1 && leaseState.mayHaveMutated && leaseState.lastConfirmedRevision == 0,
+                    "Possible mutation must be recorded before the first policy leaves the host")
+        try rejects("Concurrent policy writes cannot share or reorder a revision") { _ = try leaseState.beginPolicy() }
+        try leaseState.acceptPolicy(first, revision: revision, policy: .hide)
+        try require(leaseState.lastConfirmedRevision == 1, "Only the correlated READY advances confirmed policy")
+        try rejects("A repeated startup may not rebase an existing owner") { try leaseState.acceptSnapshot(startup) }
+        let secondRevision = try leaseState.beginPolicy()
+        leaseState.beginDraining()
+        try leaseState.acceptPolicy(decoded[3], revision: secondRevision, policy: .preserve)
+        try require(leaseState.draining && leaseState.lastConfirmedRevision == 2,
+                    "A late policy reply can retain evidence but cannot reopen draining admission")
+        try rejects("Cancellation remains sticky after a late policy reply") { _ = try leaseState.beginPolicy() }
+        var cancelledStartup = DisplayStateLeaseState()
+        cancelledStartup.beginDraining()
+        try cancelledStartup.acceptSnapshot(startup)
+        try require(cancelledStartup.header?.initial == initial && cancelledStartup.draining,
+                    "Late startup evidence is retained for cleanup after cancellation")
+        try rejects("Late startup cannot authorize APPLY after cancellation") { _ = try cancelledStartup.beginPolicy() }
+        var unknownStartup = DisplayStateLeaseState()
+        unknownStartup.beginDraining()
+        try unknownStartup.confirmNotStarted()
+        try require(unknownStartup.retired, "Exact typed no-start cleanup settles a lost read-only startup")
+        try rejects("A retired no-start lease must not accept a resurrected startup") { try unknownStartup.acceptSnapshot(startup) }
+        try rejects("Typed no-start cannot erase a known native child") { try cancelledStartup.confirmNotStarted() }
+        try rejects("Typed no-start cannot erase a possible policy") { try leaseState.confirmNotStarted() }
+        var retirement = DisplayStateRetirementEvidence(kind: 3, identity: startup.identity, supported: true, absent: true)
+        retirement.terminalAcknowledgement = frames[5]
+        try rejects("A terminal revision beyond any attempted write cannot settle the owner") {
+            _ = try leaseState.confirmRetirement(retirement)
+        }
+        var secondTerminal = retirement
+        secondTerminal.terminalAcknowledgement = try changed(frames[5]) { $0["revision"] = 2 }
+        try require(try leaseState.confirmRetirement(secondTerminal) == .restored && leaseState.retired,
+                    "Draining cancellation settles only with the exact observed child and bounded terminal revision")
+        try rejects("Retired state cannot accept another late policy") {
+            try leaseState.acceptPolicy(decoded[3], revision: secondRevision, policy: .preserve)
+        }
+        var partial = DisplayStateLeaseState()
+        try partial.acceptSnapshot(startup)
+        _ = try partial.beginPolicy()
+        partial.beginDraining()
+        var partialTerminal = retirement
+        partialTerminal.terminalAcknowledgement = try changed(frames[5]) { $0["revision"] = 0 }
+        try require(try partial.confirmRetirement(partialTerminal) == .restored,
+                    "A first APPLY lost before acknowledgement may retire at revision zero without losing its frozen baseline")
+        try require(try retirement.validating(identity: startup.identity, initial: initial,
+            lastConfirmedRevision: 3, lastAttemptedRevision: 3) == .restored,
+            "Composite retirement must accept the actual settled native terminal plus exact absence")
+
         try require(startup.event == .ready && startup.state == .snapshotted && startup.revision == 0,
                     "Native startup captures evidence before any wake")
         _ = try first.validatingPolicyReply(identity: startup.identity, initial: initial, revision: 1,
@@ -49,6 +102,44 @@ enum DisplayStateControllerProtocolSpec {
         try require(terminal.state == .restored && terminal.current!.hasSameOwnedState(as: initial),
                     "Real native terminal frame preserves exact owned raw/logical state")
         try require(terminal.current != initial, "Historical stamps really advance during a successful native restore")
+        var independent = retirement
+        independent.terminalAcknowledgement = Data()
+        independent.snapshotData = try JSONEncoder().encode(terminal.current!)
+        try require(try independent.validating(identity: startup.identity, initial: initial,
+            lastConfirmedRevision: 3, lastAttemptedRevision: 3) == .restored,
+            "Independent exact restoration compares owned raw/logical state, not historical timestamps")
+        try require(try independent.validatingProvisional(mayHaveMutated: false) == .neverMutated,
+            "Lost read-only header cleanup must not invent an initial snapshot")
+        try rejects("Provisional absence cannot erase a possible policy write") { _ = try independent.validatingProvisional(mayHaveMutated: true) }
+        try rejects("A terminal after real policies is not a read-only provisional receipt") { _ = try retirement.validatingProvisional(mayHaveMutated: false) }
+        var missingAbsence = retirement; missingAbsence.absent = false
+        var legacy = retirement; legacy.kind = 2
+        var booleanProjection = retirement; booleanProjection.legacyPanelCount = 1
+        var resourceOnly = retirement; resourceOnly.resourceRemoved = true
+        var noPayload = retirement; noPayload.terminalAcknowledgement = Data()
+        var wrongIdentity = retirement; wrongIdentity.identity = .init(pid: 124, startTicks: startup.identity.startTicks)
+        var captureSCID = retirement; captureSCID.scid = 1
+        for invalid in [missingAbsence, legacy, booleanProjection, resourceOnly, noPayload, wrongIdentity, captureSCID] {
+            try rejects("Legacy, incomplete or wrong-owner evidence cannot retire a composite lease") {
+                _ = try invalid.validating(identity: startup.identity, initial: initial, lastConfirmedRevision: 3, lastAttemptedRevision: 3)
+            }
+        }
+        var malformedTerminal = independent; malformedTerminal.terminalAcknowledgement = Data("{}".utf8)
+        try rejects("Malformed terminal must not silently fall back to a snapshot") {
+            _ = try malformedTerminal.validating(identity: startup.identity, initial: initial, lastConfirmedRevision: 3, lastAttemptedRevision: 3)
+        }
+        var oversized = retirement; oversized.terminalAcknowledgement = Data(repeating: 32, count: 8193)
+        try rejects("Oversized retirement evidence must remain fenced") {
+            _ = try oversized.validating(identity: startup.identity, initial: initial, lastConfirmedRevision: 3, lastAttemptedRevision: 3)
+        }
+        var yielded = retirement
+        yielded.terminalAcknowledgement = try snapshotChanged(changed(frames[5]) { $0["state"] = "YIELDED_ACTIVITY" }) {
+            $0["defaultInteractive"] = true; $0["defaultWakefulness"] = "AWAKE"; $0["globalWakefulness"] = "AWAKE"
+        }
+        try require(try yielded.validating(identity: startup.identity, initial: initial, lastConfirmedRevision: 3,
+            lastAttemptedRevision: 3) == .yieldedActivity, "A typed yielded disposition preserves subsequent user activity")
+        print("PASS separate v2 retirement: exact child absence, raw/logical restoration, typed yields, provisional cleanup and no v1/resource-only shortcuts")
+
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         try require(try JSONDecoder().decode(DisplayStateSnapshot.self, from: encoder.encode(initial)) == initial,
                     "Retirement-query encoding preserves the entire initial snapshot")
