@@ -20,6 +20,7 @@ public final class ShellCapabilityBridgePolicyTest {
         if (args.length == 2 && args[0].equals("child")) {
             java.nio.file.Path path = java.nio.file.Paths.get(args[1]);
             java.nio.file.Files.write(path, "off".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            System.out.println("ready"); System.out.flush();
             ShellCapabilityBridge.panelLifetime(System.in, true, on -> {
                 java.nio.file.Files.write(path, (on ? "on" : "off").getBytes(java.nio.charset.StandardCharsets.UTF_8)); return true;
             });
@@ -27,9 +28,11 @@ public final class ShellCapabilityBridgePolicyTest {
         }
         if (args.length == 2 && args[0].equals("parent")) {
             String javaProgram = System.getProperty("java.home") + "/bin/java";
-            new ProcessBuilder(javaProgram, "-cp", System.getProperty("java.class.path"), ShellCapabilityBridgePolicyTest.class.getName(), "child", args[1]).start();
+            Process child = new ProcessBuilder(javaProgram, "-cp", System.getProperty("java.class.path"), ShellCapabilityBridgePolicyTest.class.getName(), "child", args[1]).start();
+            java.io.BufferedReader childReceipt = new java.io.BufferedReader(new java.io.InputStreamReader(child.getInputStream()));
             long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3);
-            while (!java.nio.file.Files.exists(java.nio.file.Paths.get(args[1])) && System.nanoTime() < deadline) Thread.sleep(10);
+            while (!childReceipt.ready() && child.isAlive() && System.nanoTime() < deadline) Thread.sleep(10);
+            assert childReceipt.ready() && "ready".equals(childReceipt.readLine()) : "child did not finish writing its initial panel snapshot";
             System.out.println("ready"); System.out.flush(); Thread.sleep(30000); return;
         }
         String lease = "69830b65-6352-4b3a-8a21-70bcda45787e";

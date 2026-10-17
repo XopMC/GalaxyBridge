@@ -126,4 +126,6 @@
     <string name="internet_availability_description">Allow internet requests from your paired Mac. Start sharing on your Mac.</string>
     <string name="nearby_permission_title">Nearby devices</string>
     <string name="nearby_permission_description">Allow nearby device access so your Mac can find this phone. Older phones may also ask for location access.</string>
+    <string name="nearby_bluetooth_off">Bluetooth is off. Turn it on to enable nearby discovery.</string>
+    <string name="nearby_turn_on_bluetooth">Turn on Bluetooth</string>
 </resources>

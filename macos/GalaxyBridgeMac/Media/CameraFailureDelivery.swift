@@ -18,6 +18,13 @@ final class CameraFailureDelivery: @unchecked Sendable {
         // data. The UI keeps the actionable error; lifecycle diagnostics carry
         // fixed reason/completion categories through the retirement barrier.
         logger.error("Camera pipeline reported an error")
+        if ProcessInfo.processInfo.arguments.contains("--primary-media-diagnostics"),
+           String(reflecting: type(of: error)).hasSuffix(".VideoDecoderError") {
+            // This enum contains only fixed decoder stages and numeric OSStatus
+            // values. Never print arbitrary error descriptions or media data.
+            let line = "GB_CAMERA_DECODER \(String(describing: error))\n"
+            FileHandle.standardError.write(Data(line.utf8))
+        }
         lock.withLock {
             pending = (message, permit)
             guard !scheduled else { return }

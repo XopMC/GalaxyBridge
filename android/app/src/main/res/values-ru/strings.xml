@@ -126,4 +126,6 @@
     <string name="internet_availability_description">Разрешить запросы интернета с сопряжённого Mac. Включайте раздачу на Mac.</string>
     <string name="nearby_permission_title">Устройства поблизости</string>
     <string name="nearby_permission_description">Разрешите доступ к устройствам поблизости, чтобы Mac мог найти телефон. На старых телефонах Android также может запросить геолокацию.</string>
+    <string name="nearby_bluetooth_off">Bluetooth выключен. Включите его для обнаружения устройств поблизости.</string>
+    <string name="nearby_turn_on_bluetooth">Включить Bluetooth</string>
 </resources>

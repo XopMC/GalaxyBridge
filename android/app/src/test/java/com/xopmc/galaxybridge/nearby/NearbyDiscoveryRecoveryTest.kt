@@ -1,9 +1,20 @@
 package com.xopmc.galaxybridge.nearby
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NearbyDiscoveryRecoveryTest {
+    @Test fun onlyKnownPeerFailuresLeaveDiscoveryAvailable() {
+        for (error in listOf("ble_session_rejected", "ble_bootstrap_rejected", "ble_indication_failed")) {
+            assertFalse(NearbyDiscoveryRecovery.affectsDiscovery(error))
+        }
+        for (error in listOf("ble_service_failed", "ble_advertise_failed_2", "ble_permission_or_start_failed", "unknown")) {
+            assertTrue(NearbyDiscoveryRecovery.affectsDiscovery(error))
+        }
+    }
+
     @Test fun successfulDiscoveryRetiresOnlyBootstrapAndRestartsWhenRadioReturns() {
         assertEquals(NearbyDiscoveryAction.StartBootstrap, decision(radioOn = true, running = false))
         assertEquals(NearbyDiscoveryAction.Keep, decision(radioOn = true, running = true))

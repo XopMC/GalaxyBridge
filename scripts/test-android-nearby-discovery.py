@@ -51,4 +51,54 @@ with tempfile.TemporaryDirectory(prefix='gb-android-nearby-discovery-') as tempo
     run(['java', '-cp', os.pathsep.join([str(tmp), stdlib, coroutines, junit, hamcrest]), 'org.junit.runner.JUnitCore',
          'com.xopmc.galaxybridge.nearby.NearbyAdvertisingLifecycleTest',
          'com.xopmc.galaxybridge.nearby.NearbyDiscoveryRecoveryTest'])
+    runtime = (base / 'ForegroundConnectivityRuntime.kt').read_text()
+    def block(text, marker):
+        start = text.index(marker)
+        opening = text.index('{', start)
+        depth = 0
+        for end in range(opening, len(text)):
+            if text[end] == '{': depth += 1
+            elif text[end] == '}':
+                depth -= 1
+                if depth == 0: return text[start:end+1], text[opening+1:end]
+        raise RuntimeError(marker)
+    fixture = (root / 'scripts/fixtures/NearbyDiscoveryStatusSpec.kt').read_text()
+    fixture = fixture.replace('        // ACTUAL_DISCOVERY_ERROR_CALLBACK', block(runtime, '        onError = {')[1])
+    fixture = fixture.replace('        // ACTUAL_DISCOVERY_STARTED_CALLBACK', block(runtime, '        onStarted = {')[1])
+    fixture = fixture.replace('    // ACTUAL_DISCOVERY_REFRESH', block(runtime, '    fun refresh()')[0])
+    (tmp / 'ActualStatus.kt').write_text(fixture)
+    compile_kotlin([tmp / 'ActualStatus.kt', base / 'NearbyAdvertisingLifecycle.kt', base / 'NearbyDiscoveryRecovery.kt'],
+                   [str(tmp), stdlib, coroutines, junit])
+    run(['java', '-cp', os.pathsep.join([str(tmp), stdlib, coroutines, junit, hamcrest]), 'org.junit.runner.JUnitCore',
+         'com.xopmc.galaxybridge.nearby.NearbyDiscoveryStatusSpec'])
+    activity = (root / 'android/app/src/main/java/com/xopmc/galaxybridge/MainActivity.kt').read_text()
+    fixture = (root / 'scripts/fixtures/NearbyBluetoothEnableSpec.kt').read_text()
+    for placeholder, marker, fallback in [
+        ('ACTUAL_REQUEST_NEARBY', '    private fun requestNearbyEnable()', ''),
+        ('ACTUAL_CONTINUE_NEARBY', '    private fun continueNearbyEnable(', ''),
+        ('ACTUAL_RADIO_STATE', '    private fun bluetoothRadioEnabled()', 'fun bluetoothRadioEnabled(): Boolean? = bluetooth.adapter?.isEnabled'),
+        ('ACTUAL_REQUEST_BLUETOOTH', '    private fun requestBluetoothEnableIfNeeded(', 'fun requestBluetoothEnableIfNeeded(explicitRequest: Boolean) = false'),
+        ('ACTUAL_COMPLETE_BLUETOOTH', '    private fun completeBluetoothEnable()', 'fun completeBluetoothEnable() { bluetoothEnableInFlight = false; pendingNearbyEnable.cancel() }'),
+    ]:
+        method = block(activity, marker)[0].replace('private fun', 'fun', 1) if marker in activity else fallback
+        fixture = fixture.replace('    // ' + placeholder, method)
+    if '    private fun finishAutomaticSetup()' in activity:
+        finish = block(activity, '    private fun finishAutomaticSetup()')[0].replace('private fun', 'fun', 1)
+    else:
+        finish = 'fun finishAutomaticSetup() {' + block(activity, '                AutomaticSetupStep.Finish -> {')[1] + '}'
+    fixture = fixture.replace('    // ACTUAL_FINISH_SETUP', finish)
+    (tmp / 'ActualBluetoothEnable.kt').write_text(fixture)
+    policy = base / 'NearbyBluetoothEnablePolicy.kt'
+    compile_kotlin([tmp / 'ActualBluetoothEnable.kt'] + ([policy, tests / 'NearbyBluetoothEnablePolicyTest.kt'] if policy.exists() else []), [str(tmp), stdlib, junit])
+    run(['java', '-cp', os.pathsep.join([str(tmp), stdlib, junit, hamcrest]), 'org.junit.runner.JUnitCore',
+         'com.xopmc.galaxybridge.nearby.NearbyBluetoothEnableSpec',
+         *(['com.xopmc.galaxybridge.nearby.NearbyBluetoothEnablePolicyTest'] if policy.exists() else [])])
+    setup = root / 'android/app/src/main/java/com/xopmc/galaxybridge/setup'
+    setup_tests = root / 'android/app/src/test/java/com/xopmc/galaxybridge/setup'
+    compile_kotlin([setup / 'AutomaticPermissionSetup.kt', setup / 'SetupStateResolver.kt', setup / 'ExplicitPermissionPolicy.kt',
+                    setup_tests / 'AutomaticPermissionSetupTest.kt', setup_tests / 'ExplicitPermissionPolicyTest.kt'],
+                   [str(tmp), stdlib, junit])
+    run(['java', '-cp', os.pathsep.join([str(tmp), stdlib, junit, hamcrest]), 'org.junit.runner.JUnitCore',
+         'com.xopmc.galaxybridge.setup.AutomaticPermissionSetupTest',
+         'com.xopmc.galaxybridge.setup.ExplicitPermissionPolicyTest'])
     print('PASS actual Android BLE source compiles against Android 37; no radio calls')

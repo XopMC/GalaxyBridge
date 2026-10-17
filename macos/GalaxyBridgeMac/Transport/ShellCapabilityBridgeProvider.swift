@@ -6,7 +6,12 @@ import GalaxyBridgeEnhancedCore
 import GalaxyBridgeProtocol
 import Network
 
-enum ShellCapabilityBridgeFailure: Error { case unavailable, invalidResult, sessionChanged, timeout, operationFailed, capacity }
+enum ShellCapabilityBridgeFailure: Error, LocalizedError {
+    case unavailable, invalidResult, sessionChanged, timeout, operationFailed, capacity
+    var errorDescription: String? {
+        self == .capacity ? String(localized: "APPLICATION_WINDOW_LIMIT") : String(localized: "ERROR_SCREEN_CONNECTION")
+    }
+}
 
 struct ShellCapabilityBridgeContext: @unchecked Sendable {
     let endpoint: NWEndpoint

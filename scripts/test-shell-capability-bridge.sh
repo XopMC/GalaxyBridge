@@ -30,3 +30,21 @@ GB_SHELL_SOCKET_FIXTURE_DIRECTORY="$bridge_socket_tmp" \
 swiftc -swift-version 6 "$bridge_root/macos/GalaxyBridgeMac/Transport/ShellCapabilityBridgeActivationState.swift" \
   "$bridge_root/macos/GalaxyBridgeMacTests/ShellCapabilityBridgeActivationSpec.swift" -o "$bridge_tmp/activation-spec"
 "$bridge_tmp/activation-spec"
+python3 - "$bridge_root" "$bridge_tmp" <<'PY'
+from pathlib import Path
+import sys
+root, output = map(Path, sys.argv[1:])
+source = (root / 'macos/GalaxyBridgeMac/Transport/ShellCapabilityBridgeProvider.swift').read_text()
+start = source.index('enum ShellCapabilityBridgeFailure:')
+opening = source.index('{', start)
+depth = 0
+for end in range(opening, len(source)):
+    if source[end] == '{': depth += 1
+    elif source[end] == '}':
+        depth -= 1
+        if depth == 0: break
+(output / 'ActualShellFailure.swift').write_text('import Foundation\n' + source[start:end + 1])
+PY
+swiftc -swift-version 6 -parse-as-library "$bridge_tmp/ActualShellFailure.swift" \
+  "$bridge_root/macos/GalaxyBridgeMacTests/ShellCapabilityBridgeFailureSpec.swift" -o "$bridge_tmp/failure-spec"
+"$bridge_tmp/failure-spec"

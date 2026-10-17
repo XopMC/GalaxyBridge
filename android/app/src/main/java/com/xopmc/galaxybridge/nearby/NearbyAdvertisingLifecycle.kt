@@ -15,7 +15,7 @@ internal class NearbyAdvertisingLifecycle {
     fun stop() { isRunningRequested = false }
 }
 
-internal enum class NearbyDiscoveryStatus { Disabled, Starting, Available, Unavailable }
+internal enum class NearbyDiscoveryStatus { Disabled, BluetoothOff, Starting, Available, Unavailable }
 
 internal object NearbyDiscoveryStatusBus {
     private val mutableStatus = MutableStateFlow(NearbyDiscoveryStatus.Disabled)

@@ -127,4 +127,6 @@
     <string name="internet_availability_description">Permite solicitudes de Internet del Mac enlazado. Inicia el uso compartido en tu Mac.</string>
     <string name="nearby_permission_title">Dispositivos cercanos</string>
     <string name="nearby_permission_description">Permite el acceso a dispositivos cercanos para que tu Mac encuentre este teléfono. Los teléfonos antiguos también pueden pedir acceso a la ubicación.</string>
+    <string name="nearby_bluetooth_off">Bluetooth está desactivado. Actívalo para descubrir dispositivos cercanos.</string>
+    <string name="nearby_turn_on_bluetooth">Activar Bluetooth</string>
 </resources>

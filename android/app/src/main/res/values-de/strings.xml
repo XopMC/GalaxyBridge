@@ -126,4 +126,6 @@
     <string name="internet_availability_description">Internetanfragen vom gekoppelten Mac erlauben. Starte die Freigabe auf dem Mac.</string>
     <string name="nearby_permission_title">Geräte in der Nähe</string>
     <string name="nearby_permission_description">Erlaube den Zugriff auf Geräte in der Nähe, damit dein Mac dieses Telefon findet. Ältere Telefone fragen eventuell auch nach dem Standort.</string>
+    <string name="nearby_bluetooth_off">Bluetooth ist ausgeschaltet. Aktiviere es, um Geräte in der Nähe zu finden.</string>
+    <string name="nearby_turn_on_bluetooth">Bluetooth einschalten</string>
 </resources>

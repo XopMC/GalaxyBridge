@@ -127,4 +127,6 @@
     <string name="internet_availability_description">允許已配對的 Mac 請求使用網路。請在 Mac 上啟動共享。</string>
     <string name="nearby_permission_title">附近的裝置</string>
     <string name="nearby_permission_description">允許存取附近的裝置，以便 Mac 找到這部手機。舊版手機可能還會要求位置權限。</string>
+    <string name="nearby_bluetooth_off">藍牙已關閉。請開啟藍牙以尋找附近裝置。</string>
+    <string name="nearby_turn_on_bluetooth">開啟藍牙</string>
 </resources>

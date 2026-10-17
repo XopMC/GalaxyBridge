@@ -15,6 +15,9 @@ final class CameraVideoSession: @unchecked Sendable {
         self.permit = permit
         self.preview = preview
         decoder = VideoToolboxDecoder(
+            // Camera preview has no audio clock to synchronize with. Present
+            // fresh decoded frames immediately instead of retaining a jitter tail.
+            immediateVideoPlayout: true,
             cameraAdmission: { permit.isAdmitted },
             frameHandler: { pixelBuffer, time, epoch in
                 guard permit.isAdmitted else { return }

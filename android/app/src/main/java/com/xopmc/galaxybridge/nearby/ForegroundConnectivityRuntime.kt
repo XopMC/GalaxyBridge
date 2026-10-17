@@ -21,7 +21,7 @@ class ForegroundConnectivityRuntime(private val context: Context, private val is
     val internet = InternetGatewayRuntime(context, isOwner) { }
     private val ble = NearbyBlePeripheral(context, isOwner, coordinator::newSession,
         onError = {
-            if (!closed) {
+            if (!closed && NearbyDiscoveryRecovery.affectsDiscovery(it)) {
                 latestNearbyError = it
                 NearbyDiscoveryStatusBus.publish(NearbyDiscoveryStatus.Unavailable)
             }
@@ -54,17 +54,17 @@ class ForegroundConnectivityRuntime(private val context: Context, private val is
         val enabled = preferences.getBoolean("nearby_enabled", true)
         val permissionsGranted = hasNearbyPermissions(context)
         val observingRadio = !enabled || !permissionsGranted || ensureBluetoothReceiver()
-        val radioOn = observingRadio && permissionsGranted && runCatching {
-            context.getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled == true
-        }.getOrDefault(false)
-        when (NearbyDiscoveryRecovery.decide(enabled, permissionsGranted, radioOn, advertising && ble.isRunningRequested)) {
+        val radioEnabled = if (observingRadio && permissionsGranted) runCatching {
+            context.getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled
+        }.getOrNull() else null
+        when (NearbyDiscoveryRecovery.decide(enabled, permissionsGranted, radioEnabled == true, advertising && ble.isRunningRequested)) {
             NearbyDiscoveryAction.StartBootstrap -> {
                 NearbyDiscoveryStatusBus.publish(NearbyDiscoveryStatus.Starting)
                 ble.start(); advertising = true
             }
             NearbyDiscoveryAction.RetireBootstrap -> {
                 retireBootstrap()
-                NearbyDiscoveryStatusBus.publish(NearbyDiscoveryStatus.Unavailable)
+                NearbyDiscoveryStatusBus.publish(if (radioEnabled == false) NearbyDiscoveryStatus.BluetoothOff else NearbyDiscoveryStatus.Unavailable)
             }
             NearbyDiscoveryAction.Disable -> {
                 retireBootstrap()

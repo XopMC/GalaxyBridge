@@ -127,4 +127,6 @@
     <string name="internet_availability_description">ペア設定した Mac からのインターネット利用リクエストを許可します。共有は Mac から開始してください。</string>
     <string name="nearby_permission_title">付近のデバイス</string>
     <string name="nearby_permission_description">Mac がこのスマートフォンを見つけられるように、付近のデバイスへのアクセスを許可してください。古い機種では位置情報の許可も求められる場合があります。</string>
+    <string name="nearby_bluetooth_off">Bluetoothがオフです。近くのデバイスを検出するにはオンにしてください。</string>
+    <string name="nearby_turn_on_bluetooth">Bluetoothをオンにする</string>
 </resources>

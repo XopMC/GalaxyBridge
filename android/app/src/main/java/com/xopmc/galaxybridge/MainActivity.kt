@@ -5,6 +5,8 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Activity
 import android.app.NotificationManager
 import android.app.role.RoleManager
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -97,6 +99,8 @@ import com.xopmc.galaxybridge.qr.QrScanGate
 import com.xopmc.galaxybridge.qr.QrCameraLifecycle
 import com.xopmc.galaxybridge.nearby.NearbyDiscoveryStatus
 import com.xopmc.galaxybridge.nearby.NearbyDiscoveryStatusBus
+import com.xopmc.galaxybridge.nearby.NearbyBluetoothEnableAction
+import com.xopmc.galaxybridge.nearby.NearbyBluetoothEnablePolicy
 import com.xopmc.galaxybridge.nearby.PendingNearbyEnable
 import com.xopmc.galaxybridge.security.DeviceIdentityStore
 import com.xopmc.galaxybridge.service.CameraCaptureService
@@ -136,11 +140,15 @@ class MainActivity : ComponentActivity() {
     private var automaticSetup = AutomaticPermissionSetup()
     private var showNotificationAccessGuide by mutableStateOf(false)
     private var resumedForSetup = false
+    private var bluetoothEnableInFlight = false
     private val pendingNearbyEnable by lazy { ViewModelProvider(this)[NearbyEnableViewModel::class.java].pending }
+    private val bluetoothEnableLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        completeBluetoothEnable()
+    }
     private val nearbyPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         completeRuntimePermission()
         if (com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.hasNearbyPermissions(this)) {
-            enableNearbyAndDeliverOffer()
+            continueNearbyEnable(explicitRequest = true)
         } else if (pendingNearbyEnable.requested) {
             setupActionError = getString(R.string.nearby_permission_required)
         }
@@ -174,6 +182,7 @@ class MainActivity : ComponentActivity() {
             preferences.getBoolean(AUTO_SETUP_GUIDE_OFFERED, false),
             preferences.getBoolean(AUTO_SETUP_COMPLETED, false),
         )
+        bluetoothEnableInFlight = savedInstanceState?.getBoolean(STATE_BLUETOOTH_ENABLE_IN_FLIGHT) == true
         showNotificationAccessGuide = savedInstanceState?.getBoolean(STATE_NOTIFICATION_GUIDE) == true
         runtimePermissionGate = RuntimePermissionRequestGate(
             inFlight = savedInstanceState
@@ -201,6 +210,7 @@ class MainActivity : ComponentActivity() {
             outState.putString(STATE_RUNTIME_PERMISSION_IN_FLIGHT, it.name)
         }
         outState.putBoolean(STATE_NOTIFICATION_GUIDE, showNotificationAccessGuide)
+        outState.putBoolean(STATE_BLUETOOTH_ENABLE_IN_FLIGHT, bluetoothEnableInFlight)
         super.onSaveInstanceState(outState)
     }
 
@@ -606,6 +616,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun advanceAutomaticSetup() {
+        if (bluetoothEnableInFlight) return
         while (true) {
             when (val step = automaticSetup.next(SetupStateResolver.resolve(setupSnapshot()), resumedForSetup, runtimePermissionGate.inFlight)) {
                 AutomaticSetupStep.Wait -> return
@@ -624,11 +635,30 @@ class MainActivity : ComponentActivity() {
                     return
                 }
                 AutomaticSetupStep.Finish -> {
-                    automaticSetup = automaticSetup.copy(completed = true)
-                    saveAutomaticSetup()
+                    finishAutomaticSetup()
                     return
                 }
             }
+        }
+    }
+
+    private fun finishAutomaticSetup() {
+        val preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
+        val requestBluetooth = NearbyBluetoothEnablePolicy.atFirstLaunchCompletion(
+            setupCompleted = automaticSetup.completed,
+            paired = preferences.getString("paired_host_id", null) != null,
+            nearbyEnabled = preferences.getBoolean("nearby_enabled", true),
+            permissionsGranted = com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.hasNearbyPermissions(this),
+            radioEnabled = bluetoothRadioEnabled(),
+            previouslyRequested = preferences.getBoolean(BLUETOOTH_ENABLE_REQUESTED, false),
+        )
+        // Persist the finite first-run boundary before opening another Android
+        // dialog. Cancellation/recreation and paired upgrades cannot repeat it.
+        automaticSetup = automaticSetup.copy(completed = true)
+        saveAutomaticSetup()
+        if (requestBluetooth) {
+            pendingNearbyEnable.request()
+            requestBluetoothEnableIfNeeded(explicitRequest = true)
         }
     }
 
@@ -734,9 +764,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun continueNearbyEnable(explicitRequest: Boolean) {
-        if (!pendingNearbyEnable.requested || runtimePermissionGate.inFlight != null) return
+        if (!pendingNearbyEnable.requested || runtimePermissionGate.inFlight != null || bluetoothEnableInFlight) return
         when (nearbyPermissionRoute(explicitRequest)) {
             PermissionRoute.None -> if (com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.hasNearbyPermissions(this)) {
+                if (requestBluetoothEnableIfNeeded(explicitRequest)) return
                 enableNearbyAndDeliverOffer()
             }
             PermissionRoute.Settings -> runCatching {
@@ -761,6 +792,36 @@ class MainActivity : ComponentActivity() {
                 setupActionError = getString(R.string.setup_action_unavailable)
             }
         }
+    }
+
+    private fun bluetoothRadioEnabled(): Boolean? {
+        return runCatching { getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled }.getOrNull()
+    }
+
+    private fun requestBluetoothEnableIfNeeded(explicitRequest: Boolean): Boolean {
+        when (NearbyBluetoothEnablePolicy.decide(explicitRequest, bluetoothRadioEnabled(), bluetoothEnableInFlight)) {
+            NearbyBluetoothEnableAction.Continue -> return false
+            NearbyBluetoothEnableAction.Wait -> return true
+            NearbyBluetoothEnableAction.RequestEnable -> Unit
+        }
+        bluetoothEnableInFlight = true
+        getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit(commit = true) {
+            putBoolean(BLUETOOTH_ENABLE_REQUESTED, true)
+        }
+        runCatching { bluetoothEnableLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)) }.onFailure {
+            bluetoothEnableInFlight = false
+            pendingNearbyEnable.cancel()
+            setupActionError = getString(R.string.setup_action_unavailable)
+        }
+        return true
+    }
+
+    private fun completeBluetoothEnable() {
+        bluetoothEnableInFlight = false
+        if (bluetoothRadioEnabled() == true) continueNearbyEnable(explicitRequest = false)
+        else pendingNearbyEnable.cancel()
+        startBridgeServiceIfAllowed()
+        refreshToken++
     }
 
     private fun nearbyDevicePermissions(): List<String> = listOf(
@@ -844,6 +905,8 @@ class MainActivity : ComponentActivity() {
         private const val AUTO_SETUP_COMPLETED = "automatic_setup_completed_v1"
         private const val STATE_NOTIFICATION_GUIDE = "notification_access_guide"
         private const val STATE_RUNTIME_PERMISSION_IN_FLIGHT = "runtime_permission_in_flight"
+        private const val STATE_BLUETOOTH_ENABLE_IN_FLIGHT = "bluetooth_enable_in_flight"
+        private const val BLUETOOTH_ENABLE_REQUESTED = "bluetooth_enable_requested_v1"
         private const val SAF_RW_FLAGS = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         private val CALL_PERMISSIONS = arrayOf(
             Manifest.permission.READ_PHONE_STATE,
@@ -939,13 +1002,18 @@ private fun HomeContent(
                 if (nearbyEnabled) {
                     Text(stringResource(when {
                         nearbyNeedsSettings -> R.string.nearby_permission_required
+                        nearbyStatus == NearbyDiscoveryStatus.BluetoothOff -> R.string.nearby_bluetooth_off
                         nearbyStatus == NearbyDiscoveryStatus.Starting -> R.string.nearby_starting
                         nearbyStatus == NearbyDiscoveryStatus.Available -> R.string.nearby_discovery_ready
                         else -> R.string.nearby_unavailable
                     }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (nearbyNeedsSettings || nearbyStatus == NearbyDiscoveryStatus.Unavailable) {
+                    if (nearbyNeedsSettings || nearbyStatus == NearbyDiscoveryStatus.BluetoothOff || nearbyStatus == NearbyDiscoveryStatus.Unavailable) {
                         OneUiOutlinedButton(onClick = onRetryNearby) {
-                            Text(stringResource(if (nearbyNeedsSettings) R.string.action_open_settings else R.string.clipboard_share_retry))
+                            Text(stringResource(when {
+                                nearbyNeedsSettings -> R.string.action_open_settings
+                                nearbyStatus == NearbyDiscoveryStatus.BluetoothOff -> R.string.nearby_turn_on_bluetooth
+                                else -> R.string.clipboard_share_retry
+                            }))
                         }
                     }
                 }

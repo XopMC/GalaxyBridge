@@ -126,4 +126,6 @@
     <string name="internet_availability_description">Autoriser les demandes Internet du Mac jumelé. Lancez le partage sur votre Mac.</string>
     <string name="nearby_permission_title">Appareils à proximité</string>
     <string name="nearby_permission_description">Autorisez l’accès aux appareils à proximité pour que votre Mac trouve ce téléphone. Les téléphones plus anciens peuvent aussi demander la localisation.</string>
+    <string name="nearby_bluetooth_off">Le Bluetooth est désactivé. Activez-le pour détecter les appareils à proximité.</string>
+    <string name="nearby_turn_on_bluetooth">Activer le Bluetooth</string>
 </resources>

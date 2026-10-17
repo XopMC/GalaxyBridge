@@ -127,4 +127,6 @@
     <string name="internet_availability_description">اسمح بطلبات الإنترنت من Mac المقترن. ابدأ المشاركة على Mac.</string>
     <string name="nearby_permission_title">الأجهزة القريبة</string>
     <string name="nearby_permission_description">اسمح بالوصول إلى الأجهزة القريبة كي يعثر Mac على هذا الهاتف. قد تطلب الهواتف القديمة إذن الموقع أيضًا.</string>
+    <string name="nearby_bluetooth_off">البلوتوث متوقف. شغّله لاكتشاف الأجهزة القريبة.</string>
+    <string name="nearby_turn_on_bluetooth">تشغيل البلوتوث</string>
 </resources>
