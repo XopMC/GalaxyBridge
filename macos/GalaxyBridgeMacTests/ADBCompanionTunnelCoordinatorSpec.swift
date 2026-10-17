@@ -41,8 +41,13 @@ private final class Gate: @unchecked Sendable {
         let executable = root.appendingPathComponent("adb-fixture")
         let code = #"""
 #!/usr/bin/python3
-import sys, pathlib
+import sys, pathlib, fcntl
 root = pathlib.Path(__file__).parent
+# Match the daemon: each command updates the forward table atomically. Shutdown
+# can remove independent forwards concurrently; an unlocked read/rewrite here
+# would lose one removal and falsely report a production cleanup leak.
+command_lock = (root/'command.lock').open('a')
+fcntl.flock(command_lock, fcntl.LOCK_EX)
 args = sys.argv[1:]
 with (root/'commands').open('a') as f: f.write(' '.join(args)+'\n')
 p = root/'forward'

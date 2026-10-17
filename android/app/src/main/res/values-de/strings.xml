@@ -60,7 +60,7 @@
     <string name="calls_permissions_title">Anrufberechtigungen</string>
     <string name="calls_permissions_description">Bestätigen Sie den Zugriff auf Anrufe, die Galaxy Bridge bereits auf diesem Smartphone verwaltet.</string>
     <string name="identity_title">Ihren Mac verbinden</string>
-    <string name="pairing_scan_hint">Scannen Sie den QR-Code, der in Galaxy Bridge auf Ihrem Mac angezeigt wird. Der Scanner öffnet sich direkt in dieser App.</string>
+    <string name="pairing_scan_hint">Lass Helper geöffnet. Wähle dieses Telefon auf deinem Mac aus und bestätige die Anfrage hier.</string>
     <string name="pairing_paired_hint">Ihr Galaxy kann sich automatisch wieder mit diesem Mac verbinden, wenn beide Geräte in der Nähe sind.</string>
     <string name="qr_scanner_title">Kopplungs-QR-Code scannen</string>
     <string name="qr_scanner_hint">Richten Sie die Kamera auf den Kopplungs-QR-Code von GalaxyBridge auf Ihrem Mac.</string>
@@ -128,9 +128,9 @@
     <string name="nearby_permission_description">Erlaube den Zugriff auf Geräte in der Nähe, damit dein Mac dieses Telefon findet. Ältere Telefone fragen eventuell auch nach dem Standort.</string>
     <string name="nearby_bluetooth_off">Bluetooth ist ausgeschaltet. Aktiviere es, um Geräte in der Nähe zu finden.</string>
     <string name="nearby_turn_on_bluetooth">Bluetooth einschalten</string>
-    <string name="nearby_consent_title">Connect this Mac?</string>
-    <string name="nearby_consent_body">%1$s wants to connect to this phone.</string>
-    <string name="nearby_consent_compare">Check that this number matches the one on your Mac. Connect only if you started the request.</string>
-    <string name="nearby_consent_connect">Connect</string>
-    <string name="nearby_consent_decline">Decline</string>
+    <string name="nearby_consent_title">Diesen Mac verbinden?</string>
+    <string name="nearby_consent_body">%1$s möchte sich mit diesem Telefon verbinden.</string>
+    <string name="nearby_consent_compare">Prüfe, ob die Nummer mit der auf deinem Mac übereinstimmt. Verbinde nur, wenn du die Anfrage gestartet hast.</string>
+    <string name="nearby_consent_connect">Verbinden</string>
+    <string name="nearby_consent_decline">Ablehnen</string>
 </resources>

@@ -364,7 +364,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "Telefone in der Nähe";
 
-"DISCOVERY_UNTRUSTED_HINT" = "Confirm the connection in Helper on your phone.";
+"DISCOVERY_UNTRUSTED_HINT" = "Bestätige die Verbindung in Helper auf deinem Telefon.";
 
 "DISCOVERY_GENERIC_PHONE" = "Android-Telefon";
 
@@ -391,14 +391,14 @@
 "NEARBY_LOCATION_PERMISSION_HINT" = "Erlaube Galaxy Bridge den Standortzugriff unter Systemeinstellungen → Datenschutz & Sicherheit → Ortungsdienste, um Telefone in der Nähe zu verbinden.";
 "NOTIFICATIONS_EMPTY_HINT" = "Neue Benachrichtigungen deines Smartphones werden hier angezeigt.";
 
-"CONSENT_DISCOVER_HINT" = "Open Helper on your phone, then choose it below.";
-"CONSENT_SEARCHING" = "Looking for nearby phones…";
-"CONSENT_MANUAL_QR" = "Use a QR code instead";
-"CONSENT_REQUESTING" = "Sending a connection request…";
-"CONSENT_CONFIRM_PHONE" = "Confirm on your phone";
-"CONSENT_COMPARE_HINT" = "Check that the same number appears in Helper, then tap Connect on your phone.";
-"CONSENT_PHONE_UNAVAILABLE" = "Could not reach the phone. Keep Helper open and try again.";
-"CONSENT_EXPIRED" = "The request expired. Choose the phone to try again.";
-"CONSENT_DECLINED" = "The connection request was declined on the phone.";
-"CONSENT_BUSY" = "The phone is handling another request. Try again in a minute.";
-"CONSENT_OPEN_HELPER" = "Open Helper on the phone, then try again.";
+"CONSENT_DISCOVER_HINT" = "Öffne Helper auf deinem Telefon und wähle es unten aus.";
+"CONSENT_SEARCHING" = "Suche nach Telefonen in der Nähe…";
+"CONSENT_MANUAL_QR" = "Stattdessen QR-Code verwenden";
+"CONSENT_REQUESTING" = "Verbindungsanfrage wird gesendet…";
+"CONSENT_CONFIRM_PHONE" = "Auf dem Telefon bestätigen";
+"CONSENT_COMPARE_HINT" = "Prüfe, ob Helper dieselbe Nummer anzeigt, und tippe auf deinem Telefon auf Verbinden.";
+"CONSENT_PHONE_UNAVAILABLE" = "Keine Verbindung zum Telefon. Lass Helper geöffnet und versuche es erneut.";
+"CONSENT_EXPIRED" = "Die Anfrage ist abgelaufen. Wähle das Telefon erneut aus.";
+"CONSENT_DECLINED" = "Die Verbindungsanfrage wurde auf dem Telefon abgelehnt.";
+"CONSENT_BUSY" = "Das Telefon bearbeitet eine andere Anfrage. Versuche es in einer Minute erneut.";
+"CONSENT_OPEN_HELPER" = "Öffne Helper auf dem Telefon und versuche es erneut.";

@@ -61,7 +61,7 @@
     <string name="calls_permissions_title">通话权限</string>
     <string name="calls_permissions_description">确认可以访问此电话上已由 Galaxy Bridge 管理的呼叫。</string>
     <string name="identity_title">连接您的Mac</string>
-    <string name="pairing_scan_hint">扫描 Mac 上 Galaxy Bridge 中显示的 QR 代码。扫描仪直接在此应用程序中打开。</string>
+    <string name="pairing_scan_hint">请保持 Helper 开启。在 Mac 上选择此手机，然后在此处确认请求。</string>
     <string name="pairing_paired_hint">当两个设备都在附近时，您的 Galaxy 可以自动重新连接到该 Mac。</string>
     <string name="qr_scanner_title">扫描配对QR</string>
     <string name="qr_scanner_hint">将相机对准 Mac 上 GalaxyBridge 的配对 QR。</string>
@@ -129,9 +129,9 @@
     <string name="nearby_permission_description">允许访问附近的设备，以便 Mac 发现这部手机。旧版手机可能还会请求位置权限。</string>
     <string name="nearby_bluetooth_off">蓝牙已关闭。请开启蓝牙以发现附近设备。</string>
     <string name="nearby_turn_on_bluetooth">开启蓝牙</string>
-    <string name="nearby_consent_title">Connect this Mac?</string>
-    <string name="nearby_consent_body">%1$s wants to connect to this phone.</string>
-    <string name="nearby_consent_compare">Check that this number matches the one on your Mac. Connect only if you started the request.</string>
-    <string name="nearby_consent_connect">Connect</string>
-    <string name="nearby_consent_decline">Decline</string>
+    <string name="nearby_consent_title">连接这台 Mac？</string>
+    <string name="nearby_consent_body">%1$s 希望连接到此手机。</string>
+    <string name="nearby_consent_compare">请确认此数字与 Mac 上的数字一致。仅在您发起了请求时连接。</string>
+    <string name="nearby_consent_connect">连接</string>
+    <string name="nearby_consent_decline">拒绝</string>
 </resources>

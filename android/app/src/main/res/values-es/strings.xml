@@ -61,7 +61,7 @@
     <string name="calls_permissions_title">Permisos de llamada</string>
     <string name="calls_permissions_description">Confirme el acceso a las llamadas ya administradas por Galaxy Bridge en este teléfono.</string>
     <string name="identity_title">Conecte su Mac</string>
-    <string name="pairing_scan_hint">Escanee el código QR que se muestra en Galaxy Bridge en su Mac. El escáner se abre directamente en esta aplicación.</string>
+    <string name="pairing_scan_hint">Mantén Helper abierto. Selecciona este teléfono en tu Mac y confirma la solicitud aquí.</string>
     <string name="pairing_paired_hint">Su Galaxy puede volver a conectarse a este Mac automáticamente cuando ambos dispositivos estén cerca.</string>
     <string name="qr_scanner_title">Escanear emparejamiento QR</string>
     <string name="qr_scanner_hint">Apunte la cámara al emparejamiento QR de GalaxyBridge en su Mac.</string>
@@ -129,9 +129,9 @@
     <string name="nearby_permission_description">Permite el acceso a dispositivos cercanos para que tu Mac encuentre este teléfono. Los teléfonos antiguos también pueden pedir acceso a la ubicación.</string>
     <string name="nearby_bluetooth_off">Bluetooth está desactivado. Actívalo para descubrir dispositivos cercanos.</string>
     <string name="nearby_turn_on_bluetooth">Activar Bluetooth</string>
-    <string name="nearby_consent_title">Connect this Mac?</string>
-    <string name="nearby_consent_body">%1$s wants to connect to this phone.</string>
-    <string name="nearby_consent_compare">Check that this number matches the one on your Mac. Connect only if you started the request.</string>
-    <string name="nearby_consent_connect">Connect</string>
-    <string name="nearby_consent_decline">Decline</string>
+    <string name="nearby_consent_title">¿Conectar este Mac?</string>
+    <string name="nearby_consent_body">%1$s quiere conectarse a este teléfono.</string>
+    <string name="nearby_consent_compare">Comprueba que este número coincida con el de tu Mac. Conecta solo si has iniciado la solicitud.</string>
+    <string name="nearby_consent_connect">Conectar</string>
+    <string name="nearby_consent_decline">Rechazar</string>
 </resources>

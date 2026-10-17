@@ -60,7 +60,7 @@
     <string name="calls_permissions_title">Autorisations d’appel</string>
     <string name="calls_permissions_description">Confirmez l’accès aux appels déjà gérés par Galaxy Bridge sur ce téléphone.</string>
     <string name="identity_title">Connecter votre Mac</string>
-    <string name="pairing_scan_hint">Scannez le code QR affiché dans Galaxy Bridge sur votre Mac. Le scanner s’ouvre directement dans cette application.</string>
+    <string name="pairing_scan_hint">Gardez Helper ouvert. Sélectionnez ce téléphone sur votre Mac, puis confirmez la demande ici.</string>
     <string name="pairing_paired_hint">Votre Galaxy peut se reconnecter automatiquement à ce Mac lorsque les deux appareils sont à proximité.</string>
     <string name="qr_scanner_title">Scanner le code QR d’association</string>
     <string name="qr_scanner_hint">Pointez la caméra vers le code QR d’association de GalaxyBridge sur votre Mac.</string>
@@ -128,9 +128,9 @@
     <string name="nearby_permission_description">Autorisez l’accès aux appareils à proximité pour que votre Mac trouve ce téléphone. Les téléphones plus anciens peuvent aussi demander la localisation.</string>
     <string name="nearby_bluetooth_off">Le Bluetooth est désactivé. Activez-le pour détecter les appareils à proximité.</string>
     <string name="nearby_turn_on_bluetooth">Activer le Bluetooth</string>
-    <string name="nearby_consent_title">Connect this Mac?</string>
-    <string name="nearby_consent_body">%1$s wants to connect to this phone.</string>
-    <string name="nearby_consent_compare">Check that this number matches the one on your Mac. Connect only if you started the request.</string>
-    <string name="nearby_consent_connect">Connect</string>
-    <string name="nearby_consent_decline">Decline</string>
+    <string name="nearby_consent_title">Connecter ce Mac ?</string>
+    <string name="nearby_consent_body">%1$s souhaite se connecter à ce téléphone.</string>
+    <string name="nearby_consent_compare">Vérifiez que ce numéro correspond à celui de votre Mac. Connectez-vous uniquement si vous avez lancé la demande.</string>
+    <string name="nearby_consent_connect">Connecter</string>
+    <string name="nearby_consent_decline">Refuser</string>
 </resources>

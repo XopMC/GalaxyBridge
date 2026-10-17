@@ -61,7 +61,7 @@
     <string name="calls_permissions_title">통화 권한</string>
     <string name="calls_permissions_description">이 전화기에서 Galaxy Bridge가 이미 관리하는 통화에 대한 액세스를 확인하세요.</string>
     <string name="identity_title">Mac를 연결하세요</string>
-    <string name="pairing_scan_hint">Mac의 Galaxy Bridge에 표시된 QR 코드를 스캔하세요. 스캐너는 이 앱에서 직접 열립니다.</string>
+    <string name="pairing_scan_hint">Helper를 열어 두세요. Mac에서 이 휴대전화를 선택한 후 여기에서 요청을 승인하세요.</string>
     <string name="pairing_paired_hint">Galaxy는 두 장치가 근처에 있으면 자동으로 이 Mac에 다시 연결할 수 있습니다.</string>
     <string name="qr_scanner_title">스캔 페어링 QR</string>
     <string name="qr_scanner_hint">카메라가 Mac의 GalaxyBridge에서 페어링된 QR를 향하게 합니다.</string>
@@ -129,9 +129,9 @@
     <string name="nearby_permission_description">Mac이 이 휴대전화를 찾도록 근처 기기 접근을 허용하세요. 이전 휴대전화에서는 위치 권한도 요청할 수 있습니다.</string>
     <string name="nearby_bluetooth_off">블루투스가 꺼져 있습니다. 주변 기기를 검색하려면 켜세요.</string>
     <string name="nearby_turn_on_bluetooth">블루투스 켜기</string>
-    <string name="nearby_consent_title">Connect this Mac?</string>
-    <string name="nearby_consent_body">%1$s wants to connect to this phone.</string>
-    <string name="nearby_consent_compare">Check that this number matches the one on your Mac. Connect only if you started the request.</string>
-    <string name="nearby_consent_connect">Connect</string>
-    <string name="nearby_consent_decline">Decline</string>
+    <string name="nearby_consent_title">이 Mac을 연결할까요?</string>
+    <string name="nearby_consent_body">%1$s에서 이 휴대전화에 연결하려고 합니다.</string>
+    <string name="nearby_consent_compare">Mac에 표시된 숫자와 같은지 확인하세요. 직접 시작한 요청일 때만 연결하세요.</string>
+    <string name="nearby_consent_connect">연결</string>
+    <string name="nearby_consent_decline">거절</string>
 </resources>

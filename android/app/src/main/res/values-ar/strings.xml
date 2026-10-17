@@ -61,7 +61,7 @@
     <string name="calls_permissions_title">أذونات الاتصال</string>
     <string name="calls_permissions_description">قم بتأكيد الوصول إلى المكالمات التي يديرها Galaxy Bridge بالفعل على هذا الهاتف.</string>
     <string name="identity_title">قم بتوصيل Mac الخاص بك</string>
-    <string name="pairing_scan_hint">امسح رمز QR الموضح في Galaxy Bridge على جهاز Mac. يفتح الماسح الضوئي مباشرة في هذا التطبيق.</string>
+    <string name="pairing_scan_hint">أبقِ Helper مفتوحًا. اختر هذا الهاتف على الـ Mac، ثم أكد الطلب هنا.</string>
     <string name="pairing_paired_hint">يمكن لجهاز Galaxy إعادة الاتصال بـ Mac هذا تلقائيًا عندما يكون كلا الجهازين قريبين.</string>
     <string name="qr_scanner_title">اقتران المسح الضوئي QR</string>
     <string name="qr_scanner_hint">قم بتوجيه الكاميرا نحو اقتران QR من GalaxyBridge على Mac.</string>
@@ -129,9 +129,9 @@
     <string name="nearby_permission_description">اسمح بالوصول إلى الأجهزة القريبة كي يعثر Mac على هذا الهاتف. قد تطلب الهواتف القديمة إذن الموقع أيضًا.</string>
     <string name="nearby_bluetooth_off">البلوتوث متوقف. شغّله لاكتشاف الأجهزة القريبة.</string>
     <string name="nearby_turn_on_bluetooth">تشغيل البلوتوث</string>
-    <string name="nearby_consent_title">Connect this Mac?</string>
-    <string name="nearby_consent_body">%1$s wants to connect to this phone.</string>
-    <string name="nearby_consent_compare">Check that this number matches the one on your Mac. Connect only if you started the request.</string>
-    <string name="nearby_consent_connect">Connect</string>
-    <string name="nearby_consent_decline">Decline</string>
+    <string name="nearby_consent_title">الاتصال بهذا الـ Mac؟</string>
+    <string name="nearby_consent_body">يريد %1$s الاتصال بهذا الهاتف.</string>
+    <string name="nearby_consent_compare">تأكد من تطابق هذا الرقم مع الرقم الظاهر على الـ Mac. اتصل فقط إذا كنت أنت من بدأ الطلب.</string>
+    <string name="nearby_consent_connect">اتصال</string>
+    <string name="nearby_consent_decline">رفض</string>
 </resources>

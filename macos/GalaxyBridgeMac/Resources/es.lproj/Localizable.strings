@@ -365,7 +365,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "Teléfonos cercanos";
 
-"DISCOVERY_UNTRUSTED_HINT" = "Confirm the connection in Helper on your phone.";
+"DISCOVERY_UNTRUSTED_HINT" = "Confirma la conexión en Helper en tu teléfono.";
 
 "DISCOVERY_GENERIC_PHONE" = "Teléfono Android";
 
@@ -392,14 +392,14 @@
 "NEARBY_LOCATION_PERMISSION_HINT" = "Para conectar teléfonos cercanos, permite que Galaxy Bridge use la ubicación en Ajustes del Sistema → Privacidad y seguridad → Localización.";
 "NOTIFICATIONS_EMPTY_HINT" = "Las nuevas notificaciones del teléfono aparecerán aquí.";
 
-"CONSENT_DISCOVER_HINT" = "Open Helper on your phone, then choose it below.";
-"CONSENT_SEARCHING" = "Looking for nearby phones…";
-"CONSENT_MANUAL_QR" = "Use a QR code instead";
-"CONSENT_REQUESTING" = "Sending a connection request…";
-"CONSENT_CONFIRM_PHONE" = "Confirm on your phone";
-"CONSENT_COMPARE_HINT" = "Check that the same number appears in Helper, then tap Connect on your phone.";
-"CONSENT_PHONE_UNAVAILABLE" = "Could not reach the phone. Keep Helper open and try again.";
-"CONSENT_EXPIRED" = "The request expired. Choose the phone to try again.";
-"CONSENT_DECLINED" = "The connection request was declined on the phone.";
-"CONSENT_BUSY" = "The phone is handling another request. Try again in a minute.";
-"CONSENT_OPEN_HELPER" = "Open Helper on the phone, then try again.";
+"CONSENT_DISCOVER_HINT" = "Abre Helper en tu teléfono y selecciónalo abajo.";
+"CONSENT_SEARCHING" = "Buscando teléfonos cercanos…";
+"CONSENT_MANUAL_QR" = "Usar un código QR";
+"CONSENT_REQUESTING" = "Enviando solicitud de conexión…";
+"CONSENT_CONFIRM_PHONE" = "Confirma en tu teléfono";
+"CONSENT_COMPARE_HINT" = "Comprueba que Helper muestre el mismo número y toca Conectar en tu teléfono.";
+"CONSENT_PHONE_UNAVAILABLE" = "No se pudo conectar con el teléfono. Mantén Helper abierto e inténtalo de nuevo.";
+"CONSENT_EXPIRED" = "La solicitud ha caducado. Selecciona el teléfono para volver a intentarlo.";
+"CONSENT_DECLINED" = "La solicitud de conexión se ha rechazado en el teléfono.";
+"CONSENT_BUSY" = "El teléfono está atendiendo otra solicitud. Inténtalo de nuevo en un minuto.";
+"CONSENT_OPEN_HELPER" = "Abre Helper en el teléfono e inténtalo de nuevo.";

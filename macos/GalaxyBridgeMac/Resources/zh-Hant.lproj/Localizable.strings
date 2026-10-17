@@ -366,7 +366,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "附近的手機";
 
-"DISCOVERY_UNTRUSTED_HINT" = "Confirm the connection in Helper on your phone.";
+"DISCOVERY_UNTRUSTED_HINT" = "請在手機上的 Helper 中確認連線。";
 
 "DISCOVERY_GENERIC_PHONE" = "Android 手機";
 
@@ -393,14 +393,14 @@
 "NEARBY_LOCATION_PERMISSION_HINT" = "若要連接附近的手機，請前往「系統設定 → 隱私權與安全性 → 定位服務」，允許 Galaxy Bridge 使用定位資訊。";
 "NOTIFICATIONS_EMPTY_HINT" = "手機的新通知會顯示在這裡。";
 
-"CONSENT_DISCOVER_HINT" = "Open Helper on your phone, then choose it below.";
-"CONSENT_SEARCHING" = "Looking for nearby phones…";
-"CONSENT_MANUAL_QR" = "Use a QR code instead";
-"CONSENT_REQUESTING" = "Sending a connection request…";
-"CONSENT_CONFIRM_PHONE" = "Confirm on your phone";
-"CONSENT_COMPARE_HINT" = "Check that the same number appears in Helper, then tap Connect on your phone.";
-"CONSENT_PHONE_UNAVAILABLE" = "Could not reach the phone. Keep Helper open and try again.";
-"CONSENT_EXPIRED" = "The request expired. Choose the phone to try again.";
-"CONSENT_DECLINED" = "The connection request was declined on the phone.";
-"CONSENT_BUSY" = "The phone is handling another request. Try again in a minute.";
-"CONSENT_OPEN_HELPER" = "Open Helper on the phone, then try again.";
+"CONSENT_DISCOVER_HINT" = "請在手機上開啟 Helper，然後在下方選擇該手機。";
+"CONSENT_SEARCHING" = "正在尋找附近的手機…";
+"CONSENT_MANUAL_QR" = "改用 QR 碼";
+"CONSENT_REQUESTING" = "正在傳送連線要求…";
+"CONSENT_CONFIRM_PHONE" = "請在手機上確認";
+"CONSENT_COMPARE_HINT" = "請確認 Helper 顯示相同的數字，然後在手機上點選「連接」。";
+"CONSENT_PHONE_UNAVAILABLE" = "無法連接手機。請保持 Helper 開啟並重試。";
+"CONSENT_EXPIRED" = "要求已過期。請選擇手機重試。";
+"CONSENT_DECLINED" = "連線要求已在手機上遭拒。";
+"CONSENT_BUSY" = "手機正在處理其他要求。請稍後再試。";
+"CONSENT_OPEN_HELPER" = "請在手機上開啟 Helper，然後重試。";

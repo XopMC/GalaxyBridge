@@ -2,6 +2,8 @@ import Foundation
 
 struct GBDirectLinkStatus { var requestID = ""; var groupLeaseID = ""; var state = ""; var errorCode = "" }
 enum NearbyConnectionStatus: Equatable { case connected, failed(String) }
+enum ConsentPresentation: Equatable { case idle, failed(String) }
+struct ConsentOffer { let consentName: String? }
 struct Descriptor { let deviceID: String }
 struct Admission { func verified(_ generation: UUID) {} }
 
@@ -15,6 +17,8 @@ struct Admission { func verified(_ generation: UUID) {} }
         var leaseID = UUID().uuidString.lowercased()
         var confirmation: (requestID: String, continuation: CheckedContinuation<Void, Error>, timeout: Task<Void, Never>)?
         var lifetime = NearbyLinkLifetime()
+        var offer: ConsentOffer?
+        var peer: String?
         var descriptor: Descriptor?
         var renewalState: NearbyLeaseRenewalState?
         var deadline: Task<Void, Never>?
@@ -30,6 +34,10 @@ struct Admission { func verified(_ generation: UUID) {} }
     var groupAdmission = Admission()
     var retired: [String] = []
     var confirmationCompletions = 0
+    var consentPresentation = ConsentPresentation.idle
+    var cancelledOffers = 0
+    func cancelOffer() { cancelledOffers += 1 }
+    func failForTest(_ session: Session, code: String) { fail(session, code: code) }
     func current(_ session: Session) -> Bool { session.deviceID.map { sessions[$0] === session } == true }
     func update(_ session: Session, _ status: NearbyConnectionStatus) { if let id = session.deviceID { statuses[id] = status } }
     func recordRemoteLeaseDelivery(_ session: Session) {}
@@ -104,6 +112,18 @@ struct Admission { func verified(_ generation: UUID) {} }
             state: "failed", errorCode: "Untrusted message\n" + String(repeating: "x", count: 512)), to: malformed)
         precondition(coordinator.statuses["malformed"] == .failed("nearby_request_failed"),
             "Malformed or unbounded remote text must collapse to a local generic code")
-        print("PASS actual nearby status dispatch: bounded peer reasons, current-request fences, per-phone retirement and exactly-once confirmation cleanup")
+        let unrelated = coordinator.add("unrelated")
+        let consent = coordinator.add("consent")
+        consent.offer = ConsentOffer(consentName: "Fixture Mac")
+        coordinator.failForTest(consent, code: "CONSENT_DECLINED")
+        precondition(coordinator.cancelledOffers == 1 && coordinator.consentPresentation == .failed("CONSENT_DECLINED"))
+        precondition(coordinator.sessions["unrelated"] === unrelated && coordinator.sessions["consent"] == nil,
+            "Consent rejection must preserve an unrelated phone session")
+        let established = coordinator.add("established")
+        established.offer = ConsentOffer(consentName: "Fixture Mac"); established.peer = "verified-peer"
+        coordinator.failForTest(established, code: "nearby_request_failed")
+        precondition(coordinator.cancelledOffers == 1 && coordinator.consentPresentation == .failed("CONSENT_DECLINED"),
+            "An established peer failure must not overwrite pending consent presentation")
+        print("PASS actual nearby status dispatch: bounded peer reasons, current-request fences, per-phone retirement and exactly-once confirmation cleanup and consent/established-peer isolation")
     }
 }
