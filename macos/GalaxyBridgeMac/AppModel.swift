@@ -5216,6 +5216,7 @@ final class AppModel: ObservableObject {
         case .privilegedBridge: "CAPABILITY_PRIVILEGED_BRIDGE"
         case .featureConfiguration: "CAPABILITY_FEATURE_CONFIGURATION"
         case .captureRetirementProof: "CAPABILITY_CAPTURE_RETIREMENT_PROOF"
+        case .compositeDisplayState: "CAPABILITY_COMPOSITE_DISPLAY_STATE"
         case .shellRuntimeIdentity: "CAPABILITY_SHELL_RUNTIME_IDENTITY"
         case .UNRECOGNIZED: nil
         }

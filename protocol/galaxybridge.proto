@@ -143,6 +143,8 @@ enum Capability {
   CAPABILITY_FEATURE_CONFIGURATION = 17;
   // Typed read-only retirement proofs, independent of broker activation.
   CAPABILITY_CAPTURE_RETIREMENT_PROOF = 18;
+  // Scoped interactive lifetime with raw/logical restoration evidence.
+  CAPABILITY_COMPOSITE_DISPLAY_STATE = 19;
   // Prepared broker identity, independent of whether a broker is active.
   CAPABILITY_SHELL_RUNTIME_IDENTITY = 20;
 }
@@ -250,6 +252,18 @@ message ShellCaptureOptions {
   bool control = 11;
 }
 
+// SNAPSHOT may create a read-only child; its acknowledgement freezes identity
+// and pre-wake state before APPLY can be sent. APPLY and STATUS require an
+// existing authenticated owner. STATUS may hold activity without lighting panels.
+message DisplayStateCommand {
+  enum Action { SNAPSHOT = 0; STATUS = 1; APPLY = 2; }
+  enum PanelPolicy { PRESERVE = 0; HIDE = 1; SHOW = 2; }
+  Action action = 1;
+  bool interactive = 2;
+  PanelPolicy panel_policy = 3;
+  uint64 revision = 4;
+}
+
 message ShellBridgeRequest {
   enum Operation {
     STATUS = 0;
@@ -262,6 +276,7 @@ message ShellBridgeRequest {
     // Unlinks only an exact owned privacy-runtime JAR after PID/start absence
     // proof and a match to this broker's verified runtime bytes.
     RELEASE_RETIRED_RESOURCE = 7;
+    START_DISPLAY_STATE = 8;
   }
   string request_id = 1;
   string lease_id = 2;
@@ -270,6 +285,7 @@ message ShellBridgeRequest {
   ShellCaptureOptions options = 5;
   bool power_on = 6;
   CaptureRetirementQuery retirement = 7;
+  DisplayStateCommand display_state = 8;
 }
 
 // CONTROL only after signed authentication. VERIFY_RETIREMENT is read-only.
@@ -280,6 +296,7 @@ message CaptureRetirementQuery {
     PROBE_SUPPORT = 0;
     SCRCPY_CAPTURE = 1;
     DISPLAY_POWER_CONTROLLER = 2;
+    DISPLAY_STATE_CONTROLLER = 3;
   }
   Kind kind = 1;
   uint32 scid = 2;
@@ -306,6 +323,11 @@ message CaptureRetirementProof {
   repeated PhysicalPanelPowerState panels = 7;
   string owned_resource_id = 8;
   bool resource_removed = 9;
+  // Strict bounded v2 snapshot, never the legacy Boolean panel projection.
+  bytes display_state_snapshot = 10;
+  // Optional retained terminal receipt. A yielded disposition cannot be
+  // reconstructed from process absence or a fresh snapshot alone.
+  bytes display_state_terminal_acknowledgement = 11;
 }
 
 message ShellBridgeResult {
@@ -320,6 +342,7 @@ message ShellBridgeResult {
   CaptureRetirementProof retirement_proof = 9;
   // SHA-256 of the verified JAR loaded by this boot generation.
   bytes runtime_sha256 = 10;
+  bytes display_state_acknowledgement = 11;
 }
 
 message OpenChannel {

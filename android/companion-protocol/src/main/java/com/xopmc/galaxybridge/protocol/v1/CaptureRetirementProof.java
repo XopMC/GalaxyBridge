@@ -17,6 +17,8 @@ public  final class CaptureRetirementProof extends
   private CaptureRetirementProof() {
     panels_ = emptyProtobufList();
     ownedResourceId_ = "";
+    displayStateSnapshot_ = com.google.protobuf.ByteString.EMPTY;
+    displayStateTerminalAcknowledgement_ = com.google.protobuf.ByteString.EMPTY;
   }
   public static final int KIND_FIELD_NUMBER = 1;
   private int kind_;
@@ -411,6 +413,87 @@ public  final class CaptureRetirementProof extends
   private void clearResourceRemoved() {
 
     resourceRemoved_ = false;
+  }
+
+  public static final int DISPLAY_STATE_SNAPSHOT_FIELD_NUMBER = 10;
+  private com.google.protobuf.ByteString displayStateSnapshot_;
+  /**
+   * <pre>
+   * Strict bounded v2 snapshot, never the legacy Boolean panel projection.
+   * </pre>
+   *
+   * <code>bytes display_state_snapshot = 10;</code>
+   * @return The displayStateSnapshot.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString getDisplayStateSnapshot() {
+    return displayStateSnapshot_;
+  }
+  /**
+   * <pre>
+   * Strict bounded v2 snapshot, never the legacy Boolean panel projection.
+   * </pre>
+   *
+   * <code>bytes display_state_snapshot = 10;</code>
+   * @param value The displayStateSnapshot to set.
+   */
+  private void setDisplayStateSnapshot(com.google.protobuf.ByteString value) {
+    java.util.Objects.requireNonNull(value);
+
+    displayStateSnapshot_ = value;
+  }
+  /**
+   * <pre>
+   * Strict bounded v2 snapshot, never the legacy Boolean panel projection.
+   * </pre>
+   *
+   * <code>bytes display_state_snapshot = 10;</code>
+   */
+  private void clearDisplayStateSnapshot() {
+
+    displayStateSnapshot_ = getDefaultInstance().getDisplayStateSnapshot();
+  }
+
+  public static final int DISPLAY_STATE_TERMINAL_ACKNOWLEDGEMENT_FIELD_NUMBER = 11;
+  private com.google.protobuf.ByteString displayStateTerminalAcknowledgement_;
+  /**
+   * <pre>
+   * Optional retained terminal receipt. A yielded disposition cannot be
+   * reconstructed from process absence or a fresh snapshot alone.
+   * </pre>
+   *
+   * <code>bytes display_state_terminal_acknowledgement = 11;</code>
+   * @return The displayStateTerminalAcknowledgement.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString getDisplayStateTerminalAcknowledgement() {
+    return displayStateTerminalAcknowledgement_;
+  }
+  /**
+   * <pre>
+   * Optional retained terminal receipt. A yielded disposition cannot be
+   * reconstructed from process absence or a fresh snapshot alone.
+   * </pre>
+   *
+   * <code>bytes display_state_terminal_acknowledgement = 11;</code>
+   * @param value The displayStateTerminalAcknowledgement to set.
+   */
+  private void setDisplayStateTerminalAcknowledgement(com.google.protobuf.ByteString value) {
+    java.util.Objects.requireNonNull(value);
+
+    displayStateTerminalAcknowledgement_ = value;
+  }
+  /**
+   * <pre>
+   * Optional retained terminal receipt. A yielded disposition cannot be
+   * reconstructed from process absence or a fresh snapshot alone.
+   * </pre>
+   *
+   * <code>bytes display_state_terminal_acknowledgement = 11;</code>
+   */
+  private void clearDisplayStateTerminalAcknowledgement() {
+
+    displayStateTerminalAcknowledgement_ = getDefaultInstance().getDisplayStateTerminalAcknowledgement();
   }
 
   public static com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof parseFrom(
@@ -936,6 +1019,89 @@ public  final class CaptureRetirementProof extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Strict bounded v2 snapshot, never the legacy Boolean panel projection.
+     * </pre>
+     *
+     * <code>bytes display_state_snapshot = 10;</code>
+     * @return The displayStateSnapshot.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString getDisplayStateSnapshot() {
+      return instance.getDisplayStateSnapshot();
+    }
+    /**
+     * <pre>
+     * Strict bounded v2 snapshot, never the legacy Boolean panel projection.
+     * </pre>
+     *
+     * <code>bytes display_state_snapshot = 10;</code>
+     * @param value The displayStateSnapshot to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDisplayStateSnapshot(com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setDisplayStateSnapshot(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Strict bounded v2 snapshot, never the legacy Boolean panel projection.
+     * </pre>
+     *
+     * <code>bytes display_state_snapshot = 10;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearDisplayStateSnapshot() {
+      copyOnWrite();
+      instance.clearDisplayStateSnapshot();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Optional retained terminal receipt. A yielded disposition cannot be
+     * reconstructed from process absence or a fresh snapshot alone.
+     * </pre>
+     *
+     * <code>bytes display_state_terminal_acknowledgement = 11;</code>
+     * @return The displayStateTerminalAcknowledgement.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString getDisplayStateTerminalAcknowledgement() {
+      return instance.getDisplayStateTerminalAcknowledgement();
+    }
+    /**
+     * <pre>
+     * Optional retained terminal receipt. A yielded disposition cannot be
+     * reconstructed from process absence or a fresh snapshot alone.
+     * </pre>
+     *
+     * <code>bytes display_state_terminal_acknowledgement = 11;</code>
+     * @param value The displayStateTerminalAcknowledgement to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDisplayStateTerminalAcknowledgement(com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setDisplayStateTerminalAcknowledgement(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Optional retained terminal receipt. A yielded disposition cannot be
+     * reconstructed from process absence or a fresh snapshot alone.
+     * </pre>
+     *
+     * <code>bytes display_state_terminal_acknowledgement = 11;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearDisplayStateTerminalAcknowledgement() {
+      copyOnWrite();
+      instance.clearDisplayStateTerminalAcknowledgement();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:galaxybridge.v1.CaptureRetirementProof)
   }
   @java.lang.Override
@@ -962,10 +1128,13 @@ public  final class CaptureRetirementProof extends
             com.xopmc.galaxybridge.protocol.v1.PhysicalPanelPowerState.class,
             "ownedResourceId_",
             "resourceRemoved_",
+            "displayStateSnapshot_",
+            "displayStateTerminalAcknowledgement_",
           };
           java.lang.String info =
-              "\u0000\t\u0000\u0000\u0001\t\t\u0000\u0001\u0000\u0001\f\u0002\u000b\u0003\u000b" +
-              "\u0004\u0003\u0005\u0007\u0006\u0007\u0007\u001b\b\u0208\t\u0007";
+              "\u0000\u000b\u0000\u0000\u0001\u000b\u000b\u0000\u0001\u0000\u0001\f\u0002\u000b" +
+              "\u0003\u000b\u0004\u0003\u0005\u0007\u0006\u0007\u0007\u001b\b\u0208\t\u0007\n\n" +
+              "\u000b\n";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

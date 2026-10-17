@@ -41,6 +41,10 @@ public  final class CaptureRetirementQuery extends
      * <code>DISPLAY_POWER_CONTROLLER = 2;</code>
      */
     DISPLAY_POWER_CONTROLLER(2),
+    /**
+     * <code>DISPLAY_STATE_CONTROLLER = 3;</code>
+     */
+    DISPLAY_STATE_CONTROLLER(3),
     UNRECOGNIZED(-1),
     ;
 
@@ -56,6 +60,10 @@ public  final class CaptureRetirementQuery extends
      * <code>DISPLAY_POWER_CONTROLLER = 2;</code>
      */
     public static final int DISPLAY_POWER_CONTROLLER_VALUE = 2;
+    /**
+     * <code>DISPLAY_STATE_CONTROLLER = 3;</code>
+     */
+    public static final int DISPLAY_STATE_CONTROLLER_VALUE = 3;
 
 
     @java.lang.Override
@@ -81,6 +89,7 @@ public  final class CaptureRetirementQuery extends
         case 0: return PROBE_SUPPORT;
         case 1: return SCRCPY_CAPTURE;
         case 2: return DISPLAY_POWER_CONTROLLER;
+        case 3: return DISPLAY_STATE_CONTROLLER;
         default: return null;
       }
     }

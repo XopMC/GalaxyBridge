@@ -127,4 +127,10 @@ public interface ShellBridgeResultOrBuilder extends
    * @return The runtimeSha256.
    */
   com.google.protobuf.ByteString getRuntimeSha256();
+
+  /**
+   * <code>bytes display_state_acknowledgement = 11;</code>
+   * @return The displayStateAcknowledgement.
+   */
+  com.google.protobuf.ByteString getDisplayStateAcknowledgement();
 }

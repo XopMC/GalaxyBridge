@@ -97,4 +97,25 @@ public interface CaptureRetirementProofOrBuilder extends
    * @return The resourceRemoved.
    */
   boolean getResourceRemoved();
+
+  /**
+   * <pre>
+   * Strict bounded v2 snapshot, never the legacy Boolean panel projection.
+   * </pre>
+   *
+   * <code>bytes display_state_snapshot = 10;</code>
+   * @return The displayStateSnapshot.
+   */
+  com.google.protobuf.ByteString getDisplayStateSnapshot();
+
+  /**
+   * <pre>
+   * Optional retained terminal receipt. A yielded disposition cannot be
+   * reconstructed from process absence or a fresh snapshot alone.
+   * </pre>
+   *
+   * <code>bytes display_state_terminal_acknowledgement = 11;</code>
+   * @return The displayStateTerminalAcknowledgement.
+   */
+  com.google.protobuf.ByteString getDisplayStateTerminalAcknowledgement();
 }

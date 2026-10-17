@@ -97,6 +97,14 @@ public enum Capability
   CAPABILITY_CAPTURE_RETIREMENT_PROOF(18),
   /**
    * <pre>
+   * Scoped interactive lifetime with raw/logical restoration evidence.
+   * </pre>
+   *
+   * <code>CAPABILITY_COMPOSITE_DISPLAY_STATE = 19;</code>
+   */
+  CAPABILITY_COMPOSITE_DISPLAY_STATE(19),
+  /**
+   * <pre>
    * Prepared broker identity, independent of whether a broker is active.
    * </pre>
    *
@@ -192,6 +200,14 @@ public enum Capability
   public static final int CAPABILITY_CAPTURE_RETIREMENT_PROOF_VALUE = 18;
   /**
    * <pre>
+   * Scoped interactive lifetime with raw/logical restoration evidence.
+   * </pre>
+   *
+   * <code>CAPABILITY_COMPOSITE_DISPLAY_STATE = 19;</code>
+   */
+  public static final int CAPABILITY_COMPOSITE_DISPLAY_STATE_VALUE = 19;
+  /**
+   * <pre>
    * Prepared broker identity, independent of whether a broker is active.
    * </pre>
    *
@@ -239,6 +255,7 @@ public enum Capability
       case 16: return CAPABILITY_PRIVILEGED_BRIDGE;
       case 17: return CAPABILITY_FEATURE_CONFIGURATION;
       case 18: return CAPABILITY_CAPTURE_RETIREMENT_PROOF;
+      case 19: return CAPABILITY_COMPOSITE_DISPLAY_STATE;
       case 20: return CAPABILITY_SHELL_RUNTIME_IDENTITY;
       default: return null;
     }

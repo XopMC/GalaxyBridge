@@ -104,6 +104,12 @@ public final class ShellCapabilityBridge implements AutoCloseable {
         synchronized void stop() { stopped = true; notifyAll(); }
     }
     private static final int MAX_FRAME = 65536;
+    static boolean compositeStopFlag(int operation, boolean present, Object value) {
+        if (!present) return false;
+        if (operation != 4 || !(value instanceof Boolean) || !((Boolean)value)) throw new IllegalArgumentException("display_stop_kind_invalid");
+        return true;
+    }
+
     static final class CompositeCommand {
         private static final Set<String> FIELDS = Collections.unmodifiableSet(new HashSet<>(
                 Arrays.asList("action", "interactive", "panel_policy", "revision")));
@@ -598,7 +604,7 @@ public final class ShellCapabilityBridge implements AutoCloseable {
         String id = request.optString("request_id"), leaseID = request.optString("lease_id");
         if (!canonicalUUID(id) || !generation.equals(request.optString("boot_generation")))
             return result(id, leaseID, "failed", "invalid_request", Collections.emptyList());
-        Set<String> allowed = new HashSet<>(Arrays.asList("request_id", "lease_id", "boot_generation", "operation", "options", "power_on", "retirement", "display_state"));
+        Set<String> allowed = new HashSet<>(Arrays.asList("request_id", "lease_id", "boot_generation", "operation", "options", "power_on", "retirement", "display_state", "display_state_stop"));
         for (Iterator<String> keys = request.keys(); keys.hasNext();) if (!allowed.contains(keys.next()))
             return result(id, leaseID, "failed", "unsupported_field", Collections.emptyList());
         // Same request UUID has one exact body and outcome. Different bodies
@@ -617,6 +623,7 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             long operationValue = ((Number) rawOperation).longValue();
             if (operationValue < 0 || operationValue > 8 || operationValue == 5) throw new IllegalArgumentException();
             int operation = (int) operationValue;
+            boolean compositeStop = compositeStopFlag(operation, request.has("display_state_stop"), request.opt("display_state_stop"));
             if (operation != 6 && operation != 7 && request.has("retirement")) throw new IllegalArgumentException();
             if (operation != 8 && request.has("display_state")) throw new IllegalArgumentException();
             if (operation == 6 || operation == 7) {
@@ -649,6 +656,7 @@ public final class ShellCapabilityBridge implements AutoCloseable {
                 if (!canonicalUUID(leaseID)) throw new IllegalArgumentException();
                 Lease lease = leases.get(leaseID);
                 if (lease != null) {
+                    if ((lease.policy.operation == 8) != compositeStop) throw new IllegalArgumentException("display_stop_kind_mismatch");
                     if (lease.policy.operation == 8) compositeAdmission.beginRetirement(leaseID);
                     lease.retire();
                     if (lease.policy.operation == 8) {
@@ -657,12 +665,14 @@ public final class ShellCapabilityBridge implements AutoCloseable {
                     } else response = result(id, leaseID, "stopped", "", Collections.emptyList());
                     leases.remove(leaseID);
                 } else if (compositeRetiredResponses.get(leaseID) != null) {
+                    if (!compositeStop) throw new IllegalArgumentException("display_stop_kind_mismatch");
                     response = new JSONObject(compositeRetiredResponses.get(leaseID)).put("request_id", id);
                 } else {
                     // Seal an overtaken SNAPSHOT; unknown STOP is not a v2
                     // physical retirement receipt and never carries an ACK.
                     compositeAdmission.beginRetirement(leaseID);
-                    response = result(id, leaseID, "stopped", "", Collections.emptyList());
+                    response = compositeStop ? rememberCompositeRetirement(id, leaseID, null)
+                        : result(id, leaseID, "stopped", "", Collections.emptyList());
                 }
             } else {
                 JSONObject raw = request.optJSONObject("options");

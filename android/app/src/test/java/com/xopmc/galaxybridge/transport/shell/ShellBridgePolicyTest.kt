@@ -4,6 +4,7 @@ import com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest
 import com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult
 import com.xopmc.galaxybridge.protocol.v1.ShellCaptureOptions
 import com.xopmc.galaxybridge.protocol.v1.CaptureRetirementQuery
+import com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.nio.charset.CharacterCodingException
@@ -13,6 +14,54 @@ import org.junit.Test
 class ShellBridgePolicyTest {
     private val lease = "69830b65-6352-4b3a-8a21-70bcda45787e"
     private val request = "d5e1590c-47fb-4d73-9ac2-45988ba0a876"
+    @Test fun compositeDisplayCommandsRequireTheirOwnTypedAuthenticatedChildLease() {
+        val command = DisplayStateCommand.newBuilder().setAction(DisplayStateCommand.Action.APPLY)
+            .setInteractive(true).setPanelPolicy(DisplayStateCommand.PanelPolicy.HIDE).setRevision(1).build()
+        val base = ShellBridgeRequest.newBuilder().setRequestId(request).setLeaseId(lease).setBootGeneration(request)
+            .setOperation(ShellBridgeRequest.Operation.START_DISPLAY_STATE).setDisplayState(command).build()
+        assertTrue(ShellBridgePolicy.valid(base))
+        assertTrue(ShellBridgePolicy.usesChildLease(base.operation))
+        assertFalse(ShellBridgePolicy.readOnly(base.operation))
+        assertTrue(ShellBridgePolicy.valid(base.toBuilder().setDisplayState(DisplayStateCommand.getDefaultInstance()).build()))
+        assertTrue(ShellBridgePolicy.valid(base.toBuilder().setDisplayState(DisplayStateCommand.newBuilder()
+            .setAction(DisplayStateCommand.Action.STATUS)).build()))
+        val invalidCommands = listOf(command.toBuilder().setRevision(0).build(),
+            command.toBuilder().setRevision(-1).build(), command.toBuilder().setActionValue(99).build(),
+            command.toBuilder().setPanelPolicyValue(99).build(), command.toBuilder().setAction(DisplayStateCommand.Action.STATUS).build(),
+            DisplayStateCommand.newBuilder().setInteractive(true).build(),
+            DisplayStateCommand.newBuilder().setPanelPolicy(DisplayStateCommand.PanelPolicy.SHOW).build())
+        for (invalid in invalidCommands) assertFalse(ShellBridgePolicy.valid(base.toBuilder().setDisplayState(invalid).build()))
+        for (invalid in listOf(base.toBuilder().clearDisplayState().build(), base.toBuilder().clearBootGeneration().build(),
+            base.toBuilder().clearLeaseId().build(), base.toBuilder().setPowerOn(true).build(),
+            base.toBuilder().setOptions(ShellCaptureOptions.getDefaultInstance()).build(),
+            base.toBuilder().setRetirement(CaptureRetirementQuery.getDefaultInstance()).build())) {
+            assertFalse(ShellBridgePolicy.valid(invalid))
+        }
+        for (operation in listOf(ShellBridgeRequest.Operation.STATUS, ShellBridgeRequest.Operation.START_SCRCPY,
+            ShellBridgeRequest.Operation.START_PANEL, ShellBridgeRequest.Operation.STOP, ShellBridgeRequest.Operation.VERIFY_RETIREMENT)) {
+            assertFalse(ShellBridgePolicy.valid(base.toBuilder().setOperation(operation).build()))
+        }
+    }
+    @Test fun compositeRetirementKindIsDistinctAndNeverAcquiresAnOwner() {
+        val query = CaptureRetirementQuery.newBuilder().setKind(CaptureRetirementQuery.Kind.DISPLAY_STATE_CONTROLLER)
+            .setPid(42).setProcessStartTicks(123456).build()
+        val verify = ShellBridgeRequest.newBuilder().setRequestId(request).setBootGeneration(lease)
+            .setOperation(ShellBridgeRequest.Operation.VERIFY_RETIREMENT).setRetirement(query).build()
+        assertTrue(ShellBridgePolicy.valid(verify))
+        assertTrue(ShellBridgePolicy.readOnly(verify.operation))
+        assertFalse(ShellBridgePolicy.usesChildLease(verify.operation))
+        val release = verify.toBuilder().setOperation(ShellBridgeRequest.Operation.RELEASE_RETIRED_RESOURCE)
+            .setRetirement(query.toBuilder().setOwnedResourceId(lease)
+                .setResourceSha256(com.google.protobuf.ByteString.copyFrom(ByteArray(32) { 1 }))).build()
+        assertTrue(ShellBridgePolicy.valid(release))
+        for (invalid in listOf(verify.toBuilder().setRetirement(query.toBuilder().setScid(18)).build(),
+            verify.toBuilder().setRetirement(query.toBuilder().setPid(1)).build(),
+            verify.toBuilder().setRetirement(query.toBuilder().setProcessStartTicks(0)).build(),
+            verify.toBuilder().setDisplayState(DisplayStateCommand.getDefaultInstance()).build(),
+            release.toBuilder().setRetirement(release.retirement.toBuilder().clearResourceSha256()).build())) {
+            assertFalse(ShellBridgePolicy.valid(invalid))
+        }
+    }
     @Test fun retirementProofIsReadOnlyTypedAndNeverAcquiresAChildLease() {
         val support = ShellBridgeRequest.newBuilder().setRequestId(request).setBootGeneration(lease)
             .setOperation(ShellBridgeRequest.Operation.VERIFY_RETIREMENT)
@@ -83,6 +132,84 @@ class ShellBridgePolicyTest {
             ShellCaptureOptions.newBuilder().setWidth(1).setHeight(1).build())) {
             assertFalse(ShellBridgePolicy.valid(base.clone().setOptions(options).build()))
         }
+    }
+    @Test fun compositeLeaseRequiresFrozenSnapshotAndCannotBecomeALegacyOrForeignLease() {
+        val registry = ShellStreamLeaseRegistry()
+        val snapshot = ShellBridgeRequest.newBuilder().setRequestId(request).setLeaseId(lease).setBootGeneration(request)
+            .setOperation(ShellBridgeRequest.Operation.START_DISPLAY_STATE).setDisplayState(DisplayStateCommand.getDefaultInstance()).build()
+        val status = snapshot.toBuilder().setDisplayState(DisplayStateCommand.newBuilder().setAction(DisplayStateCommand.Action.STATUS)).build()
+        val apply = snapshot.toBuilder().setDisplayState(DisplayStateCommand.newBuilder().setAction(DisplayStateCommand.Action.APPLY)
+            .setInteractive(true).setRevision(1)).build()
+        assertFalse(registry.admitComposite("peer", "session", apply))
+        assertTrue(registry.admitComposite("peer", "session", snapshot))
+        assertTrue(registry.isComposite("peer", "session", lease))
+        assertFalse(registry.isComposite("other", "session", lease))
+        assertFalse(registry.admit("peer", "session", lease))
+        assertFalse(registry.declare("peer", "session", lease, listOf("$lease/video")))
+        assertFalse(registry.admitComposite("peer", "session", status))
+        val nativeHeader = ShellBridgeResult.newBuilder().setLeaseId(lease).setAvailable(true)
+            .setState("display_state_snapshotted").setDisplayStateAcknowledgement(com.google.protobuf.ByteString.copyFromUtf8("bounded native header")).build()
+        assertFalse(registry.confirmCompositeSnapshot("other", "session", lease, nativeHeader))
+        assertFalse(registry.confirmCompositeSnapshot("peer", "session", lease, nativeHeader.toBuilder().clearDisplayStateAcknowledgement().build()))
+        assertTrue(registry.confirmCompositeSnapshot("peer", "session", lease, nativeHeader))
+        assertTrue(registry.admitComposite("peer", "session", status))
+        assertTrue(registry.admitComposite("peer", "session", apply))
+        assertTrue(registry.canWriteComposite("peer", "session", apply))
+        assertFalse(registry.admitComposite("peer", "session", snapshot))
+        assertTrue(registry.markCompositeStopping("peer", "session", lease))
+        assertFalse(registry.canWriteComposite("peer", "session", apply))
+        assertFalse(registry.admitComposite("peer", "session", status))
+        val stopped = ShellBridgeResult.newBuilder().setLeaseId(lease).setAvailable(true).setState("stopped").build()
+        assertFalse(registry.confirmsStopped("peer", "session", lease, stopped))
+        assertFalse(registry.confirmsStopped("peer", "session", lease, stopped.toBuilder().setState("display_state_retired").build()))
+        val proof = com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof.newBuilder()
+            .setKind(CaptureRetirementQuery.Kind.DISPLAY_STATE_CONTROLLER).setPid(42).setProcessStartTicks(456)
+            .setSupported(true).setAbsent(true).setDisplayStateTerminalAcknowledgement(com.google.protobuf.ByteString.copyFromUtf8("validated native terminal"))
+        val retired = stopped.toBuilder().setState("display_state_retired").setRetirementProof(proof).build()
+        assertTrue(registry.confirmsStopped("peer", "session", lease, retired))
+        registry.remove(lease)
+        assertFalse(registry.admit("peer", "new-session", lease))
+        assertFalse(registry.admitComposite("peer", "new-session", snapshot))
+        registry.clear()
+        assertTrue(registry.admitComposite("peer", "new-session", snapshot))
+    }
+    @Test fun cancellingCompositeSnapshotBeforeItWasWrittenCannotBeReopenedByALateWriter() {
+        val registry = ShellStreamLeaseRegistry()
+        val snapshot = ShellBridgeRequest.newBuilder().setRequestId(request).setLeaseId(lease).setBootGeneration(request)
+            .setOperation(ShellBridgeRequest.Operation.START_DISPLAY_STATE).setDisplayState(DisplayStateCommand.getDefaultInstance()).build()
+        assertTrue(registry.admitComposite("peer", "session", snapshot))
+        assertTrue(registry.canWriteComposite("peer", "session", snapshot))
+        assertTrue(registry.markCompositeStopping("peer", "session", lease))
+        assertFalse(registry.canWriteComposite("peer", "session", snapshot))
+        val noStart = ShellBridgeResult.newBuilder().setLeaseId(lease).setAvailable(true).setState("display_state_not_started").build()
+        assertTrue(registry.confirmsStopped("peer", "session", lease, noStart))
+        registry.remove(lease)
+        assertFalse(registry.admitComposite("peer", "session", snapshot))
+    }
+    @Test fun lostSnapshotHeaderAndLostStopAckCanRecoverOnlyForTheOriginalPeerSessionAndBoot() {
+        val registry = ShellStreamLeaseRegistry()
+        val snapshot = ShellBridgeRequest.newBuilder().setRequestId(request).setLeaseId(lease).setBootGeneration(request)
+            .setOperation(ShellBridgeRequest.Operation.START_DISPLAY_STATE).setDisplayState(DisplayStateCommand.getDefaultInstance()).build()
+        assertTrue(registry.admitComposite("peer", "session", snapshot))
+        assertTrue(registry.admit("sibling", "other-session", request))
+        assertTrue(registry.declare("sibling", "other-session", request, listOf("$request/control")))
+        assertTrue(registry.markCompositeStopping("peer", "session", lease))
+        val noStart = ShellBridgeResult.newBuilder().setRequestId(request).setLeaseId(lease).setBootGeneration(request)
+            .setAvailable(true).setState("display_state_not_started").build()
+        assertTrue(registry.retainCompositeRetirement("peer", "session", lease, noStart))
+        registry.remove(lease)
+        val retry = snapshot.toBuilder().setRequestId(lease).setOperation(ShellBridgeRequest.Operation.STOP).clearDisplayState().build()
+        val recovered = requireNotNull(registry.cachedCompositeStop("peer", "session", retry))
+        assertEquals(lease, recovered.requestId)
+        assertEquals(noStart.toBuilder().setRequestId(lease).build(), recovered)
+        assertNull(registry.cachedCompositeStop("other", "session", retry))
+        assertNull(registry.cachedCompositeStop("peer", "new-session", retry))
+        assertNull(registry.cachedCompositeStop("peer", "session", retry.toBuilder().setBootGeneration(lease).build()))
+        assertNull(registry.cachedCompositeStop("peer", "session", snapshot))
+        assertFalse(registry.admitComposite("peer", "session", snapshot))
+        assertTrue(registry.allows("sibling", "other-session", "$request/control"))
+        registry.clear()
+        assertNull(registry.cachedCompositeStop("peer", "session", retry))
     }
     @Test fun declaredStreamsRemainPeerSessionAndLeaseBound() {
         val registry = ShellStreamLeaseRegistry()

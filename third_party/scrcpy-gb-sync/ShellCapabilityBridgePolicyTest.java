@@ -181,6 +181,10 @@ public final class ShellCapabilityBridgePolicyTest {
             System.out.println("ready"); System.out.flush(); Thread.sleep(30000); return;
         }
         String lease = "69830b65-6352-4b3a-8a21-70bcda45787e";
+        assert !ShellCapabilityBridge.compositeStopFlag(4, false, null);
+        assert ShellCapabilityBridge.compositeStopFlag(4, true, true) : "typed composite STOP lost its kind before child creation";
+        for (Object invalid : new Object[]{false, "true", 1, null}) reject(() -> ShellCapabilityBridge.compositeStopFlag(4, true, invalid));
+        reject(() -> ShellCapabilityBridge.compositeStopFlag(8, true, true));
         testCompositeProofInitializationQuarantine();
         testCompositeProofReaderQuarantine();
         testCompositeRetirementStore();

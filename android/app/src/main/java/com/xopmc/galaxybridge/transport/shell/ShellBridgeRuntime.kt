@@ -132,51 +132,86 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
         val socket: ShellFDChannel
         val boot: String
         var newLease = false
+        var compositeLease = false
         synchronized(lock) {
             if (!isAvailable) return rejected(request, "shell_bridge_not_activated")
             if (!ShellBridgePolicy.valid(request)) return rejected(request, "shell_request_invalid")
             if (request.bootGeneration.isNotEmpty() && request.bootGeneration != generation) return rejected(request, "shell_boot_generation_changed")
             if (pending.size >= 32 || request.requestId in pending) return rejected(request, "shell_request_busy")
+            leases.cachedCompositeStop(peerID, sessionID, request)?.let { return it }
             if (ShellBridgePolicy.usesChildLease(request.operation)) {
                 if (request.operation == ShellBridgeRequest.Operation.STOP) {
                     if (!leases.owns(peerID, sessionID, request.leaseId)) return rejected(request, "shell_lease_unknown")
+                    compositeLease = leases.isComposite(peerID, sessionID, request.leaseId)
+                    if (compositeLease) check(leases.markCompositeStopping(peerID, sessionID, request.leaseId))
                 } else {
                     newLease = !leases.owns(peerID, sessionID, request.leaseId)
-                    if (!leases.admit(peerID, sessionID, request.leaseId)) return rejected(request, "shell_lease_limit_or_owner")
+                    val admitted = if (request.operation == ShellBridgeRequest.Operation.START_DISPLAY_STATE)
+                        leases.admitComposite(peerID, sessionID, request) else leases.admit(peerID, sessionID, request.leaseId)
+                    if (!admitted) return rejected(request, "shell_lease_limit_or_owner")
+                    compositeLease = leases.isComposite(peerID, sessionID, request.leaseId)
                 }
             }
             socket = requireNotNull(owner); boot = generation
             pending[request.requestId] = completion
         }
         try {
-            val command = requestJSON(request, boot)
+            val command = requestJSON(request, boot, compositeStop = compositeLease && request.operation == ShellBridgeRequest.Operation.STOP)
             synchronized(writeLock) {
-                synchronized(lock) { check(owner === socket) }
-                ShellBridgeWire.write(socket.output, command.toString())
+                val writable = synchronized(lock) {
+                    check(owner === socket && generation == boot)
+                    request.operation != ShellBridgeRequest.Operation.START_DISPLAY_STATE || leases.canWriteComposite(peerID, sessionID, request)
+                }
+                if (!writable) return rejected(request, "shell_lease_draining")
+                try { ShellBridgeWire.write(socket.output, command.toString()) }
+                catch (channelFailure: java.io.IOException) {
+                    synchronized(lock) { if (owner === socket && generation == boot) deactivateLocked() }
+                    throw channelFailure
+                }
             }
-            val response = completion.get(10, TimeUnit.SECONDS)
+            val response = completion.get(if (compositeLease) 20 else 10, TimeUnit.SECONDS)
             synchronized(lock) {
                 check(owner === socket && response.bootGeneration == boot && response.requestId == request.requestId)
                 if (request.operation == ShellBridgeRequest.Operation.STOP) {
                     // A failed bounded retirement still owns its child. Keep
                     // exact peer/session authority so a later STOP can retry.
-                    if (leases.confirmsStopped(peerID, sessionID, request.leaseId, response)) removeLeaseLocked(request.leaseId)
+                    if (leases.confirmsStopped(peerID, sessionID, request.leaseId, response)) {
+                        if (compositeLease) check(leases.retainCompositeRetirement(peerID, sessionID, request.leaseId, response))
+                        removeLeaseLocked(request.leaseId)
+                    }
                 }
                 else if (ShellBridgePolicy.usesChildLease(request.operation)) {
+                    // A successful concurrent STOP may already have retired
+                    // this lease. Its late startup reply cannot affect siblings.
+                    if (!leases.owns(peerID, sessionID, request.leaseId)) return rejected(request, "shell_lease_retired")
                     if (response.available && response.errorCode.isEmpty()) {
+                        if (request.operation == ShellBridgeRequest.Operation.START_DISPLAY_STATE &&
+                            request.displayState.action == com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand.Action.SNAPSHOT &&
+                            leases.canWriteComposite(peerID, sessionID, request)) {
+                            check(leases.confirmCompositeSnapshot(peerID, sessionID, request.leaseId, response)) { "shell_invalid_display_snapshot" }
+                        }
                         check(leases.declare(peerID, sessionID, request.leaseId, response.streamIdsList)) { "shell_invalid_stream_declaration" }
-                    } else if (newLease) leases.remove(request.leaseId)
+                    } else if (newLease && !compositeLease) leases.remove(request.leaseId)
                 }
             }
             return response
-        } catch (_: Exception) {
-            synchronized(lock) { if (newLease) removeLeaseLocked(request.leaseId) }
-            // Unknown child creation/STOP still retires its lifetime owner.
-            // An unsuccessful read or idempotent exact-resource cleanup owns no
-            // capture and must not tear down unrelated live windows.
-            if (ShellBridgePolicy.usesChildLease(request.operation)) {
-                synchronized(lock) { if (owner === socket) deactivateLocked() }
+        } catch (failure: Exception) {
+            // A callback from an old socket/boot cannot remove a lease from
+            // the replacement owner, even if the caller reused an identifier.
+            synchronized(lock) {
+                if (owner === socket && generation == boot &&
+                    (!ShellBridgePolicy.usesChildLease(request.operation) || leases.owns(peerID, sessionID, request.leaseId))) {
+                    if (compositeLease) {
+                        // A local timeout/validation failure is not owner EOF.
+                        // Keep the exact uncertain lease for a typed STOP retry.
+                        leases.markCompositeStopping(peerID, sessionID, request.leaseId)
+                    } else {
+                        if (newLease) removeLeaseLocked(request.leaseId)
+                        if (ShellBridgePolicy.usesChildLease(request.operation)) deactivateLocked()
+                    }
+                }
             }
+            if (failure is InterruptedException) Thread.currentThread().interrupt()
             return rejected(request, "shell_request_failed")
         } finally { synchronized(lock) { if (pending[request.requestId] === completion) pending.remove(request.requestId) } }
     }
@@ -253,19 +288,13 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
             }
         } catch (_: Exception) { synchronized(lock) { if (owner === socket) deactivateLocked() } }
     }
-    private fun requestJSON(request: ShellBridgeRequest, boot: String): JSONObject {
-        val o = request.options
-        val json = JSONObject().put("request_id", request.requestId).put("lease_id", request.leaseId).put("boot_generation", boot)
-            .put("operation", request.operationValue).put("power_on", request.powerOn).put("options", JSONObject()
-                .put("scid", o.scid).put("display_id", o.displayId).put("package_name", o.packageName)
-                .put("max_size", o.maxSize).put("max_fps", o.maxFps).put("video_bit_rate", o.videoBitRate)
-                .put("codec", o.codec).put("width", o.width).put("height", o.height).put("audio", o.audio).put("control", o.control))
-        if (request.hasRetirement()) {
-            val query = request.retirement
-            json.put("retirement", JSONObject().put("kind", query.kindValue).put("scid", query.scid)
-                .put("pid", query.pid).put("process_start_ticks", query.processStartTicks)
-                .put("owned_resource_id", query.ownedResourceId)
-                .put("resource_sha256", query.resourceSha256.toByteArray().joinToString("") { "%02x".format(it.toInt() and 0xff) }))
+    private fun requestJSON(request: ShellBridgeRequest, boot: String, compositeStop: Boolean = false): JSONObject {
+        val json = JSONObject()
+        ShellBridgeCommandWire.fields(request, boot, compositeStop).forEach { (key, value) ->
+            val field = if (value is Map<*, *>) JSONObject().apply {
+                value.forEach { (name, item) -> check(name is String); put(name, item) }
+            } else value
+            json.put(key, field)
         }
         return json
     }
@@ -275,13 +304,19 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
             .setAvailable(json.getBoolean("available")).setState(json.optString("state"))
             .setErrorCode(json.optString("error_code"))
             .setRuntimeSha256(ByteString.copyFrom(ShellRuntimeIdentity.decode(json.optString("runtime_sha256", ""))))
+        fun payload(value: JSONObject): ByteString {
+            val bytes = value.toString().toByteArray(Charsets.UTF_8)
+            check(bytes.size in 1..8192) { "shell_display_state_payload_limit" }
+            return ByteString.copyFrom(bytes)
+        }
+        json.optJSONObject("display_state_acknowledgement")?.let { builder.setDisplayStateAcknowledgement(payload(it)) }
         json.optJSONArray("stream_ids")?.let { array -> check(array.length() <= 4); repeat(array.length()) { builder.addStreamIds(array.getString(it)) } }
         json.optJSONObject("retirement_proof")?.let { proof ->
             val kind = proof.getInt("kind")
             val scid = proof.getLong("scid")
             val pid = proof.getLong("pid")
             val start = proof.getLong("process_start_ticks")
-            check(kind in 0..2 && scid in 0..0x7fffffffL && pid in 0..0x7fffffffL && start >= 0)
+            check(kind in 0..3 && scid in 0..0x7fffffffL && pid in 0..0x7fffffffL && start >= 0)
             val typed = com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof.newBuilder()
                 .setKindValue(kind).setScid(scid.toInt()).setPid(pid.toInt()).setProcessStartTicks(start)
                 .setSupported(proof.getBoolean("supported")).setAbsent(proof.getBoolean("absent"))
@@ -300,6 +335,9 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
                         .setPhysicalId(id).setOn(panel.getBoolean("on")))
                 }
             }
+            check(kind != 3 || typed.panelsCount == 0) { "shell_composite_proof_cannot_use_boolean_panels" }
+            proof.optJSONObject("display_state_snapshot")?.let { typed.setDisplayStateSnapshot(payload(it)) }
+            proof.optJSONObject("display_state_terminal_acknowledgement")?.let { typed.setDisplayStateTerminalAcknowledgement(payload(it)) }
             builder.setRetirementProof(typed)
         }
         return builder.build()

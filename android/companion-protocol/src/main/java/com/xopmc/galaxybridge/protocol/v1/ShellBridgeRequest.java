@@ -61,6 +61,10 @@ public  final class ShellBridgeRequest extends
      * <code>RELEASE_RETIRED_RESOURCE = 7;</code>
      */
     RELEASE_RETIRED_RESOURCE(7),
+    /**
+     * <code>START_DISPLAY_STATE = 8;</code>
+     */
+    START_DISPLAY_STATE(8),
     UNRECOGNIZED(-1),
     ;
 
@@ -101,6 +105,10 @@ public  final class ShellBridgeRequest extends
      * <code>RELEASE_RETIRED_RESOURCE = 7;</code>
      */
     public static final int RELEASE_RETIRED_RESOURCE_VALUE = 7;
+    /**
+     * <code>START_DISPLAY_STATE = 8;</code>
+     */
+    public static final int START_DISPLAY_STATE_VALUE = 8;
 
 
     @java.lang.Override
@@ -131,6 +139,7 @@ public  final class ShellBridgeRequest extends
         case 5: return LIST_APPLICATIONS;
         case 6: return VERIFY_RETIREMENT;
         case 7: return RELEASE_RETIRED_RESOURCE;
+        case 8: return START_DISPLAY_STATE;
         default: return null;
       }
     }
@@ -475,6 +484,53 @@ public  final class ShellBridgeRequest extends
   private void clearRetirement() {
     retirement_ = null;
     bitField0_ = (bitField0_ & ~0x00000002);
+  }
+
+  public static final int DISPLAY_STATE_FIELD_NUMBER = 8;
+  private com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand displayState_;
+  /**
+   * <code>.galaxybridge.v1.DisplayStateCommand display_state = 8;</code>
+   */
+  @java.lang.Override
+  public boolean hasDisplayState() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <code>.galaxybridge.v1.DisplayStateCommand display_state = 8;</code>
+   */
+  @java.lang.Override
+  public com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand getDisplayState() {
+    return displayState_ == null ? com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand.getDefaultInstance() : displayState_;
+  }
+  /**
+   * <code>.galaxybridge.v1.DisplayStateCommand display_state = 8;</code>
+   */
+  private void setDisplayState(com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand value) {
+    java.util.Objects.requireNonNull(value);
+    displayState_ = value;
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <code>.galaxybridge.v1.DisplayStateCommand display_state = 8;</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeDisplayState(com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand value) {
+    java.util.Objects.requireNonNull(value);
+    if (displayState_ != null &&
+        displayState_ != com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand.getDefaultInstance()) {
+      displayState_ =
+        com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand.newBuilder(displayState_).mergeFrom(value).buildPartial();
+    } else {
+      displayState_ = value;
+    }
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <code>.galaxybridge.v1.DisplayStateCommand display_state = 8;</code>
+   */
+  private void clearDisplayState() {
+    displayState_ = null;
+    bitField0_ = (bitField0_ & ~0x00000004);
   }
 
   public static com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest parseFrom(
@@ -890,6 +946,53 @@ public  final class ShellBridgeRequest extends
       return this;
     }
 
+    /**
+     * <code>.galaxybridge.v1.DisplayStateCommand display_state = 8;</code>
+     */
+    @java.lang.Override
+    public boolean hasDisplayState() {
+      return instance.hasDisplayState();
+    }
+    /**
+     * <code>.galaxybridge.v1.DisplayStateCommand display_state = 8;</code>
+     */
+    @java.lang.Override
+    public com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand getDisplayState() {
+      return instance.getDisplayState();
+    }
+    /**
+     * <code>.galaxybridge.v1.DisplayStateCommand display_state = 8;</code>
+     */
+    public Builder setDisplayState(com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand value) {
+      copyOnWrite();
+      instance.setDisplayState(value);
+      return this;
+      }
+    /**
+     * <code>.galaxybridge.v1.DisplayStateCommand display_state = 8;</code>
+     */
+    public Builder setDisplayState(
+        com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand.Builder builderForValue) {
+      copyOnWrite();
+      instance.setDisplayState(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.DisplayStateCommand display_state = 8;</code>
+     */
+    public Builder mergeDisplayState(com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand value) {
+      copyOnWrite();
+      instance.mergeDisplayState(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.DisplayStateCommand display_state = 8;</code>
+     */
+    public Builder clearDisplayState() {  copyOnWrite();
+      instance.clearDisplayState();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:galaxybridge.v1.ShellBridgeRequest)
   }
   @java.lang.Override
@@ -914,10 +1017,11 @@ public  final class ShellBridgeRequest extends
             "options_",
             "powerOn_",
             "retirement_",
+            "displayState_",
           };
           java.lang.String info =
-              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\f\u0005\u1009\u0000\u0006\u0007\u0007\u1009\u0001";
+              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\f\u0005\u1009\u0000\u0006\u0007\u0007\u1009\u0001\b\u1009\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

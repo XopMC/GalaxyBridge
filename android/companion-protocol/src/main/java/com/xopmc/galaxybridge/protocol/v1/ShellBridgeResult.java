@@ -23,6 +23,7 @@ public  final class ShellBridgeResult extends
     streamIds_ = emptyProtobufList();
     applicationCatalogJson_ = com.google.protobuf.ByteString.EMPTY;
     runtimeSha256_ = com.google.protobuf.ByteString.EMPTY;
+    displayStateAcknowledgement_ = com.google.protobuf.ByteString.EMPTY;
   }
   private int bitField0_;
   public static final int REQUEST_ID_FIELD_NUMBER = 1;
@@ -490,6 +491,33 @@ public  final class ShellBridgeResult extends
   private void clearRuntimeSha256() {
 
     runtimeSha256_ = getDefaultInstance().getRuntimeSha256();
+  }
+
+  public static final int DISPLAY_STATE_ACKNOWLEDGEMENT_FIELD_NUMBER = 11;
+  private com.google.protobuf.ByteString displayStateAcknowledgement_;
+  /**
+   * <code>bytes display_state_acknowledgement = 11;</code>
+   * @return The displayStateAcknowledgement.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString getDisplayStateAcknowledgement() {
+    return displayStateAcknowledgement_;
+  }
+  /**
+   * <code>bytes display_state_acknowledgement = 11;</code>
+   * @param value The displayStateAcknowledgement to set.
+   */
+  private void setDisplayStateAcknowledgement(com.google.protobuf.ByteString value) {
+    java.util.Objects.requireNonNull(value);
+
+    displayStateAcknowledgement_ = value;
+  }
+  /**
+   * <code>bytes display_state_acknowledgement = 11;</code>
+   */
+  private void clearDisplayStateAcknowledgement() {
+
+    displayStateAcknowledgement_ = getDefaultInstance().getDisplayStateAcknowledgement();
   }
 
   public static com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult parseFrom(
@@ -1069,6 +1097,34 @@ public  final class ShellBridgeResult extends
       return this;
     }
 
+    /**
+     * <code>bytes display_state_acknowledgement = 11;</code>
+     * @return The displayStateAcknowledgement.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString getDisplayStateAcknowledgement() {
+      return instance.getDisplayStateAcknowledgement();
+    }
+    /**
+     * <code>bytes display_state_acknowledgement = 11;</code>
+     * @param value The displayStateAcknowledgement to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDisplayStateAcknowledgement(com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setDisplayStateAcknowledgement(value);
+      return this;
+    }
+    /**
+     * <code>bytes display_state_acknowledgement = 11;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearDisplayStateAcknowledgement() {
+      copyOnWrite();
+      instance.clearDisplayStateAcknowledgement();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:galaxybridge.v1.ShellBridgeResult)
   }
   @java.lang.Override
@@ -1096,10 +1152,12 @@ public  final class ShellBridgeResult extends
             "applicationCatalogJson_",
             "retirementProof_",
             "runtimeSha256_",
+            "displayStateAcknowledgement_",
           };
           java.lang.String info =
-              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0001\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0007\u0005\u0208\u0006\u0208\u0007\u021a\b\n\t\u1009\u0000\n\n";
+              "\u0000\u000b\u0000\u0001\u0001\u000b\u000b\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0007\u0005\u0208\u0006\u0208\u0007\u021a\b\n\t\u1009\u0000\n" +
+              "\n\u000b\n";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

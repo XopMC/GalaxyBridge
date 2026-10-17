@@ -104,6 +104,30 @@ do {
     let decodedIdentity = try GBShellBridgeResult(serializedBytes: identityWire)
     precondition(decodedIdentity.runtimeSha256 == runtimeIdentity.runtimeSha256)
     precondition(GBCapability.shellRuntimeIdentity.rawValue == 20)
+    precondition(GBCapability.compositeDisplayState.rawValue == 19)
+    precondition(GBShellBridgeRequest.Operation.startDisplayState.rawValue == 8)
+    var displayCommand = GBDisplayStateCommand()
+    displayCommand.action = .apply; displayCommand.interactive = true; displayCommand.panelPolicy = .hide; displayCommand.revision = 17
+    var displayRequest = GBShellBridgeRequest()
+    displayRequest.operation = .startDisplayState; displayRequest.displayState = displayCommand
+    let decodedDisplay = try GBShellBridgeRequest(serializedBytes: displayRequest.serializedData())
+    precondition(decodedDisplay == displayRequest && decodedDisplay.hasDisplayState && !decodedDisplay.hasOptions)
+    displayRequest.displayState = GBDisplayStateCommand()
+    let decodedDisplaySnapshot = try GBShellBridgeRequest(serializedBytes: displayRequest.serializedData())
+    precondition(decodedDisplaySnapshot.hasDisplayState && decodedDisplaySnapshot.displayState.action == .snapshot,
+        "read-only snapshot must preserve explicit empty typed message presence")
+    var displayProof = GBCaptureRetirementProof()
+    displayProof.kind = .displayStateController; displayProof.pid = 42; displayProof.processStartTicks = 456
+    displayProof.supported = true; displayProof.absent = true
+    displayProof.displayStateSnapshot = Data("synthetic full snapshot".utf8)
+    displayProof.displayStateTerminalAcknowledgement = Data("synthetic typed terminal".utf8)
+    var displayResult = GBShellBridgeResult(); displayResult.retirementProof = displayProof
+    let decodedDisplayProof = try GBShellBridgeResult(serializedBytes: displayResult.serializedData())
+    precondition(decodedDisplayProof.retirementProof == displayProof && decodedDisplayProof.retirementProof.panels.isEmpty)
+    var displayAcknowledgement = GBShellBridgeResult(); displayAcknowledgement.displayStateAcknowledgement = Data([1, 2, 3])
+    let actualDisplayWire: [UInt8] = try displayAcknowledgement.serializedBytes()
+    precondition(actualDisplayWire == [0x5a, 0x03, 0x01, 0x02, 0x03], "v2 ACK must use the new append-only field 11")
+
     print("PASS GalaxyBridge protobuf golden fixture and notification request/result compatibility")
 } catch {
     FileHandle.standardError.write(Data("FAIL \(error)\n".utf8))

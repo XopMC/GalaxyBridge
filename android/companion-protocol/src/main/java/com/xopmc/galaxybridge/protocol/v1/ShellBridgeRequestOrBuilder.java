@@ -84,4 +84,15 @@ public interface ShellBridgeRequestOrBuilder extends
    * @return The retirement.
    */
   com.xopmc.galaxybridge.protocol.v1.CaptureRetirementQuery getRetirement();
+
+  /**
+   * <code>.galaxybridge.v1.DisplayStateCommand display_state = 8;</code>
+   * @return Whether the displayState field is set.
+   */
+  boolean hasDisplayState();
+  /**
+   * <code>.galaxybridge.v1.DisplayStateCommand display_state = 8;</code>
+   * @return The displayState.
+   */
+  com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand getDisplayState();
 }
