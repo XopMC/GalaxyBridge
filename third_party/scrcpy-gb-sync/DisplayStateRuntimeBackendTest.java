@@ -63,6 +63,7 @@ public final class DisplayStateRuntimeBackendTest {
         catch (DisplayStateSnapshot.Failure | IOException expected) {}
     }
     public static void main(String[] args) throws Exception {
+        testTransientWakeObservation();
         Platform platform = new Platform(); DisplayStateRuntimeBackend backend = new DisplayStateRuntimeBackend(platform);
         DisplayStateSnapshot initial = backend.read();
         assert initial.panels.get("20") == DisplayStateSnapshot.Mode.DOZE && !initial.power.defaultInteractive;
@@ -86,7 +87,20 @@ public final class DisplayStateRuntimeBackendTest {
         assert fallback.read().physicalIDs.size() == 2 && narrow.focused == 1 && narrow.full >= 2;
         int before = narrow.focused; fallback.read(); assert narrow.focused == before : "known incomplete focused dump should not repeat";
         Platform changing = new Platform(); changing.changing = true;
+        long transitionStart = changing.now;
         reject(() -> new DisplayStateRuntimeBackend(changing).read()); assert changing.mutations == 0;
+        assert changing.now - transitionStart <= 2600 : "permanent transition must retain the original read deadline";
+        final int[] malformedReads = {0};
+        Platform malformedAfterTransition = new Platform() {
+            public String powerDump(long deadline) throws Exception {
+                changing = ++malformedReads[0] == 1;
+                String value = super.powerDump(deadline);
+                return changing ? value : value.replace("mWakefulness=Dozing", "mWakefulness=Unknown");
+            }
+        };
+        reject(() -> new DisplayStateRuntimeBackend(malformedAfterTransition).read());
+        assert malformedReads[0] == 2 && malformedAfterTransition.mutations == 0
+            : "a malformed sample after a transition must fail without retry";
         Platform inconsistent = new Platform(); inconsistent.flipInteractiveRead = true;
         reject(() -> new DisplayStateRuntimeBackend(inconsistent).read()); assert inconsistent.mutations == 0;
         Platform panelFailure = new Platform(); panelFailure.failPanel = true;
@@ -158,6 +172,25 @@ public final class DisplayStateRuntimeBackendTest {
         assert DisplayStateRuntimeBackend.powerMode(DisplayStateSnapshot.Mode.DOZE_SUSPEND) == 3;
         assert DisplayStateRuntimeBackend.powerMode(DisplayStateSnapshot.Mode.ON_SUSPEND) == 4;
         System.out.println("PASS actual backend on synthetic platform: stable inventory, focused fallback, interactivity, raw modes, lifecycle, one bounded reader, discarded late preparation and unknown mutations quarantined");
+    }
+    static void testTransientWakeObservation() throws Exception {
+        final int[] transitionReads = {0}, pauses = {0};
+        Platform transitioning = new Platform() {
+            public void wake(long token) throws Exception { super.wake(token); transitionReads[0] = 6; }
+            public String powerDump(long deadline) throws Exception {
+                changing = transitionReads[0] > 0;
+                if (transitionReads[0] > 0) transitionReads[0]--;
+                return super.powerDump(deadline);
+            }
+            public void pause() { super.pause(); pauses[0]++; }
+        };
+        DisplayStateRuntimeBackend backend = new DisplayStateRuntimeBackend(transitioning);
+        DisplayStateOwnership owner = new DisplayStateOwnership(backend);
+        owner.apply(true, DisplayStateOwnership.Policy.PRESERVE, 1);
+        assert owner.state() == DisplayStateOwnership.State.READY && owner.current().power.defaultInteractive;
+        assert pauses[0] > 0 && transitionReads[0] == 0 : "own wake transition must settle before admission";
+        owner.restore();
+        assert owner.state() == DisplayStateOwnership.State.RESTORED && transitioning.mutations == 2;
     }
     static void testPendingMutation(final boolean postcheck) throws Exception {
         final java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1), release = new java.util.concurrent.CountDownLatch(1);

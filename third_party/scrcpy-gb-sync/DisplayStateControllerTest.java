@@ -33,6 +33,10 @@ public final class DisplayStateControllerTest {
             serve(new ByteArrayInputStream(commands(true)), System.out,
                 new DisplayStateController.Session(new DisplayStateOwnershipTest.Backend()), 10000, code -> {}); return;
         }
+        assert DisplayStateController.diagnosticCode(new DisplayStateOwnership.Failure("display_operation_failed",
+                new DisplayStateSnapshot.Failure("display_snapshot_unsettled"))).equals("display_snapshot_unsettled");
+        assert DisplayStateController.diagnosticCode(new IOException("private diagnostic payload must not be logged")).equals("IOException");
+        assert DisplayStateController.diagnosticCode(null).equals("unknown_failure");
         DisplayStateOwnershipTest.Backend backend = new DisplayStateOwnershipTest.Backend();
         DisplayStateController.Session session = new DisplayStateController.Session(backend);
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();

@@ -75,6 +75,24 @@ public final class DisplayStateController {
             : failure instanceof DisplayStateRuntimeBackend.Failure ? failure.getMessage() : "display_controller_operation_failed";
         return value != null && value.matches("[a-z0-9_]{1,96}") ? value : "display_controller_operation_failed";
     }
+    /** Error-only diagnostics retain a trusted domain code or exception type,
+     * never an arbitrary exception message or a power/display dump. */
+    static String diagnosticCode(Throwable failure) {
+        if (failure == null) return "unknown_failure";
+        Throwable current = failure;
+        for (int depth = 0; depth < 8; ++depth) {
+            String value = current instanceof DisplayStateOwnership.Failure ? ((DisplayStateOwnership.Failure) current).code
+                : current instanceof DisplayStateSnapshot.Failure ? ((DisplayStateSnapshot.Failure) current).code
+                : current instanceof DisplayStateRuntimeBackend.Failure ? current.getMessage()
+                : current instanceof Failure ? ((Failure) current).code : null;
+            if (value != null && !value.equals("display_operation_failed") && value.matches("[a-z0-9_]{1,96}")) return value;
+            Throwable next = current.getCause();
+            if (next == null || next == current) break;
+            current = next;
+        }
+        String type = current.getClass().getSimpleName();
+        return type.matches("[A-Za-z0-9_]{1,96}") ? type : "unknown_failure";
+    }
     private static String snapshot(DisplayStateSnapshot value) {
         if (value == null) return "null";
         StringBuilder out = new StringBuilder("{\"panels\":[");
@@ -178,6 +196,9 @@ public final class DisplayStateController {
                     writer.frame(session, "reply", true, "", "command");
                 } catch (EOFException partial) { valid = false; reason = "incomplete_command"; break; }
                 catch (Exception failure) {
+                    long reads = session.backend instanceof DisplayStateRuntimeBackend
+                        ? ((DisplayStateRuntimeBackend) session.backend).diagnosticReadCount() : -1;
+                    System.err.println("GBDS command failure: code=" + diagnosticCode(failure) + " reads=" + reads);
                     valid = false; reason = "command_failed"; writer.frame(session, "reply", false, code(failure), reason); break;
                 }
             }

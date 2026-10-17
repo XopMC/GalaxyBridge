@@ -16,6 +16,7 @@ public final class DisplayStateOwnershipTest {
         int failedWrite = -1, writes, reads, wakes, sleeps, renewals;
         boolean failWakeAfterApply, failSleepAfterApply, failNextWriteBeforeApply, omitGroupWakefulness;
         Runnable afterNextRead;
+        Exception failNextRead;
         DisplayStateSnapshot.Mode modeAfterSleep;
         String failNextBeforeID;
         boolean queueNextWrite;
@@ -25,6 +26,7 @@ public final class DisplayStateOwnershipTest {
         void initiallyAwake() { interactive = true; wakefulness = "1"; panels.put("20", ON); wake = 300; activity = 300; defaultWake = 300; }
         public DisplayStateSnapshot read() throws Exception {
             if (++reads > 10000) throw new AssertionError("unbounded controller observations");
+            if (failNextRead != null) { Exception failure = failNextRead; failNextRead = null; throw failure; }
             String global = interactive || otherGroupAwake ? "Awake" : wakefulness.equals("0") ? "Asleep" : "Dozing";
             String dump = "Power Manager State:\n  mWakefulness=" + global + "\n  mWakefulnessChanging=false\n"
                 + "  mLastWakeTime=" + wake + "\n  mLastSleepTime=" + sleep + "\n\n"
@@ -76,6 +78,14 @@ public final class DisplayStateOwnershipTest {
     }
     static DisplayStateOwnership owner(Backend backend) throws Exception { return new DisplayStateOwnership(backend); }
     public static void main(String[] args) throws Exception {
+        Backend diagnostic = new Backend(); diagnostic.initiallyAwake(); DisplayStateOwnership diagnosticOwner = owner(diagnostic);
+        Exception original = new DisplayStateSnapshot.Failure("display_snapshot_unsettled"); diagnostic.failNextRead = original;
+        try { diagnosticOwner.apply(true, DisplayStateOwnership.Policy.PRESERVE, 1); throw new AssertionError("read failure accepted"); }
+        catch (DisplayStateOwnership.Failure failed) {
+            assert failed.getCause() == original : "underlying display failure was discarded, preventing hardware diagnosis";
+            assert failed.code.equals("display_operation_failed") && diagnosticOwner.state() == DisplayStateOwnership.State.UNCONFIRMED;
+        }
+        diagnosticOwner.restore(); assert diagnosticOwner.state() == DisplayStateOwnership.State.RESTORED;
         Backend basic = new Backend(); DisplayStateOwnership first = owner(basic);
         first.apply(true, DisplayStateOwnership.Policy.HIDE, 1);
         long token = first.ownedWakeEventTime();

@@ -41,6 +41,7 @@ final class DisplayStateRuntimeBackend implements DisplayStateOwnership.Backend 
     private FutureTask<?> pendingRead;
     private MutationJob pendingMutation;
     private boolean focused = true, uncertain;
+    private final java.util.concurrent.atomic.AtomicLong diagnosticReads = new java.util.concurrent.atomic.AtomicLong();
     private final ExecutorService mutationExecutor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS,
         new ArrayBlockingQueue<Runnable>(1), new ThreadFactory() { public Thread newThread(Runnable action) {
             Thread thread = new Thread(action, "gb-display-mutation"); thread.setDaemon(true); return thread;
@@ -58,8 +59,10 @@ final class DisplayStateRuntimeBackend implements DisplayStateOwnership.Backend 
         if (platform.uptimeMillis() >= deadline) throw new Failure("display_read_deadline");
     }
     public DisplayStateSnapshot read() throws Exception {
+        diagnosticReads.incrementAndGet();
         return boundedRead(new Callable<DisplayStateSnapshot>() { public DisplayStateSnapshot call() throws Exception { return sample(); } });
     }
+    long diagnosticReadCount() { return diagnosticReads.get(); }
     private synchronized <T> T boundedRead(Callable<T> operation) throws Exception {
         if (pendingMutation != null && !pendingMutation.task.isDone()) throw new Failure("display_mutation_still_pending");
         if (pendingRead != null && !pendingRead.isDone()) throw new Failure("display_read_still_pending");
@@ -81,8 +84,8 @@ final class DisplayStateRuntimeBackend implements DisplayStateOwnership.Backend 
         }
     }
     private DisplayStateSnapshot sample() throws Exception {
-        final long deadline = platform.uptimeMillis() + READ_MILLIS;
-        return DisplayStateSnapshot.sample(new DisplayStateSnapshot.SampleSource() {
+        final long deadline = platform.uptimeMillis() + readTimeoutMillis;
+        DisplayStateSnapshot.SampleSource source = new DisplayStateSnapshot.SampleSource() {
             public DisplayStateSnapshot.PowerEvidence power() throws Exception {
                 within(deadline); boolean before = platform.defaultInteractive();
                 String dump = platform.powerDump(deadline);
@@ -105,7 +108,25 @@ final class DisplayStateRuntimeBackend implements DisplayStateOwnership.Backend 
                 within(deadline);
                 return new DisplayStateSnapshot.PhysicalEvidence(panels, active, inventory);
             }
-        });
+        };
+        // A synchronous wake/panel call can return before Android finishes its
+        // display transition. Resample complete evidence; never accept a
+        // partial observation or extend this read's original deadline.
+        for (int attempt = 0; attempt < 64; ++attempt) {
+            within(deadline);
+            try { return DisplayStateSnapshot.sample(source); }
+            catch (DisplayStateSnapshot.Failure transientState) {
+                if (!transientObservation(transientState.code)) throw transientState;
+            } catch (Failure transientState) {
+                if (!transientObservation(transientState.getMessage())) throw transientState;
+            }
+            within(deadline); platform.pause();
+        }
+        throw new Failure("display_snapshot_unsettled");
+    }
+    private static boolean transientObservation(String code) {
+        return "display_power_unsettled".equals(code) || "display_interactivity_unsettled".equals(code)
+            || "display_snapshot_unsettled".equals(code);
     }
     public long uptimeMillis() { return platform.uptimeMillis(); }
     public void pause() throws Exception { platform.pause(); }

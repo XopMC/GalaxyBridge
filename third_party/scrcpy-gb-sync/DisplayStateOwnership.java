@@ -9,6 +9,7 @@ final class DisplayStateOwnership {
     static final class Failure extends Exception {
         final String code;
         Failure(String code) { super(code); this.code = code; }
+        Failure(String code, Throwable cause) { super(code, cause); this.code = code; }
     }
     interface Backend {
         /** Stable observation with independently bounded I/O; never mutates Android state. */
@@ -143,7 +144,7 @@ final class DisplayStateOwnership {
                 requested == Policy.SHOW && id.equals(initial.activePhysicalID) ? DisplayStateSnapshot.Mode.ON : DisplayStateSnapshot.Mode.OFF);
             writeTarget(target, requested == Policy.PRESERVE);
             revision = requestedRevision; policy = requested; state = State.READY;
-        } catch (Exception failure) { uncertain(); throw failure instanceof Failure ? (Failure) failure : new Failure("display_operation_failed"); }
+        } catch (Exception failure) { uncertain(); throw failure instanceof Failure ? (Failure) failure : new Failure("display_operation_failed", failure); }
     }
     private void write(String id, DisplayStateSnapshot.Mode mode) throws Exception {
         expected.put(id, mode); // arm ownership before a potentially partially applied write
@@ -180,7 +181,7 @@ final class DisplayStateOwnership {
             observeActivity(value);
             if (!topology(value) || !powerAuthority(value) || !expected.equals(value.panels)) { yieldAuthority(value); return; }
             if (interactiveDemand && value.power.defaultInteractive) { backend.activityWithoutLights(); backend.synchronizeMutations(); }
-        } catch (Exception failure) { uncertain(); throw failure instanceof Failure ? (Failure) failure : new Failure("display_operation_failed"); }
+        } catch (Exception failure) { uncertain(); throw failure instanceof Failure ? (Failure) failure : new Failure("display_operation_failed", failure); }
     }
     private boolean restorationState(DisplayStateSnapshot value) {
         return topology(value) && value.panels.equals(initial.panels) && value.power.defaultInteractive == initial.power.defaultInteractive
@@ -260,6 +261,6 @@ final class DisplayStateOwnership {
             writeTarget(initial.panels, true);
             if (!restorationState(read())) throw new Failure("display_restore_unconfirmed");
             state = State.RESTORED;
-        } catch (Exception failure) { uncertain(); throw failure instanceof Failure ? (Failure) failure : new Failure("display_operation_failed"); }
+        } catch (Exception failure) { uncertain(); throw failure instanceof Failure ? (Failure) failure : new Failure("display_operation_failed", failure); }
     }
 }
