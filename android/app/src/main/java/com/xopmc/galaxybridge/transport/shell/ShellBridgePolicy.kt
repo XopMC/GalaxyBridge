@@ -1,6 +1,7 @@
 package com.xopmc.galaxybridge.transport.shell
 
 import com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest
+import com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult
 import java.util.UUID
 
 internal object ShellBridgePolicy {
@@ -40,6 +41,9 @@ internal class ShellStreamLeaseRegistry {
         return true
     }
     fun owns(peer: String, session: String, lease: String): Boolean = leases[lease]?.let { it.peer == peer && it.session == session } == true
+    fun confirmsStopped(peer: String, session: String, lease: String, result: ShellBridgeResult): Boolean =
+        owns(peer, session, lease) && result.leaseId == lease && result.available && result.errorCode.isEmpty() &&
+            result.state == "stopped" && result.streamIdsCount == 0
     fun declare(peer: String, session: String, lease: String, streams: List<String>): Boolean {
         if (!owns(peer, session, lease) || streams.size > 4 || streams.toSet().size != streams.size ||
             streams.any { ShellBridgePolicy.stream(it)?.first != lease }) return false

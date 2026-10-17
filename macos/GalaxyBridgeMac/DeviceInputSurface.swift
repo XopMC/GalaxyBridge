@@ -354,6 +354,10 @@ final class DeviceInputNSView: NSView, @preconcurrency NSTextInputClient {
         window?.makeFirstResponder(self)
         logger.info("Input keyDown received (key-code: \(event.keyCode, privacy: .public))")
         if handleCommandShortcut(event) { return }
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+            super.keyDown(with: event)
+            return
+        }
 
         // Keep physical control keys down until AppKit delivers keyUp. This
         // preserves key holds/repeat for Enhanced ADB while the same callbacks

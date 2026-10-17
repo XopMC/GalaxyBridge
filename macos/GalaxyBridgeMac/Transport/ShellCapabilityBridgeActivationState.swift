@@ -24,8 +24,13 @@ struct ShellCapabilityBridgeActivationReceipt: Decodable {
     }
     static func parse(_ output: String, generation: String) -> Self? {
         guard output.utf8.count <= 65_536, UUID(uuidString: generation)?.uuidString.lowercased() == generation,
-              let start = output.firstIndex(of: "{"), let end = output.lastIndex(of: "}"),
-              let receipt = try? JSONDecoder().decode(Self.self, from: Data(output[start...end].utf8)),
+              output.split(whereSeparator: \.isNewline).filter({ $0.hasPrefix("Broadcast completed:") }).count == 1,
+              let line = output.split(whereSeparator: \.isNewline).first(where: { $0.hasPrefix("Broadcast completed:") }) else { return nil }
+        // am prints an Intent { ... } banner before the receipt. Only the
+        // successful completion line carries the receiver's JSON result.
+        let prefix = "Broadcast completed: result=0, data=\""
+        guard line.hasPrefix(prefix), line.hasSuffix("\""),
+              let receipt = try? JSONDecoder().decode(Self.self, from: Data(line.dropFirst(prefix.count).dropLast().utf8)),
               receipt.bootGeneration == generation else { return nil }
         return receipt
     }

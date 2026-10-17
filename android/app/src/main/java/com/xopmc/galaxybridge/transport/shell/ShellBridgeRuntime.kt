@@ -145,7 +145,11 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
             val response = completion.get(10, TimeUnit.SECONDS)
             synchronized(lock) {
                 check(owner === socket && response.bootGeneration == boot && response.requestId == request.requestId)
-                if (request.operation == ShellBridgeRequest.Operation.STOP) removeLeaseLocked(request.leaseId)
+                if (request.operation == ShellBridgeRequest.Operation.STOP) {
+                    // A failed bounded retirement still owns its child. Keep
+                    // exact peer/session authority so a later STOP can retry.
+                    if (leases.confirmsStopped(peerID, sessionID, request.leaseId, response)) removeLeaseLocked(request.leaseId)
+                }
                 else if (request.operation != ShellBridgeRequest.Operation.STATUS) {
                     if (response.available && response.errorCode.isEmpty()) {
                         check(leases.declare(peerID, sessionID, request.leaseId, response.streamIdsList)) { "shell_invalid_stream_declaration" }

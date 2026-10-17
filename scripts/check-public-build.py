@@ -30,7 +30,7 @@ for script in ['public-build.py', 'package-macos-direct.py', 'package-android-di
                'test-android-direct-components.py', 'bootstrap-build-tools.py',
                'build-internet-runtime.py', 'package-network-helper.py',
                'network-test-guardian.py', 'test-nearby-bootstrap-interop.py',
-               'verify-rust-macos-deployment.py']:
+               'verify-rust-macos-deployment.py', 'test-android-shell-stop.py']:
     ast.parse((ROOT / 'scripts' / script).read_text(), filename=script)
 run([sys.executable, ROOT / 'scripts/test-public-build.py'])
 run([sys.executable, ROOT / 'scripts/test-macos-main-bundle-localization.py'])
@@ -60,7 +60,9 @@ for script in ['test-clipboard-agent-protocol.sh', 'test-clipboard-primary-read-
                'test-macos-input-mapping.sh', 'test-phone-display-privacy.sh', 'test-macos-phone-privacy-entrypoint.sh', 'test-macos-display-power-owner.sh', 'test-macos-display-power-recovery.sh', 'test-phone-privacy-server-ownership.sh', 'test-enhanced-route-handoff.sh',
                'test-camera-extension-policy.sh',
                'test-macos-device-row-merge.sh', 'test-macos-device-selection.sh',
-               'test-macos-user-facing-text.sh', 'test-macos-synthetic-text-input.sh', 'test-macos-trackpad-lifecycle.sh']:
+               'test-macos-user-facing-text.sh', 'test-macos-synthetic-text-input.sh', 'test-macos-trackpad-lifecycle.sh',
+               'test-macos-native-shortcut-routing.sh', 'test-macos-mirror-window-cycle.sh',
+               'test-macos-prepared-shell-selection.sh']:
     run(['sh', ROOT / 'scripts' / script])
 for script in ['test-nearby-connectivity-policy.sh', 'test-nearby-bootstrap-crypto.sh',
                'test-nearby-transport.sh', 'test-nearby-discovery.sh', 'test-raw-channel-upgrade.sh',
@@ -84,4 +86,5 @@ run(['bash', ROOT / 'scripts/test-quic-media-contract.sh'])
 run(['bash', ROOT / 'scripts/test-quic-transport.sh'])
 run(['bash', ROOT / 'scripts/test-scrcpy-gb-sync.sh', source_build])
 run(['bash', ROOT / 'android/gradlew', '-p', ROOT / 'android', ':app:testDirectDebugUnitTest', ':companion-core:testDebugUnitTest', '--console=plain'], {'JAVA_HOME': java})
+run([sys.executable, ROOT / 'scripts/test-android-shell-stop.py'], {'JAVA_HOME': java})
 print('Public source checks passed. No clean-device, GUI, or hardware acceptance claimed.')

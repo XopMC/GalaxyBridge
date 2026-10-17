@@ -449,7 +449,7 @@ final class AppModel: ObservableObject {
         return false
 #else
         guard let device = row(id: deviceID), device.isReady else { return false }
-        return device.adbSerial != nil || activeShellProvider(deviceID: deviceID) != nil
+        return device.adbSerial != nil || availableShellProvider(deviceID: deviceID) != nil
 #endif
     }
 
@@ -498,9 +498,28 @@ final class AppModel: ObservableObject {
         shellProviderSubscriptions[deviceID] = provider.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         return provider
     }
+    private func availableShellProvider(deviceID: String) -> ShellCapabilityBridgeProvider? {
+        guard let provider = shellProviders[deviceID], provider.available,
+              let control = companionControl(for: deviceID),
+              terminationAdmission.admitsWork, provider.bootGeneration != nil,
+              let device = row(id: deviceID), device.isReady,
+              deviceID == "device:" + control.peer.deviceID, control.supportsShellBridge,
+              let id = companionID(for: deviceID), companionStates[id] == .connected else { return nil }
+        return provider
+    }
     private func activeShellProvider(deviceID: String) -> ShellCapabilityBridgeProvider? {
-        guard shellPreferredDevices.contains(deviceID), let provider = shellProviders[deviceID], provider.available,
-              companionControl(for: deviceID) != nil else { return nil }
+        guard let provider = availableShellProvider(deviceID: deviceID), let device = row(id: deviceID) else { return nil }
+        if shellPreferredDevices.contains(deviceID) { return provider }
+        // A prepared broker can serve new owners on the existing paired LAN.
+        // Existing raw captures retain their backend until ordinary retirement.
+        if QuicRuntimeArtifacts.explicitlyEnabled, device.transport == .wirelessADB { return nil }
+        if let primary = scrcpySessions[deviceID], !primary.serial.hasPrefix("shell:") { return nil }
+        if device.transport == .usbADB, device.adbSerial != nil,
+           scrcpySessions[deviceID]?.serial.hasPrefix("shell:") != true,
+           applicationWindowCoordinator?.hasOwnedShellCaptureWindows(deviceID: deviceID) != true { return nil }
+        guard applicationWindowCoordinator?.hasOwnedADBCaptureWindows(deviceID: deviceID) != true,
+              !enhancedRetirements.keys.contains(where: { enhancedRetirementDeviceIDs[$0] == deviceID }),
+              !unsettledEnhancedRetirements.keys.contains(where: { enhancedRetirementDeviceIDs[$0] == deviceID }) else { return nil }
         return provider
     }
     private func shellProviderForOwner(_ serial: String) -> ShellCapabilityBridgeProvider? {
@@ -514,6 +533,12 @@ final class AppModel: ObservableObject {
         }
         guard let serial = device.adbSerial else { return nil }
         return (serial, nil)
+    }
+    private func enhancedContinuingRouteSerial(for device: DeviceRow, ownerSerial: String?) -> String? {
+        guard device.isReady, !preparingDirectDevices.contains(device.id) else { return nil }
+        if let ownerSerial, let provider = availableShellProvider(deviceID: device.id),
+           provider === shellProviderForOwner(ownerSerial) { return ownerSerial }
+        return enhancedCaptureRoute(for: device)?.serial
     }
     private func shellReadinessIsCurrent(deviceID: String, serial: String?, sessionID: String?,
                                          provider: ShellCapabilityBridgeProvider) -> Bool {
@@ -2344,7 +2369,8 @@ final class AppModel: ObservableObject {
             await preceding?.value
             guard let self, self.phonePrivacyUpdateTickets[deviceID] == ticket else { return }
             let ready = self.row(id: deviceID)
-            let serial = ready.flatMap { self.enhancedCaptureRoute(for: $0)?.serial } ?? self.phonePrivacyLeases.values.first(where: { $0.deviceID == deviceID })?.serial
+            let ownedSerial = self.phonePrivacyLeases.values.first(where: { $0.deviceID == deviceID })?.serial
+            let serial = ready.flatMap { self.enhancedContinuingRouteSerial(for: $0, ownerSerial: ownedSerial) } ?? ownedSerial
             guard let serial else { return }
             let requested = self.phoneDisplayPrivacyEnabled(deviceID: deviceID)
             let manualPower = self.phonePrivacyManualPower[deviceID]
@@ -2403,7 +2429,8 @@ final class AppModel: ObservableObject {
         let ids = Set(phonePrivacyLeases.values.map(\.deviceID)).union(phonePrivacyRoutes.keys)
         for id in ids {
             let device = row(id: id)
-            let route = device.flatMap { enhancedCaptureRoute(for: $0)?.serial }
+            let ownedSerial = phonePrivacyLeases.values.first(where: { $0.deviceID == id })?.serial
+            let route = device.flatMap { enhancedContinuingRouteSerial(for: $0, ownerSerial: ownedSerial) }
             if phonePrivacyRoutes[id] != route {
                 phonePrivacyRoutes[id] = route
                 requestPhoneDisplayPrivacyUpdate(deviceID: id)
@@ -3522,7 +3549,8 @@ final class AppModel: ObservableObject {
                 session.installVerifiedCleanupRoute(route)
             } else if device.adbSerial == session.serial {
                 session.retryOwnedCleanup()
-            } else if session.serial.hasPrefix("shell:"), activeShellProvider(deviceID: deviceID) != nil {
+            } else if session.serial.hasPrefix("shell:"), let provider = availableShellProvider(deviceID: deviceID),
+                      provider === shellProviderForOwner(session.serial) {
                 session.retryOwnedCleanup()
             } else { continue }
             enhancedRetirements[permit] = Task { [weak self] in
@@ -3548,9 +3576,10 @@ final class AppModel: ObservableObject {
         guard terminationAdmission.admitsWork else { return }
         let desired = Dictionary(
             uniqueKeysWithValues: devices.compactMap { device -> (String, String)? in
-                guard featureEnabled(.clipboard, deviceID: device.id), let route = enhancedCaptureRoute(for: device)
+                guard featureEnabled(.clipboard, deviceID: device.id),
+                      let serial = enhancedContinuingRouteSerial(for: device, ownerSerial: clipboardSessions[device.id]?.serial)
                 else { return nil }
-                return (device.id, route.serial)
+                return (device.id, serial)
             }
         )
         let obsoleteDeviceIDs = clipboardSessions.compactMap { deviceID, session in

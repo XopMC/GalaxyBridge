@@ -380,10 +380,10 @@ private struct DeviceWindowConfigurator: NSViewRepresentable {
             let panel = headerPanel(content: content)
             hostingView?.rootView = content
             panel.level = isPinned ? .floating : parent.level
-            panel.collectionBehavior = MirrorWindowPinPolicy.collectionBehavior(
-                base: [.fullScreenAuxiliary],
-                isPinned: isPinned
+            panel.collectionBehavior = MirrorWindowCyclePolicy.auxiliary(
+                MirrorWindowPinPolicy.collectionBehavior(base: [.fullScreenAuxiliary], isPinned: isPinned)
             )
+            panel.isExcludedFromWindowsMenu = true
             updatePanelFrame()
 
             if isVisible {
@@ -423,14 +423,14 @@ private struct DeviceWindowConfigurator: NSViewRepresentable {
 
         func updatePinPolicy(for window: NSWindow, isPinned: Bool) {
             captureBaseCollectionBehavior(from: window)
-            window.collectionBehavior = MirrorWindowPinPolicy.collectionBehavior(
-                base: baseCollectionBehavior ?? [],
-                isPinned: isPinned
+            window.collectionBehavior = MirrorWindowCyclePolicy.primary(
+                MirrorWindowPinPolicy.collectionBehavior(base: baseCollectionBehavior ?? [], isPinned: isPinned)
             )
             window.level = MirrorWindowPinPolicy.level(isPinned: isPinned)
             for resizePanel in resizePanels {
                 resizePanel.level = window.level
-                resizePanel.collectionBehavior = window.collectionBehavior
+                resizePanel.collectionBehavior = MirrorWindowCyclePolicy.auxiliary(window.collectionBehavior)
+                resizePanel.isExcludedFromWindowsMenu = true
             }
         }
 
@@ -461,7 +461,8 @@ private struct DeviceWindowConfigurator: NSViewRepresentable {
                 panel.resizeView.aspectRatio = aspectRatio
                 panel.resizeView.acquisitionThickness = resizeAcquisitionThickness
                 panel.level = parent.level
-                panel.collectionBehavior = parent.collectionBehavior
+                panel.collectionBehavior = MirrorWindowCyclePolicy.auxiliary(parent.collectionBehavior)
+                panel.isExcludedFromWindowsMenu = true
                 panel.setFrame(zone.frame, display: true)
                 // A borderless transparent child window does not always resize
                 // its manually supplied content view on every WindowServer

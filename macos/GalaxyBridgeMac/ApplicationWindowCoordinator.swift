@@ -23,6 +23,18 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
 
     private var records: [String: Record] = [:]
 
+    func hasOwnedADBCaptureWindows(deviceID: String) -> Bool {
+        records.contains { key, record in
+            key.hasPrefix(deviceID + "\u{0}") && !record.session.nativeSession.serial.hasPrefix("shell:")
+        }
+    }
+
+    func hasOwnedShellCaptureWindows(deviceID: String) -> Bool {
+        records.contains { key, record in
+            key.hasPrefix(deviceID + "\u{0}") && record.session.nativeSession.serial.hasPrefix("shell:")
+        }
+    }
+
     func present(application: ApplicationCatalogItem, device: DeviceRow, model: AppModel) {
         guard model.featureEnabled(.applications, deviceID: device.id) else { return }
         model.registerApplicationWindowCoordinator(self)

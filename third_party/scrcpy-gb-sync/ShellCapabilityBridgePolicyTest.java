@@ -56,7 +56,17 @@ public final class ShellCapabilityBridgePolicyTest {
         String joined = String.join(" ", argv);
         assert joined.contains("video_bit_rate=6000000") && joined.contains("max_fps=60");
         assert joined.contains("new_display=1920x1080/420") && joined.contains("cleanup=true");
+        assert java.util.Arrays.asList(argv).contains("flex_display=true") && java.util.Arrays.asList(argv).contains("vd_system_decorations=false") : "typed app windows must resize without a competing launcher/taskbar";
+        assert java.util.Arrays.asList(argv).contains("display_ime_policy=hide") && !joined.contains("hide_device_ime=");
+        Map<String, Object> desktopOptions = options(); desktopOptions.put("package_name", "");
+        java.util.List<String> desktopArguments = java.util.Arrays.asList(ShellCapabilityBridge.Policy.parse(1, lease, desktopOptions).serverArguments());
+        assert desktopArguments.contains("vd_system_decorations=true") && !desktopArguments.contains("flex_display=true") : "a general virtual desktop retains its system controls";
         assert joined.contains("power_on=false") && joined.contains("clipboard_autosync=false");
+        assert java.util.Arrays.asList(argv).contains("audio_codec=aac") : "shell capture must use the Mac decoder's AAC codec instead of scrcpy's Opus default";
+        assert java.util.Arrays.asList(argv).contains("audio_bit_rate=128000");
+        Map<String, Object> silentOptions = options(); silentOptions.put("audio", false);
+        java.util.List<String> silentArguments = java.util.Arrays.asList(ShellCapabilityBridge.Policy.parse(1, lease, silentOptions).serverArguments());
+        assert silentArguments.contains("audio=false") && !silentArguments.contains("audio_codec=aac");
         assert valid.streams().contains(lease + "/log") && valid.streams().size() == 4;
         assert !joined.contains("com.example.notes"); // package launch is the existing typed control message.
         Map<String, Object> injection = options(); injection.put("server_arguments", "anything");
@@ -72,6 +82,8 @@ public final class ShellCapabilityBridgePolicyTest {
         ShellCapabilityBridge.Policy clipboard = ShellCapabilityBridge.Policy.parse(2, lease, options());
         assert clipboard.streams().size() == 2 && clipboard.streams().contains(lease + "/clipboard");
         assert String.join(" ", clipboard.serverArguments()).contains("video=false");
+        assert java.util.Arrays.asList(clipboard.serverArguments()).contains("audio=false") && !java.util.Arrays.asList(clipboard.serverArguments()).contains("audio_codec=aac");
+        assert !java.util.Arrays.asList(clipboard.serverArguments()).contains("display_ime_policy=hide") : "clipboard-only capture must leave the phone's IME policy unchanged";
         assert ShellCapabilityBridge.Policy.parse(3, lease, options()).streams().isEmpty();
         assert ShellCapabilityBridge.validStreamID(lease + "/control");
         assert !ShellCapabilityBridge.validStreamID(lease + "/../control");

@@ -1,6 +1,22 @@
 import AppKit
 import SwiftUI
 
+enum MirrorWindowCyclePolicy {
+    static func primary(_ base: NSWindow.CollectionBehavior) -> NSWindow.CollectionBehavior {
+        var behavior = base
+        behavior.remove(.ignoresCycle)
+        behavior.insert(.participatesInCycle)
+        return behavior
+    }
+
+    static func auxiliary(_ base: NSWindow.CollectionBehavior) -> NSWindow.CollectionBehavior {
+        var behavior = base
+        behavior.remove(.participatesInCycle)
+        behavior.insert(.ignoresCycle)
+        return behavior
+    }
+}
+
 @MainActor
 final class DeviceMirrorWindowPresenter: NSObject, ObservableObject, NSWindowDelegate,
     NativeCloseAllPrimaryWindowSource
@@ -78,6 +94,13 @@ final class DeviceMirrorWindowPresenter: NSObject, ObservableObject, NSWindowDel
         forDeviceID deviceID: String,
         onClose: (() -> Void)? = nil
     ) {
+        window.collectionBehavior = MirrorWindowCyclePolicy.primary(window.collectionBehavior)
+        window.isExcludedFromWindowsMenu = false
+        if windowsByDeviceID.values.contains(where: { $0 === window }) {
+            NSApplication.shared.changeWindowsItem(window, title: window.title, filename: false)
+        } else {
+            NSApplication.shared.addWindowsItem(window, title: window.title, filename: false)
+        }
         window.delegate = self
         windowsByDeviceID[deviceID] = window
         if let onClose {
@@ -87,6 +110,9 @@ final class DeviceMirrorWindowPresenter: NSObject, ObservableObject, NSWindowDel
 
     func windowWillClose(_ notification: Notification) {
         guard let closedWindow = notification.object as? NSWindow else { return }
+        if windowsByDeviceID.values.contains(where: { $0 === closedWindow }) {
+            NSApplication.shared.removeWindowsItem(closedWindow)
+        }
         (closedWindow as? SeamlessMirrorWindow)?.retireSeamlessPresentation()
         windowsByDeviceID = windowsByDeviceID.filter { $0.value !== closedWindow }
         leasesByWindowID.removeValue(forKey: ObjectIdentifier(closedWindow))

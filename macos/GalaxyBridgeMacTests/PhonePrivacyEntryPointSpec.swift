@@ -41,6 +41,9 @@ struct DeviceRow { let id: String; var isReady = true; var adbSerial: String? = 
     lazy var phoneDisplayPrivacy = PhoneDisplayPrivacyCoordinator { [owner] _ in owner }
     func row(id: String) -> DeviceRow? { .init(id: id) }
     func enhancedCaptureRoute(for row: DeviceRow) -> (serial: String, unused: Bool)? { ("synthetic-usb", false) }
+    func enhancedContinuingRouteSerial(for row: DeviceRow, ownerSerial: String?) -> String? {
+        ownerSerial ?? enhancedCaptureRoute(for: row)?.serial
+    }
     func hasEnhancedTransport(deviceID: String) -> Bool { true }
     func activeEnhancedDeviceID(_ session: ScrcpySession) -> String? { scrcpySessions.first(where: { $0.value === session })?.key }
     // ACTUAL_PHONE_PRIVACY_METHODS

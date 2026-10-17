@@ -791,12 +791,18 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             List<String> args = new ArrayList<>(Arrays.asList(BuildConfig.VERSION_NAME, String.format(Locale.ROOT, "scid=%08x", scid),
                 "log_level=info", "tunnel_forward=true", "cleanup=true", "power_on=false", "clipboard_autosync=false",
                 "send_device_meta=" + (operation == 1), "send_stream_meta=true", "send_frame_meta=true",
-                "keep_active=" + (operation == 1), "hide_device_ime=false", "video=" + (operation == 1),
+                "keep_active=" + (operation == 1), "video=" + (operation == 1),
                 "audio=" + (operation == 1 && audio), "control=true"));
             if (operation == 1) {
+                args.add("display_ime_policy=hide");
+                if (audio) { args.add("audio_codec=aac"); args.add("audio_bit_rate=128000"); }
                 args.add("video_codec=" + codec); args.add("max_size=" + size); args.add("max_fps=" + fps); args.add("video_bit_rate=" + bitrate);
                 args.add("video_codec_options=i-frame-interval=1" + (codec.equals("h264") ? ",bitrate-mode=2" : ""));
-                if (width > 0 && height > 0) { args.add("new_display=" + width + "x" + height + "/420"); args.add("vd_destroy_content=true"); }
+                if (width > 0 && height > 0) {
+                    args.add("new_display=" + width + "x" + height + "/420"); args.add("vd_destroy_content=true");
+                    args.add("vd_system_decorations=" + application.isEmpty());
+                    if (!application.isEmpty()) args.add("flex_display=true");
+                }
                 else args.add("display_id=" + display);
             }
             return args.toArray(new String[0]);

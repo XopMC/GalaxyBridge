@@ -1,6 +1,7 @@
 package com.xopmc.galaxybridge.transport.shell
 
 import com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest
+import com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult
 import com.xopmc.galaxybridge.protocol.v1.ShellCaptureOptions
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -57,6 +58,25 @@ class ShellBridgePolicyTest {
         assertFalse(registry.admit("peer", "session", java.util.UUID(0, 9).toString()))
         registry.clear()
         assertTrue(registry.owned("peer", "session").isEmpty())
+    }
+    @Test fun onlyConfirmedStoppedReceiptForCurrentOwnerAuthorizesRemoval() {
+        val registry = ShellStreamLeaseRegistry()
+        assertTrue(registry.admit("peer", "session", lease))
+        val stopped = ShellBridgeResult.newBuilder().setLeaseId(lease).setAvailable(true).setState("stopped").build()
+        assertTrue(registry.confirmsStopped("peer", "session", lease, stopped))
+        for (reply in listOf(stopped.toBuilder().setState("failed").setErrorCode("shell_operation_failed").build(),
+            stopped.toBuilder().setState("unknown").build(), stopped.toBuilder().setAvailable(false).build(),
+            stopped.toBuilder().setErrorCode("shell_operation_failed").build(), stopped.toBuilder().setLeaseId(request).build(),
+            stopped.toBuilder().addStreamIds("$lease/control").build())) {
+            assertFalse(registry.confirmsStopped("peer", "session", lease, reply))
+            assertTrue(registry.owns("peer", "session", lease))
+        }
+        assertFalse(registry.confirmsStopped("other", "session", lease, stopped))
+        assertFalse(registry.confirmsStopped("peer", "old-session", lease, stopped))
+        registry.remove(lease)
+        assertTrue(registry.admit("peer", "new-session", lease))
+        assertFalse(registry.confirmsStopped("peer", "session", lease, stopped))
+        assertTrue(registry.owns("peer", "new-session", lease))
     }
     @Test fun privateFramesRejectInvalidSizeAndMalformedUtf8AndRoundTripUnicode() {
         val output = ByteArrayOutputStream()

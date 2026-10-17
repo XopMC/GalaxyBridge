@@ -283,7 +283,7 @@ struct ContentView: View {
             .padding(12)
             .background(.bar)
         }
-        .navigationTitle("GalaxyBridge")
+        .navigationTitle("Galaxy Bridge")
         .toolbar {
             Button(action: model.beginPairing) {
                 Image(systemName: "qrcode")
@@ -431,7 +431,7 @@ struct DeviceWorkspace: View {
             .padding(12)
             panelContent.frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
         }
-        .navigationTitle(device.name)
+        .navigationTitle("Galaxy Bridge")
         .onChange(of: setupRequest, initial: true) { _, request in
             guard let request, request.deviceID == device.id else { return }
             switch request.feature {
