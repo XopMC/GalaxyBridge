@@ -16,9 +16,10 @@ listing_start = source.index('    func notifications(for deviceID: String)')
 listing_end = source.index('    func mutedPackages(for deviceID: String)', listing_start)
 feature_start = source.index('    func featureEnabled(')
 feature_end = source.index('\n    }', feature_start) + len('\n    }')
+models_start = source.index('struct BridgeNotificationActionRow:')
+models_end = source.index('struct BridgeSMSRow:', models_start)
 boundaries = '''import Foundation
-struct BridgeNotificationActionRow { let id: String; let title: String; let acceptsText: Bool }
-struct BridgeNotificationRow { let id: String; let packageName: String; let appLabel: String; let title: String; let body: String; let postedAt: Date; let actions: [BridgeNotificationActionRow]; let appIconPNG: Data? }
+// ACTUAL_NOTIFICATION_MODELS
 struct GBNotificationAction { var notificationID = ""; var actionID = ""; var replyText = ""; var dismiss = false; var requestID = "" }
 final class CompanionTLSClient { var supportsNotificationActionResults = true; var sent: [GBNotificationAction] = []; func sendNotificationAction(_ action: GBNotificationAction) throws { sent.append(action) } }
 final class Supervisor { var generation: UInt64? = 4; func currentGeneration(companionID: String) -> UInt64? { generation } }
@@ -41,7 +42,7 @@ func mutedPackages(for deviceID: String) -> Set<String> { [] }
 }
 '''
 # Keep the extracted methods inside the harness class.
-(temp / 'AppModelNotificationEntryPoint.swift').write_text(boundaries[:-2] + source[feature_start:feature_end] + '\n' + source[listing_start:listing_end] + source[start:end] + '\n}\n')
+(temp / 'AppModelNotificationEntryPoint.swift').write_text(boundaries.replace('// ACTUAL_NOTIFICATION_MODELS', source[models_start:models_end])[:-2] + source[feature_start:feature_end] + '\n' + source[listing_start:listing_end] + source[start:end] + '\n}\n')
 PY
 xcrun swiftc "$GB_ROOT/macos/GalaxyBridgeMac/ClientSetupModel.swift" \
   "$GB_ROOT/macos/GalaxyBridgeMac/NotificationActionState.swift" \

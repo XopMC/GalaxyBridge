@@ -45,6 +45,7 @@ class GalaxyBridgeForegroundService : Service() {
         super.onCreate()
         startForeground(NOTIFICATION_ID, serviceNotification())
         connectivityOwnerActive = true
+        NotificationListenerConnectionRecovery.ownerStarted(applicationContext)
         directConnectivity = ForegroundConnectivityRuntime(applicationContext, { connectivityOwnerActive }, { lanServer?.listeningPort ?: 0 }).also {
             ForegroundConnectivityRuntime.current = it
             it.start()
@@ -69,6 +70,7 @@ class GalaxyBridgeForegroundService : Service() {
             runCatching { directConnectivity?.coordinator?.installOfflineOffer(uri) }
         }
         directConnectivity?.refresh()
+        NotificationListenerConnectionRecovery.retry()
         requestPendingPairing()
         return START_STICKY
     }
@@ -77,6 +79,7 @@ class GalaxyBridgeForegroundService : Service() {
 
     override fun onDestroy() {
         connectivityOwnerActive = false
+        NotificationListenerConnectionRecovery.ownerStopped()
         if (ForegroundConnectivityRuntime.current === directConnectivity) ForegroundConnectivityRuntime.current = null
         directConnectivity?.close()
         directConnectivity = null

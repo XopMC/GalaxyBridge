@@ -31,6 +31,11 @@ struct BridgeNotificationRow: Identifiable, Hashable, Sendable {
     let postedAt: Date
     let actions: [BridgeNotificationActionRow]
     let appIconPNG: Data?
+
+    static func newestFirst(_ lhs: Self, _ rhs: Self) -> Bool {
+        lhs.postedAt == rhs.postedAt ? lhs.id < rhs.id : lhs.postedAt > rhs.postedAt
+    }
+
 }
 
 struct BridgeSMSRow: Identifiable, Hashable, Sendable {
@@ -77,6 +82,10 @@ final class AppModel: ObservableObject {
     @Published private var companionConnectionErrors: [String: String] = [:]
     var displayedError: String? {
         lastError ?? selectedDeviceID.flatMap { companionConnectionErrors[$0] }
+    }
+    func dismissDisplayedError() {
+        if lastError != nil { lastError = nil }
+        else if let deviceID = selectedDeviceID { companionConnectionErrors.removeValue(forKey: deviceID) }
     }
     @Published var isPairingPresented = false
     @Published private(set) var enhancedStates: [String: ScrcpySessionState] = [:]
@@ -2763,7 +2772,7 @@ final class AppModel: ObservableObject {
         for (identity, row) in notificationActionSavedRows where identity.deviceID == deviceID && !liveIDs.contains(row.id) {
             if !notificationActions.entry(identity).draft.isEmpty && !rows.contains(where: { $0.id == row.id }) { rows.append(row) }
         }
-        return rows.filter { !muted.contains($0.packageName) }
+        return rows.sorted(by: BridgeNotificationRow.newestFirst).filter { !muted.contains($0.packageName) }
     }
 
     func mutedPackages(for deviceID: String) -> Set<String> {
@@ -3382,7 +3391,7 @@ final class AppModel: ObservableObject {
                 )
             )
         }
-        notificationRows.sort { $0.postedAt > $1.postedAt }
+        notificationRows.sort(by: BridgeNotificationRow.newestFirst)
         notificationsByDevice[deviceID] = Array(notificationRows.prefix(200))
 
         var smsRows = smsByDevice[deviceID, default: []]
@@ -4981,6 +4990,7 @@ final class AppModel: ObservableObject {
                     ),
                     at: 0
                 )
+                rows.sort(by: BridgeNotificationRow.newestFirst)
                 rows = Array(rows.prefix(200))
                 if let payload = try? event.serializedData() {
                     cacheMaintenance.store(

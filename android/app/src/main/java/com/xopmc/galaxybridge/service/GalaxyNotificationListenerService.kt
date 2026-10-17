@@ -181,6 +181,7 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerConnected() {
         active.set(this)
+        NotificationListenerConnectionRecovery.listenerConnected()
         if (!notificationsEnabled()) { clearFeatureSnapshot(); return }
         // A listener may have missed removals while Android had it disconnected.
         // Failed OS reads must not be mistaken for an authoritative empty list.
@@ -193,11 +194,11 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onListenerDisconnected() {
-        active.compareAndSet(this, null)
+        if (active.compareAndSet(this, null)) NotificationListenerConnectionRecovery.retry()
     }
 
     override fun onDestroy() {
-        active.compareAndSet(this, null)
+        if (active.compareAndSet(this, null)) NotificationListenerConnectionRecovery.retry()
         super.onDestroy()
     }
 
@@ -406,10 +407,13 @@ class GalaxyNotificationListenerService : NotificationListenerService() {
 
         fun isActive(): Boolean = active.get() != null
         fun refreshFeaturePolicy() {
+            NotificationListenerConnectionRecovery.featureChanged()
             val listener = active.get() ?: return
             // Clear the shared backlog synchronously before sending the policy receipt.
             if (!listener.notificationsEnabled()) NotificationEventBus.discardAll()
-            android.os.Handler(android.os.Looper.getMainLooper()).post { listener.applyFeaturePolicy() }
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                if (active.get() === listener) listener.applyFeaturePolicy()
+            }
         }
 
         fun dismissActive(key: String): Boolean = active.get()?.let {

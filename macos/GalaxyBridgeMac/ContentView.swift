@@ -229,8 +229,19 @@ struct ContentView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 if let error = model.displayedError {
-                    Text(error).font(.caption).foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(error)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button(action: model.dismissDisplayedError) {
+                            Image(systemName: "xmark").padding(4).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(Text("CLOSE"))
+                        .accessibilityLabel(Text("CLOSE"))
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
                 if let deviceID = model.selectedDeviceID,
                    case let reasons = model.effectiveCapabilities(deviceID: deviceID).unavailableReasons.filter({
