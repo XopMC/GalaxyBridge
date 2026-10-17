@@ -171,6 +171,28 @@ public final class DisplayStateOwnershipTest {
         regressed.activity--; reject(clockEvidence::poll);
         assert clockEvidence.state() == DisplayStateOwnership.State.UNCONFIRMED && regressed.sleeps == 0;
         regressed.activity = ownedActivity; clockEvidence.restore(); assert clockEvidence.state() == DisplayStateOwnership.State.RESTORED;
+        Backend remoteTouch = new Backend(); DisplayStateOwnership primaryInput = owner(remoteTouch);
+        primaryInput.apply(true, DisplayStateOwnership.Policy.HIDE, 1);
+        remoteTouch.activity += 10; // Display-0 injected input also advances the ordinary activity witness.
+        primaryInput.poll();
+        assert primaryInput.state() == DisplayStateOwnership.State.READY && remoteTouch.renewals == 1 : "ordinary activity alone must not suspend an otherwise interactive primary mirror";
+        primaryInput.apply(true, DisplayStateOwnership.Policy.HIDE, 2);
+        assert primaryInput.state() == DisplayStateOwnership.State.READY && remoteTouch.wakes == 1;
+        primaryInput.restore();
+        assert primaryInput.state() == DisplayStateOwnership.State.YIELDED_ACTIVITY && remoteTouch.sleeps == 0;
+        Backend awakeTouch = new Backend(); awakeTouch.initiallyAwake(); DisplayStateOwnership awakeInput = owner(awakeTouch);
+        awakeInput.apply(true, DisplayStateOwnership.Policy.HIDE, 1); awakeTouch.activity += 10; awakeInput.poll(); awakeInput.restore();
+        assert awakeInput.state() == DisplayStateOwnership.State.RESTORED && awakeTouch.panels.get("20") == ON;
+        assert awakeTouch.wakes == 0 && awakeTouch.sleeps == 0;
+        Backend cleanupTouch = new Backend(); DisplayStateOwnership directActivity = owner(cleanupTouch);
+        directActivity.apply(true, DisplayStateOwnership.Policy.HIDE, 1); cleanupTouch.activity += 10; directActivity.restore();
+        assert directActivity.state() == DisplayStateOwnership.State.YIELDED_ACTIVITY && cleanupTouch.sleeps == 0;
+        Backend sleepAfterTouch = new Backend(); DisplayStateOwnership touchedThenLocked = owner(sleepAfterTouch);
+        touchedThenLocked.apply(true, DisplayStateOwnership.Policy.HIDE, 1); sleepAfterTouch.activity += 10; touchedThenLocked.poll();
+        int beforeLockRenewals = sleepAfterTouch.renewals; sleepAfterTouch.physicalSleep(); touchedThenLocked.poll();
+        assert touchedThenLocked.state() == DisplayStateOwnership.State.SUSPENDED && sleepAfterTouch.renewals == beforeLockRenewals;
+        reject(() -> touchedThenLocked.apply(true, DisplayStateOwnership.Policy.HIDE, 2)); touchedThenLocked.restore();
+        assert sleepAfterTouch.wakes == 1 && sleepAfterTouch.sleeps == 0;
 
         Backend button = new Backend(); DisplayStateOwnership sleepingUser = owner(button);
         sleepingUser.apply(true, DisplayStateOwnership.Policy.HIDE, 1); button.physicalSleep(); sleepingUser.poll();
@@ -187,7 +209,7 @@ public final class DisplayStateOwnershipTest {
         // Simulate another group's continued Awake state suppressing both aggregate transition stamps.
         roundTrip.wake = globalWake; roundTrip.sleep = globalSleep;
         changedGroup.poll(); changedGroup.restore();
-        assert changedGroup.state() == DisplayStateOwnership.State.YIELDED_EXTERNAL && roundTrip.sleeps == 0 && roundTrip.wakes == 1;
+        assert changedGroup.state() == DisplayStateOwnership.State.YIELDED_ACTIVITY && roundTrip.sleeps == 0 && roundTrip.wakes == 1;
 
         Backend posture = new Backend(); DisplayStateOwnership folded = owner(posture);
         folded.apply(true, DisplayStateOwnership.Policy.HIDE, 1); int beforeFold = posture.writes;

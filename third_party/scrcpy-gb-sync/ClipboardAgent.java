@@ -24,6 +24,7 @@ import java.security.MessageDigest;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Polls the complete Android primary clip from scrcpy's shell context. */
 public final class ClipboardAgent {
@@ -47,16 +48,43 @@ public final class ClipboardAgent {
         try {
             Looper.prepare();
             Workarounds.apply();
-            run(args[0]);
+            runWithCallbacks(args[0]);
         } catch (Throwable error) {
             error.printStackTrace(System.err);
             System.exit(1);
         }
     }
 
-    private static void run(String socketName) throws Exception {
-        ClipboardManager clipboard = (ClipboardManager) FakeContext.get().getSystemService(FakeContext.CLIPBOARD_SERVICE);
+    private static void runWithCallbacks(String socketName) throws Exception {
+        final Looper callbacks = Looper.myLooper();
+        final ClipboardManager clipboard = (ClipboardManager) FakeContext.get().getSystemService(FakeContext.CLIPBOARD_SERVICE);
         if (clipboard == null) throw new IOException("clipboard service unavailable");
+        final ClipboardSnapshotCache<Snapshot> cache = new ClipboardSnapshotCache<>();
+        ClipboardManager.OnPrimaryClipChangedListener listener = cache::changed;
+        boolean listening = false;
+        try { clipboard.addPrimaryClipChangedListener(listener); listening = true; }
+        catch (RuntimeException unsupported) { /* Timestamp polling plus bounded payload revalidation remains active. */ }
+        final AtomicReference<Throwable> failed = new AtomicReference<>();
+        Thread polling = new Thread(() -> {
+            try { run(socketName, clipboard, cache); }
+            catch (Throwable error) { failed.set(error); }
+            finally { callbacks.quitSafely(); }
+        }, "galaxybridge-clipboard-poll");
+        try {
+            polling.start();
+            // ClipboardManager dispatches listeners through the framework Handler.
+            // Preparing a Looper without servicing it silently loses invalidations.
+            Looper.loop();
+            polling.join();
+        } finally {
+            if (listening) try { clipboard.removePrimaryClipChangedListener(listener); } catch (RuntimeException ignored) {}
+        }
+        Throwable failure = failed.get();
+        if (failure instanceof Exception) throw (Exception) failure;
+        if (failure instanceof Error) throw (Error) failure;
+    }
+
+    private static void run(String socketName, ClipboardManager clipboard, ClipboardSnapshotCache<Snapshot> cache) throws Exception {
         imageResolver = new ClipboardContentResolver(FakeContext.get());
         try (LocalServerSocket server = new LocalServerSocket(socketName);
              LocalSocket socket = server.accept();
@@ -67,7 +95,6 @@ public final class ClipboardAgent {
             byte[] previousDigest = null;
             long previousTimestamp = Long.MIN_VALUE;
             boolean unavailableSent = false;
-            ClipboardSnapshotCache<Snapshot> cache = new ClipboardSnapshotCache<>();
             ClipboardOriginTracker origins = new ClipboardOriginTracker();
             AtomicBoolean connected = new AtomicBoolean(true);
             Thread commands = new Thread(() -> {
@@ -121,9 +148,9 @@ public final class ClipboardAgent {
             final long timestamp = description.getTimestamp();
             final String metadata = metadataIdentity(description);
             if (metadata == null) { cache.clear(); return null; }
-            // Poll the complete clipboard's occurrence metadata, then access the
-            // payload only for a new occurrence. Unchanged full reads can show
-            // a system privacy toast on vendor Android versions.
+            // Poll occurrence metadata and reload on a copy callback or bounded
+            // payload revalidation. Real reads remain necessary for missed
+            // same-millisecond copies and mutable image providers.
             return cache.read(timestamp, metadata, () -> {
                 ClipData clip = clipboard.getPrimaryClip();
                 if (clip == null || clip.getItemCount() == 0) return null;

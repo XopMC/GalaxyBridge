@@ -5,7 +5,7 @@ import java.util.*;
 /** Single-phone composite state machine. Android I/O and transport lifetime are supplied separately. */
 final class DisplayStateOwnership {
     enum Policy { PRESERVE, HIDE, SHOW }
-    enum State { SNAPSHOTTED, READY, SUSPENDED, RESTORED, YIELDED_EXTERNAL, UNCONFIRMED }
+    enum State { SNAPSHOTTED, READY, SUSPENDED, RESTORED, YIELDED_EXTERNAL, YIELDED_ACTIVITY, UNCONFIRMED }
     static final class Failure extends Exception {
         final String code;
         Failure(String code) { super(code); this.code = code; }
@@ -32,7 +32,7 @@ final class DisplayStateOwnership {
     private Map<String, DisplayStateSnapshot.Mode> expected;
     private Map<String, DisplayStateSnapshot.Mode> confirmed;
     private State state = State.SNAPSHOTTED;
-    private boolean interactiveDemand, wakeAttempted, sleepAttempted, renewalDisabled;
+    private boolean interactiveDemand, wakeAttempted, sleepAttempted, renewalDisabled, sleepAuthorityRevoked;
     private long wakeEventTime = -1, revision;
     private Policy policy;
     private static final long SETTLE_MILLIS = 3000;
@@ -56,11 +56,21 @@ final class DisplayStateOwnership {
     private boolean powerAuthority(DisplayStateSnapshot value) {
         // Activity is a conservative invalidation witness, not a universal transition epoch.
         // The Android backend must additionally enforce the timestamp fence when requesting sleep.
+        return powerEpoch(value) && value.power.defaultActivityTime == reference.defaultActivityTime;
+    }
+    private boolean powerEpoch(DisplayStateSnapshot value) {
         return value.power.defaultInteractive == reference.defaultInteractive
             && value.power.defaultWakefulness == reference.defaultWakefulness
-            && value.power.defaultActivityTime == reference.defaultActivityTime
             && value.power.lastGlobalWakeTime == reference.lastGlobalWakeTime
             && value.power.lastGlobalSleepTime == reference.lastGlobalSleepTime;
+    }
+    private void observeActivity(DisplayStateSnapshot value) {
+        if (topology(value) && powerEpoch(value) && panelAuthority(value) && value.power.defaultInteractive
+                && value.power.defaultActivityTime > reference.defaultActivityTime) {
+            // Injected primary-display touches advance this witness too. Keep
+            // input alive, but never assume they authorize automatic sleep.
+            sleepAuthorityRevoked = true; reference = value.power;
+        }
     }
     private void yieldAuthority(DisplayStateSnapshot value) {
         current = value; renewalDisabled = true;
@@ -83,6 +93,7 @@ final class DisplayStateOwnership {
         current = value; return value;
     }
     private void guardOwned(DisplayStateSnapshot value, boolean checkPanels) throws Failure {
+        observeActivity(value);
         if (!topology(value) || !powerAuthority(value) || (checkPanels && !expected.equals(value.panels))) {
             yieldAuthority(value); throw new Failure("display_ownership_superseded");
         }
@@ -118,7 +129,8 @@ final class DisplayStateOwnership {
         if (requested == null || requestedRevision <= 0 || requestedRevision < revision
                 || (requestedRevision == revision && (requested != policy || interactive != interactiveDemand)))
             throw new Failure("display_policy_revision_invalid");
-        if (state == State.RESTORED || state == State.YIELDED_EXTERNAL || state == State.SUSPENDED || state == State.UNCONFIRMED)
+        if (state == State.RESTORED || state == State.YIELDED_EXTERNAL || state == State.YIELDED_ACTIVITY
+                || state == State.SUSPENDED || state == State.UNCONFIRMED)
             throw new Failure("display_owner_not_active");
         if (requestedRevision == revision) { poll(); return; }
         try {
@@ -165,6 +177,7 @@ final class DisplayStateOwnership {
         if (state != State.READY || renewalDisabled) return;
         try {
             DisplayStateSnapshot value = read();
+            observeActivity(value);
             if (!topology(value) || !powerAuthority(value) || !expected.equals(value.panels)) { yieldAuthority(value); return; }
             if (interactiveDemand && value.power.defaultInteractive) { backend.activityWithoutLights(); backend.synchronizeMutations(); }
         } catch (Exception failure) { uncertain(); throw failure instanceof Failure ? (Failure) failure : new Failure("display_operation_failed"); }
@@ -181,9 +194,8 @@ final class DisplayStateOwnership {
         }
         return true;
     }
-    private void finishYield() throws Exception {
-        current = read(); state = State.YIELDED_EXTERNAL;
-    }
+    private void finishYield() throws Exception { finishYield(State.YIELDED_EXTERNAL); }
+    private void finishYield(State disposition) throws Exception { current = read(); state = disposition; }
     private boolean settleSleep() throws Exception {
         long deadline = backend.uptimeMillis() + SETTLE_MILLIS;
         for (int attempt = 0; attempt < MAX_OBSERVATIONS; ++attempt) {
@@ -205,6 +217,7 @@ final class DisplayStateOwnership {
     synchronized void restore() throws Exception {
         renewalDisabled = true;
         if (state == State.RESTORED) return;
+        if (state == State.YIELDED_ACTIVITY) { finishYield(State.YIELDED_ACTIVITY); return; }
         if (state == State.SUSPENDED || state == State.YIELDED_EXTERNAL) { finishYield(); return; }
         try {
             backend.synchronizeMutations();
@@ -219,8 +232,11 @@ final class DisplayStateOwnership {
                     confirmed = new LinkedHashMap<>(before.panels);
                 }
             }
+            observeActivity(before);
             if (!sleepAttempted && !powerAuthority(before)) { yieldAuthority(before); finishYield(); return; }
             if (!sleepAttempted && !panelAuthority(before)) { yieldAuthority(before); finishYield(); return; }
+            if (sleepAuthorityRevoked && wakeAttempted && !initial.power.defaultInteractive && !sleepAttempted
+                    && before.power.defaultInteractive) { finishYield(State.YIELDED_ACTIVITY); return; }
             if (wakeAttempted && !initial.power.defaultInteractive && before.power.defaultInteractive) {
                 if (sleepAttempted) throw new Failure("display_sleep_unconfirmed");
                 sleepAttempted = true;

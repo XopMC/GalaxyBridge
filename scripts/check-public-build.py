@@ -63,7 +63,7 @@ env.update(JAVA_HOME=java, GB_NEARBY_SWIFT_MODULES=str(swift_bin / 'Modules'),
 env['GB_OWNED_ADB_TEST_RUNTIME'] = str(build / 'artifacts/adb')
 for script in ['test-macos-companion-tunnel.sh', 'test-macos-companion-diagnostics.sh', 'test-macos-owned-adb-runtime.sh', 'test-macos-incoming-file-store.sh', 'test-macos-client-setup.sh', 'test-macos-feature-configuration-entrypoint.sh', 'test-macos-file-transfer-presentation.sh']:
     run(['sh', ROOT / 'scripts' / script])
-for script in ['test-clipboard-agent-protocol.sh', 'test-clipboard-primary-read-admission.sh', 'test-macos-clipboard-polling.sh', 'test-macos-clipboard-hub.sh',
+for script in ['test-clipboard-agent-protocol.sh', 'test-clipboard-primary-read-admission.sh', 'test-clipboard-callback-lifecycle.sh', 'test-macos-clipboard-polling.sh', 'test-macos-clipboard-hub.sh',
                'test-macos-clipboard-policy.sh', 'test-macos-notification-bridge.sh',
                'test-macos-bonjour-publication.sh', 'test-macos-application-termination-cleanup.sh',
                'test-macos-downloads-access.sh', 'test-macos-video-drawable-retry.sh',
@@ -78,7 +78,7 @@ for script in ['test-clipboard-agent-protocol.sh', 'test-clipboard-primary-read-
 for script in ['test-nearby-connectivity-policy.sh', 'test-nearby-bootstrap-crypto.sh',
                'test-nearby-transport.sh', 'test-nearby-discovery.sh', 'test-raw-channel-upgrade.sh',
                'test-shell-capability-bridge.sh', 'test-display-power-controller.sh', 'test-display-state-snapshot.sh',
-               'test-display-state-ownership.sh', 'test-network-helper.sh',
+               'test-display-state-ownership.sh', 'test-display-state-power-calls.sh', 'test-display-state-runtime.sh', 'test-display-state-controller.sh', 'test-network-helper.sh',
                'test-macos-internet-sharing-lifecycle.sh',
                'test-macos-nearby-preparation.sh', 'test-internet-tunnel-lifecycle.sh']:
     run(['bash', ROOT / 'scripts' / script])

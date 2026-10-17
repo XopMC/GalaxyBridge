@@ -82,6 +82,16 @@ public final class ClipboardPrimaryReadAdmissionSpec {
         require(readSnapshot(manager,cache)!=null && readSnapshot(manager,cache)!=null && manager.payloadReads==beforeUnknown+2,"Unknown timestamps must retain full polling fallback");
         manager.description=new ClipDescription(106,new String[33]);beforeUnknown=manager.payloadReads;
         require(readSnapshot(manager,cache)==null && manager.payloadReads==beforeUnknown,"Unbounded metadata must fail closed before full read");
+        long[] time={0}; ClipboardSnapshotCache<Snapshot> bounded=new ClipboardSnapshotCache<>(()->time[0]);
+        manager.text(200,"first-in-same-ms");readSnapshot(manager,bounded);
+        manager.text(200,"second-in-same-ms");bounded.changed();
+        require(new String(readSnapshot(manager,bounded).content,StandardCharsets.UTF_8).equals("second-in-same-ms"),"Copy callback must refresh full text even with equal timestamp/metadata");
+        manager.afterRead=()->{manager.text(200,"latest-in-same-ms");bounded.changed();};bounded.changed();
+        require(readSnapshot(manager,bounded)==null,"Same-ms copy during real payload read must not publish stale bytes");
+        require(new String(readSnapshot(manager,bounded).content,StandardCharsets.UTF_8).equals("latest-in-same-ms"),"Concurrent same-ms copy must recover on next poll");
+        manager.image(201,(byte)1);readSnapshot(manager,bounded);
+        manager.image(201,(byte)2);time[0]=10000;
+        require(readSnapshot(manager,bounded).content[0]==2,"Silent provider change must refresh real image bytes within bounded revalidation");
         System.out.println("PASS actual clipboard read admission: unchanged metadata skips full reads; text/image changes, deliberate recopy, sensitivity, race recovery and unknown-clock fallback preserved");
     }
 }
