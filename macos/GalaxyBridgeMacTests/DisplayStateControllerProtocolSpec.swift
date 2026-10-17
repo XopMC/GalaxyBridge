@@ -43,6 +43,10 @@ enum DisplayStateControllerProtocolSpec {
         try rejects("Concurrent policy writes cannot share or reorder a revision") { _ = try leaseState.beginPolicy() }
         try leaseState.acceptPolicy(first, revision: revision, policy: .hide)
         try require(leaseState.lastConfirmedRevision == 1, "Only the correlated READY advances confirmed policy")
+        try leaseState.validateStatus(decoded[2])
+        try require(leaseState.lastAttemptedRevision == 1 && leaseState.lastConfirmedRevision == 1,
+                    "Native poll renews without allocating or advancing a policy revision")
+        try rejects("An unrelated revision cannot renew a different policy") { try leaseState.validateStatus(decoded[3]) }
         try rejects("A repeated startup may not rebase an existing owner") { try leaseState.acceptSnapshot(startup) }
         let secondRevision = try leaseState.beginPolicy()
         leaseState.beginDraining()

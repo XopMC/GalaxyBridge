@@ -75,6 +75,7 @@ def member(signature):
 fixture = (root / 'macos/GalaxyBridgeMacTests/CompositeDisplayProviderSpec.swift').read_text()
 for marker, signature in [('BEGIN', 'func beginDisplayStateOwnership('), ('SNAPSHOT', 'func snapshotDisplayState('),
                           ('APPLY', 'func applyDisplayState('), ('VALIDATE', 'private func validateDisplayStateAdmission('),
+                          ('POLL', 'func pollDisplayState('),
                           ('RETIRE', 'private func retireDisplayState(')]:
     fixture = fixture.replace('// ACTUAL_' + marker + '_DISPLAY_STATE', member(signature))
 (out / 'CompositeDisplayProviderSpec.swift').write_text(fixture)

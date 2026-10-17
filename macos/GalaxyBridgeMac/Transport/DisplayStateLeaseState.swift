@@ -10,6 +10,7 @@ struct DisplayStateLeaseState: Sendable {
     private(set) var lastConfirmedRevision: UInt64 = 0
     private(set) var lastAttemptedRevision: UInt64 = 0
     private(set) var pendingRevision: UInt64?
+    private(set) var appliedPolicy: DisplayStateControllerAcknowledgement.PanelPolicy?
     var mayHaveMutated: Bool { lastAttemptedRevision != 0 }
 
     mutating func acceptSnapshot(_ reply: DisplayStateControllerAcknowledgement) throws {
@@ -36,6 +37,15 @@ struct DisplayStateLeaseState: Sendable {
                                             revision: revision, requiresInteractive: true, policy: policy)
         lastConfirmedRevision = revision
         pendingRevision = nil
+        appliedPolicy = policy
+    }
+    func validateStatus(_ reply: DisplayStateControllerAcknowledgement) throws {
+        guard !draining, !retired, pendingRevision == nil, lastConfirmedRevision > 0,
+              let header, let initial = header.initial, let appliedPolicy else {
+            throw DisplayStateProtocolError.unexpectedReply
+        }
+        _ = try reply.validatingPolicyReply(identity: header.identity, initial: initial,
+            revision: lastConfirmedRevision, requiresInteractive: true, policy: appliedPolicy)
     }
     mutating func beginDraining() { draining = true }
     mutating func confirmNotStarted() throws {

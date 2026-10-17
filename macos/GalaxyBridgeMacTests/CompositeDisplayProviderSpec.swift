@@ -16,7 +16,7 @@ struct GBCaptureRetirementProof {
  var displayStateSnapshot = Data(); var displayStateTerminalAcknowledgement = Data()
 }
 struct GBDisplayStateCommand {
- enum Action { case snapshot, apply }; enum PanelPolicy: Int { case preserve, hide, show }
+ enum Action { case snapshot, apply, status }; enum PanelPolicy: Int { case preserve, hide, show }
  var action = Action.snapshot; var interactive = false; var panelPolicy = PanelPolicy.preserve; var revision: UInt64 = 0
 }
 struct GBShellBridgeRequest { enum Operation: Equatable { case stop, status, verifyRetirement, startDisplayState } }
@@ -62,6 +62,7 @@ struct GBShellBridgeResult {
  // ACTUAL_SNAPSHOT_DISPLAY_STATE
  // ACTUAL_APPLY_DISPLAY_STATE
  // ACTUAL_VALIDATE_DISPLAY_STATE
+ // ACTUAL_POLL_DISPLAY_STATE
  // ACTUAL_RETIRE_DISPLAY_STATE
 }
 @main enum CompositeProviderSpec {
@@ -94,6 +95,11 @@ struct GBShellBridgeResult {
                 p.commands[1].action == .apply && p.commands[1].interactive && p.commands[1].revision == 1 && p.commands[1].panelPolicy == .preserve &&
                 lease.displayState!.lastConfirmedRevision == 1,
                 "Actual provider sends typed read-only startup then exact interactive policy")
+    p.result.displayStateAcknowledgement = frames[2]
+    try await p.pollDisplayState(lease)
+    try require(p.commands.count == 3 && p.commands[2].action == .status && p.commands[2].revision == 0 &&
+                !p.commands[2].interactive && p.commands[2].panelPolicy == .preserve && lease.displayState!.lastConfirmedRevision == 1,
+                "Typed STATUS renews the existing native owner without issuing another policy")
    }
    do {
     let p = Provider(); p.currentControl.supportsCompositeDisplayState = false

@@ -67,6 +67,13 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
     private var absenceProofGeneration: String?
     private var runtimeIdentityGeneration: String?
     private var runtimeSHA256Hex: String?
+    var supportsCompositeDisplayState: Bool {
+        currentRuntimeVerified && control()?.supportsCompositeDisplayState == true
+    }
+    private(set) lazy var displayInteraction = PhoneDisplayInteractionCoordinator(makeOwner: { [weak self] in
+        guard let self else { throw ShellCapabilityBridgeFailure.unavailable }
+        return ShellDisplayInteractionBackend(provider: self)
+    })
     var currentRuntimeVerified: Bool {
         available && bootGeneration != nil && control()?.supportsShellRuntimeIdentity == true
             && runtimeIdentityGeneration == bootGeneration && runtimeSHA256Hex == ScrcpyLaunchConfiguration.serverSHA256Hex
@@ -502,6 +509,23 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
               let state = lease.displayState, !state.draining, !state.retired else {
             throw ShellCapabilityBridgeFailure.unavailable
         }
+    }
+    func pollDisplayState(_ lease: ShellCapabilityBridgeLease) async throws {
+        do {
+            try validateDisplayStateAdmission(lease)
+            guard let state = lease.displayState, state.lastConfirmedRevision > 0, state.pendingRevision == nil else {
+                throw ShellCapabilityBridgeFailure.invalidResult
+            }
+            var command = GBDisplayStateCommand(); command.action = .status
+            let response = try await perform(operation: .startDisplayState, lease: lease.id, generation: lease.generation,
+                context: lease.context, displayState: command)
+            guard response.available, response.errorCode.isEmpty, response.bootGeneration == lease.generation,
+                  response.state == "display_state_reply", response.streamIds.isEmpty else {
+                throw ShellCapabilityBridgeFailure.operationFailed
+            }
+            try lease.displayState!.validateStatus(DisplayStateControllerAcknowledgement.decode(response.displayStateAcknowledgement))
+            try validateDisplayStateAdmission(lease)
+        } catch { lease.displayState?.beginDraining(); throw error }
     }
     /// Separate v2 retirement never uses the legacy stopped/status fallback.
     private func retireDisplayState(_ lease: ShellCapabilityBridgeLease) async throws {
