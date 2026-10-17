@@ -26,6 +26,7 @@ platform="$sdk/platforms/${GB_ANDROID_PLATFORM:-android-37.0}/android.jar"
   "$root/third_party/scrcpy-gb-sync/DisplayStateOwnershipTest.java" "$root/third_party/scrcpy-gb-sync/DisplayStateControllerTest.java"
 "$jdk/bin/java" -ea -cp "$tmp:$platform:$classes" com.genymobile.scrcpy.DisplayStateControllerTest
 "$jdk/bin/java" -ea -cp "$tmp:$platform:$classes" com.genymobile.scrcpy.DisplayStateControllerTest wire > "$tmp/wire.jsonl"
+"$jdk/bin/java" -ea -cp "$tmp:$platform:$classes" com.genymobile.scrcpy.DisplayStateControllerTest wire-startup-failed > "$tmp/startup-failed.jsonl"
 python3 - "$tmp/wire.jsonl" <<'PY'
 import json,re,sys
 from pathlib import Path
@@ -47,3 +48,8 @@ final=frames[-1];assert final['state']=='RESTORED' and final['mutation_settled']
 assert final['current']['panels']==final['initial']['panels'] and final['current']['defaultInteractive']==final['initial']['defaultInteractive']
 print('PASS actual v2 header/policy/status/terminal JSON independently decoded; exact raw-mode and scoped power evidence retained')
 PY
+xcrun swiftc -swift-version 6 \
+  "$root/macos/GalaxyBridgeMac/Transport/DisplayStateControllerProtocol.swift" \
+  "$root/macos/GalaxyBridgeMacTests/DisplayStateControllerProtocolSpec.swift" \
+  -o "$tmp/swift-wire-spec"
+"$tmp/swift-wire-spec" "$tmp/wire.jsonl" "$tmp/startup-failed.jsonl"

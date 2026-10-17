@@ -18,6 +18,17 @@ public final class DisplayStateControllerTest {
         return DisplayStateController.serve(input, output, session, 123, "456", lease, 5, clock(), exit);
     }
     public static void main(String[] args) throws Exception {
+        if (args.length == 1 && args[0].equals("wire-startup-failed")) {
+            Class<?> type = Class.forName("com.genymobile.scrcpy.DisplayStateController$Writer");
+            java.lang.reflect.Constructor<?> constructor = type.getDeclaredConstructor(OutputStream.class, int.class, String.class);
+            constructor.setAccessible(true);
+            Object writer = constructor.newInstance(System.out, 123, "456");
+            java.lang.reflect.Method frame = type.getDeclaredMethod("frame", DisplayStateController.Session.class,
+                    String.class, boolean.class, String.class, String.class);
+            frame.setAccessible(true);
+            frame.invoke(writer, null, "startup_failed", false, "display_default_wakefulness_unknown", "startup");
+            return;
+        }
         if (args.length == 1 && args[0].equals("wire")) {
             serve(new ByteArrayInputStream(commands(true)), System.out,
                 new DisplayStateController.Session(new DisplayStateOwnershipTest.Backend()), 10000, code -> {}); return;
