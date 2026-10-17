@@ -34,6 +34,14 @@ enum DisplayStateControllerProtocolSpec {
         let decoded = try frames.map(DisplayStateControllerAcknowledgement.decode)
         let startup = decoded[0], first = decoded[1], terminal = decoded[5]
         let initial = startup.initial!
+        var localOnly = DisplayStateLeaseState()
+        localOnly.beginDraining(); try localOnly.confirmNeverDispatched()
+        try require(localOnly.retired, "A never-dispatched local reservation has no remote child to stop")
+        var queued = DisplayStateLeaseState()
+        queued.markSnapshotDispatched(); queued.beginDraining()
+        try rejects("A queued SNAPSHOT remains uncertain after timeout; no header does not prove no child") {
+            try queued.confirmNeverDispatched()
+        }
         var leaseState = DisplayStateLeaseState()
         try rejects("No APPLY can precede the immutable startup snapshot") { _ = try leaseState.beginPolicy() }
         try leaseState.acceptSnapshot(startup)

@@ -463,11 +463,15 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
     func snapshotDisplayState(_ lease: ShellCapabilityBridgeLease) async throws {
         do {
             try validateDisplayStateAdmission(lease)
-            guard lease.displayState?.header == nil, lease.displayState?.mayHaveMutated == false else {
+            guard lease.displayState?.header == nil, lease.displayState?.mayHaveMutated == false,
+                  lease.displayState?.snapshotDispatched == false else {
                 throw ShellCapabilityBridgeFailure.invalidResult
             }
             let response = try await perform(operation: .startDisplayState, lease: lease.id, generation: lease.generation,
-                context: lease.context, displayState: GBDisplayStateCommand())
+                context: lease.context, displayState: GBDisplayStateCommand(), beforeDispatch: {
+                    try self.validateDisplayStateAdmission(lease)
+                    guard lease.displayState?.snapshotDispatched == false else { throw ShellCapabilityBridgeFailure.invalidResult }
+                }, didDispatch: { lease.displayState?.markSnapshotDispatched() })
             guard response.available, response.errorCode.isEmpty, response.bootGeneration == lease.generation,
                   response.state == "display_state_snapshotted", response.streamIds.isEmpty else {
                 throw ShellCapabilityBridgeFailure.operationFailed
@@ -534,6 +538,10 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
             throw ShellCapabilityBridgeFailure.invalidResult
         }
         lease.displayState!.beginDraining()
+        if lease.displayState?.snapshotDispatched == false {
+            try lease.displayState!.confirmNeverDispatched()
+            leases.removeValue(forKey: lease.id); notifyRuntimeUpgradeIfIdle(); return
+        }
         let proof: GBCaptureRetirementProof
         if control()?.authenticatedSessionID == lease.context.sessionID, bootGeneration == lease.generation {
             let response = try await perform(operation: .stop, lease: lease.id, generation: lease.generation, context: lease.context)
@@ -583,7 +591,8 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
     private func perform(operation: GBShellBridgeRequest.Operation, lease: String, generation: String,
                          context: ShellCapabilityBridgeContext, options: GBShellCaptureOptions? = nil, powerOn: Bool = false,
                          retirement: GBCaptureRetirementQuery? = nil,
-                         displayState: GBDisplayStateCommand? = nil) async throws -> GBShellBridgeResult {
+                         displayState: GBDisplayStateCommand? = nil,
+                         beforeDispatch: (() throws -> Void)? = nil, didDispatch: (() -> Void)? = nil) async throws -> GBShellBridgeResult {
         guard control()?.authenticatedSessionID == context.sessionID else { throw ShellCapabilityBridgeFailure.sessionChanged }
         guard pending.count < 32 else { throw ShellCapabilityBridgeFailure.capacity }
         try Task.checkCancellation()
@@ -602,7 +611,13 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
             if let options { request.options = options }
             if let retirement { request.retirement = retirement }
             if let displayState { request.displayState = displayState }
-            do { try context.control.sendShellBridge(request) }
+            do {
+                try beforeDispatch?()
+                try context.control.sendShellBridge(request)
+                // sendShellBridge only throws synchronously before queueing
+                // NWConnection.send. Later transport errors remain uncertain.
+                didDispatch?()
+            }
             catch { pending.removeValue(forKey: id)?.timeout.cancel(); continuation.resume(throwing: error) }
         }
     }

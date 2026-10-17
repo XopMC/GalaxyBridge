@@ -37,6 +37,7 @@ struct GBShellBridgeResult {
  var available = true; var currentRuntimeVerified = true
  var commands: [GBDisplayStateCommand] = []
  var onPerform: (() throws -> Void)?
+ var failBeforeQueue = false
  var leases: [String: ShellCapabilityBridgeLease] = [:]
  var result = GBShellBridgeResult(); var operations: [GBShellBridgeRequest.Operation] = []
  var queries: [GBCaptureRetirementQuery] = []
@@ -45,9 +46,13 @@ struct GBShellBridgeResult {
   let lease = ShellCapabilityBridgeLease(UUID().uuidString.lowercased(), context: .init(sessionID: currentSession, control: currentControl))
   lease.displayState = nil; leases[lease.id] = lease; return lease
  }
- func perform(operation: GBShellBridgeRequest.Operation, lease: String, generation: String, context: Context, displayState: GBDisplayStateCommand? = nil) async throws -> GBShellBridgeResult {
+ func perform(operation: GBShellBridgeRequest.Operation, lease: String, generation: String, context: Context, displayState: GBDisplayStateCommand? = nil,
+              beforeDispatch: (() throws -> Void)? = nil, didDispatch: (() -> Void)? = nil) async throws -> GBShellBridgeResult {
   precondition((operation == .stop || operation == .startDisplayState) && generation == "boot-one" && context.sessionID == "old-session")
   operations.append(operation)
+  try beforeDispatch?()
+  if failBeforeQueue { throw ShellCapabilityBridgeFailure.unavailable }
+  didDispatch?()
   if let displayState { commands.append(displayState) }
   try onPerform?()
   return result
@@ -70,6 +75,7 @@ struct GBShellBridgeResult {
  @MainActor static func owner(_ provider: Provider, header: DisplayStateControllerAcknowledgement?, policy: Bool = false) throws -> ShellCapabilityBridgeLease {
   let lease = ShellCapabilityBridgeLease(UUID().uuidString.lowercased(), context: .init(sessionID: provider.currentSession, control: provider.currentControl))
   if let header { try lease.displayState!.acceptSnapshot(header) }
+  else { lease.displayState!.markSnapshotDispatched() }
   if policy { _ = try lease.displayState!.beginPolicy() }
   provider.leases[lease.id] = lease; return lease
  }
@@ -83,6 +89,31 @@ struct GBShellBridgeResult {
   do {
    let frames = try String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8).split(separator: "\n").map { Data($0.utf8) }
    let header = try DisplayStateControllerAcknowledgement.decode(frames[0])
+   for replacedSession in [false, true] {
+    let p = Provider(); let lease = try await p.beginDisplayStateOwnership()
+    if replacedSession { p.currentSession = "replacement-session" }
+    try await p.retireDisplayState(lease)
+    try require(p.leases.isEmpty && p.operations.isEmpty && lease.displayState!.retired,
+                "A never-dispatched reservation retires locally even after its session changes")
+    var rejected = false; do { try await p.snapshotDisplayState(lease) } catch { rejected = true }
+    try require(rejected && p.operations.isEmpty, "A delayed SNAPSHOT cannot dispatch after local retirement")
+   }
+   do {
+    let p = Provider(); let lease = try await p.beginDisplayStateOwnership(); p.failBeforeQueue = true
+    var rejected = false; do { try await p.snapshotDisplayState(lease) } catch { rejected = true }
+    try require(rejected && !lease.displayState!.snapshotDispatched, "Synchronous encoding/feature failure queued no SNAPSHOT")
+    p.failBeforeQueue = false
+    try await p.retireDisplayState(lease)
+    try require(p.leases.isEmpty && p.operations == [.startDisplayState], "No remote STOP is needed when the send never queued")
+   }
+   do {
+    let p = Provider(); let lease = try await p.beginDisplayStateOwnership()
+    p.onPerform = { throw ShellCapabilityBridgeFailure.timeout }
+    var rejected = false; do { try await p.snapshotDisplayState(lease) } catch { rejected = true }
+    try require(rejected && lease.displayState!.snapshotDispatched, "A queued SNAPSHOT remains possible after missing reply")
+    p.onPerform = nil; p.result.state = "stopped"; p.result.hasRetirementProof = false
+    try await rejects(p, lease)
+   }
    do {
     let p = Provider(); let lease = try await p.beginDisplayStateOwnership()
     try require(lease.displayState != nil && lease.displayState!.header == nil && p.operations.isEmpty,
