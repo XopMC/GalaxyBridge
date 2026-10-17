@@ -402,3 +402,4 @@
 "CONSENT_DECLINED" = "La demande de connexion a été refusée sur le téléphone.";
 "CONSENT_BUSY" = "Le téléphone traite une autre demande. Réessayez dans une minute.";
 "CONSENT_OPEN_HELPER" = "Ouvrez Helper sur le téléphone, puis réessayez.";
+"ERROR_RUNTIME_UPGRADE_PENDING" = "La connexion se met à jour. Fermez les fenêtres de contrôle de ce téléphone et réessayez.";

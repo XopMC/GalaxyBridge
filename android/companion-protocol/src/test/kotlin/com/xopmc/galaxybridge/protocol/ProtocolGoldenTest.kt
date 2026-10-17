@@ -9,6 +9,15 @@ import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 class ProtocolGoldenTest {
+    @Test fun preparedRuntimeDigestIsAdditiveAndExact() {
+        val digest = com.google.protobuf.ByteString.copyFrom(ByteArray(32) { 0x11 })
+        val result = com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult.newBuilder().setRuntimeSha256(digest).build()
+        val wire = byteArrayOf(0x52, 0x20) + ByteArray(32) { 0x11 }
+        assertArrayEquals(wire, result.toByteArray())
+        assertEquals(digest, com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult.parseFrom(wire).runtimeSha256)
+        assertEquals(20, com.xopmc.galaxybridge.protocol.v1.Capability.CAPABILITY_SHELL_RUNTIME_IDENTITY.number)
+    }
+
     @Test fun notificationActionResultCorrelatesWithoutChangingLegacyActionBytes() {
         val legacy = com.xopmc.galaxybridge.protocol.v1.NotificationAction.newBuilder()
             .setNotificationId("synthetic").setActionId("0").setReplyText("Galaxy Bridge QA — ответ42").build()

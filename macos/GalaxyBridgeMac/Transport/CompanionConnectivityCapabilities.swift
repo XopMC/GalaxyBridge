@@ -7,12 +7,14 @@ struct CompanionConnectivityCapabilities: Equatable, Sendable {
     var internetGateway = false
     var privilegedBridge = false
     var captureRetirementProof = false
+    var shellRuntimeIdentity = false
     var unavailableReasons: [String: String] = [:]
 
     var supportsShellBridge: Bool {
         negotiated && (privilegedBridge || unavailableReasons["CAPABILITY_PRIVILEGED_BRIDGE"] != nil)
     }
     var supportsCaptureRetirementProof: Bool { negotiated && captureRetirementProof }
+    var supportsShellRuntimeIdentity: Bool { negotiated && shellRuntimeIdentity }
     var nearbyConnectionHint: String? {
         guard negotiated, !nearbyLink else { return nil }
         return unavailableReasons["CAPABILITY_NEARBY_LINK"] == "nearby_permission_required"

@@ -96,6 +96,14 @@ do {
     var retirementResult = GBShellBridgeResult(); retirementResult.retirementProof = proof
     let decodedProof = try GBShellBridgeResult(serializedBytes: retirementResult.serializedData())
     precondition(decodedProof.hasRetirementProof && decodedProof.retirementProof == proof)
+    var runtimeIdentity = GBShellBridgeResult()
+    runtimeIdentity.runtimeSha256 = Data(repeating: 0x11, count: 32)
+    let identityWire = [UInt8(0x52), 0x20] + Array(repeating: UInt8(0x11), count: 32)
+    let actualIdentityWire: [UInt8] = try runtimeIdentity.serializedBytes()
+    precondition(actualIdentityWire == identityWire)
+    let decodedIdentity = try GBShellBridgeResult(serializedBytes: identityWire)
+    precondition(decodedIdentity.runtimeSha256 == runtimeIdentity.runtimeSha256)
+    precondition(GBCapability.shellRuntimeIdentity.rawValue == 20)
     print("PASS GalaxyBridge protobuf golden fixture and notification request/result compatibility")
 } catch {
     FileHandle.standardError.write(Data("FAIL \(error)\n".utf8))

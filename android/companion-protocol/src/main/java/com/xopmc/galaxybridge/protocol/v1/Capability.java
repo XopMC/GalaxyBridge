@@ -95,6 +95,14 @@ public enum Capability
    * <code>CAPABILITY_CAPTURE_RETIREMENT_PROOF = 18;</code>
    */
   CAPABILITY_CAPTURE_RETIREMENT_PROOF(18),
+  /**
+   * <pre>
+   * Prepared broker identity, independent of whether a broker is active.
+   * </pre>
+   *
+   * <code>CAPABILITY_SHELL_RUNTIME_IDENTITY = 20;</code>
+   */
+  CAPABILITY_SHELL_RUNTIME_IDENTITY(20),
   UNRECOGNIZED(-1),
   ;
 
@@ -182,6 +190,14 @@ public enum Capability
    * <code>CAPABILITY_CAPTURE_RETIREMENT_PROOF = 18;</code>
    */
   public static final int CAPABILITY_CAPTURE_RETIREMENT_PROOF_VALUE = 18;
+  /**
+   * <pre>
+   * Prepared broker identity, independent of whether a broker is active.
+   * </pre>
+   *
+   * <code>CAPABILITY_SHELL_RUNTIME_IDENTITY = 20;</code>
+   */
+  public static final int CAPABILITY_SHELL_RUNTIME_IDENTITY_VALUE = 20;
 
 
   @java.lang.Override
@@ -223,6 +239,7 @@ public enum Capability
       case 16: return CAPABILITY_PRIVILEGED_BRIDGE;
       case 17: return CAPABILITY_FEATURE_CONFIGURATION;
       case 18: return CAPABILITY_CAPTURE_RETIREMENT_PROOF;
+      case 20: return CAPABILITY_SHELL_RUNTIME_IDENTITY;
       default: return null;
     }
   }

@@ -5,16 +5,16 @@ import Combine
 @MainActor enum UserDefaults { static let standard = TestDefaults() }
 
 private enum SpecFailure: Error { case failed(String) }
-enum ShellCapabilityBridgeFailure: Error { case unavailable, operationFailed }
+enum ShellCapabilityBridgeFailure: Error { case unavailable, operationFailed, runtimeInUse, invalidResult }
 struct DeviceRow { var id = "device:phone"; var adbSerial: String? = "verified-usb"; var isReady = true }
-struct CompanionControl { var peer = "paired-phone"; var authenticatedSessionID = "session"; var supportsShellBridge = true }
+struct CompanionControl { var peer = "paired-phone"; var authenticatedSessionID = "session"; var supportsShellBridge = true; var supportsShellRuntimeIdentity = false }
 struct ADBClient {}
 @MainActor struct ADBBindingStore {
     static var verified = true
     func isVerified(serial: String, peer: String) -> Bool { Self.verified }
 }
 @MainActor enum ShellCapabilityBridgeActivation {
-    enum Outcome { case success, failure, cancelledFailure }
+    enum Outcome { case success, failure, cancelledFailure, busy }
     static var outcome = Outcome.success
     static var calls = 0
     static var gates: [String: PreparationGate] = [:]
@@ -30,6 +30,7 @@ struct ADBClient {}
         if let gate = gates.removeValue(forKey: serial) { await gate.wait() }
         switch outcome {
         case .success: readySerials.insert(serial); return
+        case .busy: throw ShellCapabilityBridgeFailure.runtimeInUse
         case .failure: throw ShellCapabilityBridgeFailure.operationFailed
         case .cancelledFailure:
             // The real activation boundary maps its errors to operationFailed.
@@ -42,6 +43,14 @@ struct ADBClient {}
     var refreshResults = [false, true]
     var needsRuntimeUpgrade = false
     var canUpgradeRuntimeSafely = true
+    var currentRuntimeVerified = true
+    var clipboardOnlyOwners = false
+    var runtimeUpgradeInProgress = false
+    func beginRuntimeUpgrade() -> Bool {
+        guard !runtimeUpgradeInProgress, canUpgradeRuntimeSafely || clipboardOnlyOwners else { return false }
+        runtimeUpgradeInProgress = true; return true
+    }
+    func endRuntimeUpgrade() { runtimeUpgradeInProgress = false }
     var bootGeneration: String? = "original-generation"
     var refreshCalls = 0
     var runtimeSerial: String?
@@ -87,8 +96,10 @@ typealias ShellCapabilityBridgeProvider = Provider
 }
 @MainActor final class ClipboardSession {
     let log: EventLog
+    var serial = "shell:phone"
+    var onStop: (() -> Void)?
     init(log: EventLog) { self.log = log }
-    func stopAndWait() async { log.values.append("clipboard-stop") }
+    func stopAndWait() async { log.values.append("clipboard-stop"); onStop?() }
 }
 @MainActor final class PhoneDisplayPrivacy {
     enum Status { case idle, failed }
@@ -117,6 +128,8 @@ typealias ShellCapabilityBridgeProvider = Provider
     var enhancedRetirementDeviceIDs: [UUID: String] = [:]
     var unsettledEnhancedRetirements: [UUID: Bool] = [:]
     var clipboardSessions: [String: ClipboardSession] = [:]
+    var clipboardReconnectTasks: [String: Task<Void, Never>] = [:]
+    var clipboardReconnectAttempts: [String: Int] = [:]
     var device = DeviceRow()
     var provider: Provider? = Provider()
     var control: CompanionControl? = .init()
@@ -184,6 +197,55 @@ private extension String {
         ShellCapabilityBridgeActivation.readySerials = []
     }
     @MainActor static func main() async throws {
+        reset()
+        let ownClipboard = AppModel()
+        ownClipboard.provider?.refreshResults = [true, true]
+        ownClipboard.provider?.needsRuntimeUpgrade = true
+        ownClipboard.provider?.canUpgradeRuntimeSafely = false
+        ownClipboard.provider?.clipboardOnlyOwners = true
+        let clipboard = ClipboardSession(log: ownClipboard.log)
+        clipboard.onStop = { ownClipboard.provider?.canUpgradeRuntimeSafely = true }
+        ownClipboard.clipboardSessions["device:phone"] = clipboard
+        ownClipboard.probe()
+        await ownClipboard.shellProbeTasks["device:phone"]?.value
+        try expect(ShellCapabilityBridgeActivation.calls == 1 && ownClipboard.log.values.contains("clipboard-stop"),
+            "Only this Mac's background clipboard lease must retire so a stale runtime can upgrade")
+        try expect(ownClipboard.provider?.runtimeUpgradeInProgress == false,
+            "Upgrade admission must reopen after the bounded attempt")
+        reset()
+        let busyUpgrade = AppModel()
+        busyUpgrade.provider?.refreshResults = [true, true]
+        busyUpgrade.provider?.needsRuntimeUpgrade = true
+        ShellCapabilityBridgeActivation.outcome = .busy
+        busyUpgrade.probe()
+        await busyUpgrade.shellProbeTasks["device:phone"]?.value
+        try expect(ShellCapabilityBridgeActivation.calls == 1 && busyUpgrade.reconciliations > 0 && busyUpgrade.lastError == nil,
+            "Atomic phone-side busy rejection must preserve compatibility service")
+        try expect(busyUpgrade.provider?.runtimeUpgradeInProgress == false && busyUpgrade.shellRuntimeUpgradeTickets.isEmpty,
+            "Busy rejection releases only its own upgrade admission")
+        reset()
+        let staleClipStop = AppModel()
+        staleClipStop.provider?.refreshResults = [true]
+        staleClipStop.provider?.needsRuntimeUpgrade = true
+        staleClipStop.provider?.canUpgradeRuntimeSafely = false
+        staleClipStop.provider?.clipboardOnlyOwners = true
+        let oldClipboard = ClipboardSession(log: staleClipStop.log)
+        oldClipboard.onStop = { staleClipStop.control?.authenticatedSessionID = "replacement-session" }
+        staleClipStop.clipboardSessions["device:phone"] = oldClipboard
+        staleClipStop.probe()
+        await staleClipStop.shellProbeTasks["device:phone"]?.value
+        try expect(ShellCapabilityBridgeActivation.calls == 0 && staleClipStop.shellRuntimeUpgradeTickets.isEmpty,
+            "A session replacement during clipboard retirement must not activate another session's runtime")
+        reset()
+        let rawClipboard = AppModel()
+        rawClipboard.provider?.refreshResults = [true, true]
+        rawClipboard.provider?.needsRuntimeUpgrade = true
+        let raw = ClipboardSession(log: rawClipboard.log); raw.serial = "verified-usb"
+        rawClipboard.clipboardSessions["device:phone"] = raw
+        rawClipboard.probe()
+        await rawClipboard.shellProbeTasks["device:phone"]?.value
+        try expect(ShellCapabilityBridgeActivation.calls == 1 && !rawClipboard.log.values.contains("clipboard-stop") && rawClipboard.clipboardSessions["device:phone"] === raw,
+            "An independent raw ADB clipboard source must remain untouched")
         reset()
         let legacy = AppModel()
         legacy.provider?.refreshResults = [true, true]

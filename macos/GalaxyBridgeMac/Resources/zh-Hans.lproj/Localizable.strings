@@ -404,3 +404,4 @@
 "CONSENT_DECLINED" = "连接请求已在手机上被拒绝。";
 "CONSENT_BUSY" = "手机正在处理其他请求。请稍后再试。";
 "CONSENT_OPEN_HELPER" = "请在手机上打开 Helper，然后重试。";
+"ERROR_RUNTIME_UPGRADE_PENDING" = "正在更新连接。请关闭此手机的远程控制窗口，然后重试。";

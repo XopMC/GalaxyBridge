@@ -404,3 +404,4 @@
 "CONSENT_DECLINED" = "휴대전화에서 연결 요청이 거절되었습니다.";
 "CONSENT_BUSY" = "휴대전화가 다른 요청을 처리하고 있습니다. 잠시 후 다시 시도하세요.";
 "CONSENT_OPEN_HELPER" = "휴대전화에서 Helper를 연 후 다시 시도하세요.";
+"ERROR_RUNTIME_UPGRADE_PENDING" = "연결을 업데이트하고 있습니다. 이 휴대전화의 원격 제어 창을 닫고 다시 시도하세요.";

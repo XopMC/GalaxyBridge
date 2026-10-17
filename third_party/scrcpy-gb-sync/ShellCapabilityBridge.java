@@ -110,6 +110,7 @@ public final class ShellCapabilityBridge implements AutoCloseable {
     private final Object admissionLock = new Object();
     private final Binder bridgeBinder;
     private final byte[] jar;
+    private final String runtimeSHA256;
     private final File sourceJar, directory;
     private final Map<String, Lease> leases = new LinkedHashMap<>();
     private final Map<String, String> receipts = new LinkedHashMap<>();
@@ -163,6 +164,7 @@ public final class ShellCapabilityBridge implements AutoCloseable {
 
     private ShellCapabilityBridge(String activationID, String token, String generation, int uid, String helperPackage, File source, byte[] jar) throws Exception {
         this.token = token; this.generation = generation; helperUID = uid; sourceJar = source; this.jar = jar;
+        runtimeSHA256 = hex(MessageDigest.getInstance("SHA-256").digest(jar));
         this.activationID = activationID; this.helperPackage = helperPackage; admission = new BinderAdmission(uid);
         directory = new File("/data/local/tmp/galaxybridge-shell-" + generation);
         if (!directory.mkdir()) throw new IOException("owned_directory_unavailable");
@@ -409,7 +411,8 @@ public final class ShellCapabilityBridge implements AutoCloseable {
 
     private JSONObject result(String id, String lease, String state, String error, List<String> streams) throws Exception {
         return new JSONObject().put("request_id", id).put("lease_id", lease).put("boot_generation", generation)
-            .put("available", true).put("state", state).put("error_code", error).put("stream_ids", new JSONArray(streams));
+            .put("available", true).put("state", state).put("error_code", error).put("stream_ids", new JSONArray(streams))
+            .put("runtime_sha256", runtimeSHA256);
     }
 
     private final class Lease {

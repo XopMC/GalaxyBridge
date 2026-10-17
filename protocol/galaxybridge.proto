@@ -143,6 +143,8 @@ enum Capability {
   CAPABILITY_FEATURE_CONFIGURATION = 17;
   // Typed read-only retirement proofs, independent of broker activation.
   CAPABILITY_CAPTURE_RETIREMENT_PROOF = 18;
+  // Prepared broker identity, independent of whether a broker is active.
+  CAPABILITY_SHELL_RUNTIME_IDENTITY = 20;
 }
 
 // CONTROL only after signed session authentication. An empty enabled list means all off.
@@ -316,6 +318,8 @@ message ShellBridgeResult {
   repeated string stream_ids = 7;
   bytes application_catalog_json = 8;
   CaptureRetirementProof retirement_proof = 9;
+  // SHA-256 of the verified JAR loaded by this boot generation.
+  bytes runtime_sha256 = 10;
 }
 
 message OpenChannel {

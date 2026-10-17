@@ -22,6 +22,9 @@ struct ShellCapabilityBridgeActivationReceipt: Decodable {
         case available, state
         case bootGeneration = "boot_generation", errorCode = "error_code"
     }
+    var isBusyPreparation: Bool {
+        !available && state == "busy" && errorCode == "shell_runtime_in_use"
+    }
     static func parse(_ output: String, generation: String) -> Self? {
         guard output.utf8.count <= 65_536, UUID(uuidString: generation)?.uuidString.lowercased() == generation,
               output.split(whereSeparator: \.isNewline).filter({ $0.hasPrefix("Broadcast completed:") }).count == 1,

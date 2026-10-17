@@ -404,3 +404,4 @@
 "CONSENT_DECLINED" = "連線要求已在手機上遭拒。";
 "CONSENT_BUSY" = "手機正在處理其他要求。請稍後再試。";
 "CONSENT_OPEN_HELPER" = "請在手機上開啟 Helper，然後重試。";
+"ERROR_RUNTIME_UPGRADE_PENDING" = "正在更新連線。請關閉此手機的遠端控制視窗，然後重試。";

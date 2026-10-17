@@ -15,6 +15,7 @@ import Network
    (ShellCapabilityBridgeFailure.timeout,"shell_timeout"),
    (ShellCapabilityBridgeFailure.operationFailed,"shell_operation_failed"),
    (ShellCapabilityBridgeFailure.capacity,"shell_capacity"),
+   (ShellCapabilityBridgeFailure.runtimeInUse,"shell_runtime_in_use"),
    (NWError.posix(.ECONNRESET),"network_posix_54"),
    (NWError.tls(-9806),"network_tls_-9806"),
    (QuicBackendError(status:103),"quic_status_103"),

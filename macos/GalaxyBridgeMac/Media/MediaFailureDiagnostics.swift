@@ -24,6 +24,7 @@ enum MediaFailureDiagnostics {
             case .timeout: return "shell_timeout"
             case .operationFailed: return "shell_operation_failed"
             case .capacity: return "shell_capacity"
+            case .runtimeInUse: return "shell_runtime_in_use"
             }
         }
         if let failure = error as? NWError {

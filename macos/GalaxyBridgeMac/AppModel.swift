@@ -159,6 +159,7 @@ final class AppModel: ObservableObject {
         let providerID: ObjectIdentifier
         let task: Task<Bool, Error>
     }
+    private var shellRuntimeUpgradeTickets: [String: UUID] = [:]
     private var shellReadinessTasks: [String: ShellReadinessPreparation] = [:]
     private var shellPreferredDevices = Set<String>()
     private var captureRetirementAuthorities: [String: CaptureRetirementAuthority] = [:]
@@ -526,6 +527,12 @@ final class AppModel: ObservableObject {
         guard companionControl(for: deviceID)?.supportsShellBridge == true else { return nil }
         let hostID = UserDefaults.standard.string(forKey: "com.xopmc.GalaxyBridge.host-id") ?? ""
         let provider = ShellCapabilityBridgeProvider(hostID: hostID, control: { [weak self] in self?.companionControl(for: deviceID) })
+        provider.runtimeUpgradeRequested = { [weak self, weak provider] in
+            guard let self, let provider, self.shellProviders[deviceID] === provider,
+                  self.shellProbeTasks[deviceID] == nil, self.terminationAdmission.admitsWork else { return }
+            self.shellProbeSessions.removeValue(forKey: deviceID)
+            self.reconcileShellCapabilities()
+        }
         shellProviders[deviceID] = provider
         shellProviderSubscriptions[deviceID] = provider.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         return provider
@@ -611,11 +618,44 @@ final class AppModel: ObservableObject {
             guard self.shellReadinessIsCurrent(deviceID: deviceID, serial: serial, sessionID: sessionID, provider: provider) else {
                 throw CancellationError()
             }
-            if ready && (!provider.needsRuntimeUpgrade || !provider.canUpgradeRuntimeSafely) { return true }
+            if ready && !provider.needsRuntimeUpgrade { return true }
             guard let serial, let control = self.companionControl(for: deviceID),
                   ADBBindingStore().isVerified(serial: serial, peer: control.peer) else { return ready }
+            guard provider.beginRuntimeUpgrade() else { return ready }
+            self.shellRuntimeUpgradeTickets[deviceID] = ticket
+            var pausedClipboard = false
+            defer {
+                provider.endRuntimeUpgrade()
+                if self.shellRuntimeUpgradeTickets[deviceID] == ticket {
+                    self.shellRuntimeUpgradeTickets.removeValue(forKey: deviceID)
+                    if pausedClipboard && !self.preparingDirectDevices.contains(deviceID) {
+                        self.reconcileEnhancedClipboardSessions()
+                    }
+                }
+            }
+            if ready, let clipboard = self.clipboardSessions[deviceID], clipboard.serial.hasPrefix("shell:") {
+                self.clipboardSessions.removeValue(forKey: deviceID)
+                self.clipboardReconnectTasks.removeValue(forKey: deviceID)?.cancel()
+                self.clipboardReconnectAttempts.removeValue(forKey: deviceID)
+                pausedClipboard = true
+                await clipboard.stopAndWait()
+            }
+            try Task.checkCancellation()
+            guard self.shellReadinessIsCurrent(deviceID: deviceID, serial: serial, sessionID: sessionID, provider: provider) else {
+                throw CancellationError()
+            }
+            guard provider.canUpgradeRuntimeSafely else { return ready }
             do { try await ShellCapabilityBridgeActivation.activate(adb: ADBClient(), serial: serial) }
-            catch { try Task.checkCancellation(); throw error }
+            catch {
+                try Task.checkCancellation()
+                guard self.shellReadinessIsCurrent(deviceID: deviceID, serial: serial, sessionID: sessionID, provider: provider) else {
+                    throw CancellationError()
+                }
+                // Global Helper admission won a race with another owner. Keep
+                // compatibility service alive; no busy runtime was replaced.
+                if error as? ShellCapabilityBridgeFailure == .runtimeInUse { return await provider.refresh() }
+                throw error
+            }
             try Task.checkCancellation()
             guard self.shellReadinessIsCurrent(deviceID: deviceID, serial: serial, sessionID: sessionID, provider: provider) else {
                 throw CancellationError()
@@ -624,6 +664,9 @@ final class AppModel: ObservableObject {
             try Task.checkCancellation()
             guard self.shellReadinessIsCurrent(deviceID: deviceID, serial: serial, sessionID: sessionID, provider: provider) else {
                 throw CancellationError()
+            }
+            guard !activated || !control.supportsShellRuntimeIdentity || provider.currentRuntimeVerified else {
+                throw ShellCapabilityBridgeFailure.invalidResult
             }
             return activated
         }
@@ -3911,7 +3954,7 @@ final class AppModel: ObservableObject {
 
     private func installEnhancedClipboardSession(deviceID: String, serial: String) {
         guard terminationAdmission.admitsWork, featureEnabled(.clipboard, deviceID: deviceID),
-              clipboardSessions[deviceID] == nil,
+              shellRuntimeUpgradeTickets[deviceID] == nil, clipboardSessions[deviceID] == nil,
               let adb = try? ADBClient()
         else { return }
         let session = ScrcpyClipboardSession(
@@ -5173,6 +5216,7 @@ final class AppModel: ObservableObject {
         case .privilegedBridge: "CAPABILITY_PRIVILEGED_BRIDGE"
         case .featureConfiguration: "CAPABILITY_FEATURE_CONFIGURATION"
         case .captureRetirementProof: "CAPABILITY_CAPTURE_RETIREMENT_PROOF"
+        case .shellRuntimeIdentity: "CAPABILITY_SHELL_RUNTIME_IDENTITY"
         case .UNRECOGNIZED: nil
         }
     }

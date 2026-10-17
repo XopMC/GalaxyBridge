@@ -63,6 +63,7 @@ internal class ShellStreamLeaseRegistry {
         leases[lease] = Lease(peer, session)
         return true
     }
+    fun hasAnyLease(): Boolean = leases.isNotEmpty()
     fun owns(peer: String, session: String, lease: String): Boolean = leases[lease]?.let { it.peer == peer && it.session == session } == true
     fun confirmsStopped(peer: String, session: String, lease: String, result: ShellBridgeResult): Boolean =
         owns(peer, session, lease) && result.leaseId == lease && result.available && result.errorCode.isEmpty() &&

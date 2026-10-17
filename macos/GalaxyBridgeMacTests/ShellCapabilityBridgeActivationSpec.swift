@@ -23,6 +23,12 @@ import Foundation
         precondition(ShellCapabilityBridgeActivationReceipt.parse(ready + ready, generation: generation) == nil)
         let prepared = ready.replacingOccurrences(of: "true", with: "false").replacingOccurrences(of: "ready", with: "prepared")
         precondition(ShellCapabilityBridgeActivationReceipt.parse(prepared, generation: generation)?.state == "prepared")
+        let busy = prepared.replacingOccurrences(of: "prepared", with: "busy")
+            .replacingOccurrences(of: "\"error_code\":\"\"", with: "\"error_code\":\"shell_runtime_in_use\"")
+        precondition(ShellCapabilityBridgeActivationReceipt.parse(busy, generation: generation)?.isBusyPreparation == true)
+        precondition(ShellCapabilityBridgeActivationReceipt.parse(prepared, generation: generation)?.isBusyPreparation == false)
+        precondition(ShellCapabilityBridgeActivationReceipt.parse(busy.replacingOccurrences(of: "false", with: "true"), generation: generation)?.isBusyPreparation == false)
+        precondition(ShellCapabilityBridgeActivationReceipt.parse(busy, generation: UUID().uuidString.lowercased()) == nil)
         print("PASS actual activation receipt bounds, generation fencing, prepared versus available and ambiguous output rejection")
     }
 }

@@ -1,5 +1,6 @@
 package com.xopmc.galaxybridge.transport.shell
 
+import com.google.protobuf.ByteString
 import android.content.Context
 import android.os.Binder
 import android.os.IBinder
@@ -34,6 +35,7 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
     private var activationError = ""
     private var token = ""
     private var generation = ""
+    private var runtimeSHA256 = ByteString.EMPTY
     private var closed = false
     private val pending = linkedMapOf<String, CompletableFuture<ShellBridgeResult>>()
     private val leases = ShellStreamLeaseRegistry()
@@ -46,11 +48,20 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
     val isAvailable: Boolean get() = synchronized(lock) { !closed && isForegroundOwner() && owner != null && bridgeBinder?.isBinderAlive == true }
     fun status(): ShellBridgeResult = synchronized(lock) {
         ShellBridgeResult.newBuilder().setBootGeneration(generation).setAvailable(isAvailable)
+            .setRuntimeSha256(if (isAvailable) runtimeSHA256 else ByteString.EMPTY)
             .setState(if (isAvailable) "ready" else activationState).setErrorCode(if (isAvailable || activationState in setOf("prepared", "attaching")) "" else activationError.ifEmpty { "shell_bridge_not_activated" }).build()
     }
 
     /** Only the DUMP-protected prepare receiver authorizes a one-use shell attachment. */
     fun prepare(name: String, secret: String, bootGeneration: String): ShellBridgeResult = synchronized(lock) {
+        // Global admission and replacement share this lock. A preceding idle
+        // status on any Mac cannot authorize revoking another peer's new lease.
+        if (leases.hasAnyLease() || pending.isNotEmpty() || openingStreams.isNotEmpty() ||
+            streams.isNotEmpty() || connectingOwner != null || (bridgeBinder != null && owner == null) ||
+            tickets.isPreparing(SystemClock.elapsedRealtime())) {
+            return@synchronized ShellBridgeResult.newBuilder().setBootGeneration(bootGeneration)
+                .setAvailable(false).setState("busy").setErrorCode("shell_runtime_in_use").build()
+        }
         deactivateLocked()
         val allowed = ShellBridgePolicy.allowedDistribution(context.packageName, BuildConfig.DISTRIBUTION)
         check(tickets.prepare(name, secret, bootGeneration, SystemClock.elapsedRealtime(), !closed && isForegroundOwner(), allowed) != null) { "shell_prepare_rejected" }
@@ -99,6 +110,7 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
             synchronized(lock) {
                 check(!closed && isForegroundOwner() && activationRevision == attempt && bridgeBinder === bridge && tickets.isCurrent(claim))
                 owner = socket; connectingOwner = null; activationState = "ready"; activationError = ""
+                runtimeSHA256 = ready.runtimeSha256
             }
             Thread({ readOwner(socket, bootGeneration) }, "GalaxyBridge-shell-owner").apply { isDaemon = true; start() }
             return ready
@@ -262,6 +274,7 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
             .setLeaseId(json.optString("lease_id")).setBootGeneration(json.getString("boot_generation"))
             .setAvailable(json.getBoolean("available")).setState(json.optString("state"))
             .setErrorCode(json.optString("error_code"))
+            .setRuntimeSha256(ByteString.copyFrom(ShellRuntimeIdentity.decode(json.optString("runtime_sha256", ""))))
         json.optJSONArray("stream_ids")?.let { array -> check(array.length() <= 4); repeat(array.length()) { builder.addStreamIds(array.getString(it)) } }
         json.optJSONObject("retirement_proof")?.let { proof ->
             val kind = proof.getInt("kind")
@@ -321,7 +334,7 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
         pending.values.forEach { it.completeExceptionally(IllegalStateException("shell_owner_closed")) }; pending.clear()
         openingStreams.values.toList().forEach { runCatching(it.cancel) }; openingStreams.clear()
         streams.values.toList().forEach { closeChannel(it.socket); runCatching(it.cancel) }; streams.clear(); leases.clear()
-        activationID = ""; token = ""; generation = ""
+        activationID = ""; token = ""; generation = ""; runtimeSHA256 = ByteString.EMPTY
     }
     fun deactivate() = synchronized(lock) { deactivateLocked() }
     override fun close() = synchronized(lock) { closed = true; deactivateLocked(); relay.shutdownNow(); Unit }

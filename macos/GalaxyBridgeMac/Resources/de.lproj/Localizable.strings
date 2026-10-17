@@ -402,3 +402,4 @@
 "CONSENT_DECLINED" = "Die Verbindungsanfrage wurde auf dem Telefon abgelehnt.";
 "CONSENT_BUSY" = "Das Telefon bearbeitet eine andere Anfrage. Versuche es in einer Minute erneut.";
 "CONSENT_OPEN_HELPER" = "Öffne Helper auf dem Telefon und versuche es erneut.";
+"ERROR_RUNTIME_UPGRADE_PENDING" = "Die Verbindung wird aktualisiert. Schließe die Fernsteuerungsfenster dieses Telefons und versuche es erneut.";

@@ -117,4 +117,14 @@ public interface ShellBridgeResultOrBuilder extends
    * @return The retirementProof.
    */
   com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof getRetirementProof();
+
+  /**
+   * <pre>
+   * SHA-256 of the verified JAR loaded by this boot generation.
+   * </pre>
+   *
+   * <code>bytes runtime_sha256 = 10;</code>
+   * @return The runtimeSha256.
+   */
+  com.google.protobuf.ByteString getRuntimeSha256();
 }

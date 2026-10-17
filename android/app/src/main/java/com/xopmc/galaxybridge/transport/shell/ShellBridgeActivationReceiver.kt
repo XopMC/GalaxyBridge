@@ -17,7 +17,8 @@ class ShellBridgeActivationReceiver : BroadcastReceiver() {
         if (runtime == null) { resultCode = 3; resultData = "foreground_owner_required"; return }
         if (intent.getStringExtra("operation") == "status") {
             val state = runtime.status()
-            resultCode = 0; resultData = receipt(state.available, state.bootGeneration, state.state, state.errorCode); return
+            resultCode = 0; resultData = receipt(state.available, state.bootGeneration, state.state, state.errorCode,
+                ShellRuntimeIdentity.encode(state.runtimeSha256.toByteArray())); return
         }
         if (intent.getStringExtra("operation") == "deactivate") {
             runtime.deactivate(); resultCode = 0; resultData = receipt(false, "", "stopped", ""); return
@@ -36,8 +37,9 @@ class ShellBridgeActivationReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun receipt(available: Boolean, boot: String, state: String, error: String) = JSONObject()
-        .put("available", available).put("boot_generation", boot).put("state", state).put("error_code", error).toString()
+    private fun receipt(available: Boolean, boot: String, state: String, error: String, runtimeSHA256: String = "") = JSONObject()
+        .put("available", available).put("boot_generation", boot).put("state", state).put("error_code", error)
+        .put("runtime_sha256", runtimeSHA256).toString()
     companion object {
         const val ACTION = "com.xopmc.galaxybridge.ACTIVATE_SHELL_BRIDGE"
     }

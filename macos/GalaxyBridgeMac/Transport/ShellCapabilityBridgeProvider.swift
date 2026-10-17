@@ -8,9 +8,10 @@ import Network
 import OSLog
 
 enum ShellCapabilityBridgeFailure: Error, LocalizedError {
-    case unavailable, invalidResult, sessionChanged, timeout, operationFailed, capacity
+    case unavailable, invalidResult, sessionChanged, timeout, operationFailed, capacity, runtimeInUse
     var errorDescription: String? {
-        self == .capacity ? String(localized: "APPLICATION_WINDOW_LIMIT") : String(localized: "ERROR_SCREEN_CONNECTION")
+        self == .capacity ? String(localized: "APPLICATION_WINDOW_LIMIT")
+            : self == .runtimeInUse ? String(localized: "ERROR_RUNTIME_UPGRADE_PENDING") : String(localized: "ERROR_SCREEN_CONNECTION")
     }
 }
 
@@ -63,9 +64,67 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
     private enum AbsenceProofSupport { case unknown, supported, legacy, unavailable }
     private var absenceProofSupport: AbsenceProofSupport = .unknown
     private var absenceProofGeneration: String?
-    var needsRuntimeUpgrade: Bool { absenceProofGeneration == bootGeneration && absenceProofSupport == .legacy }
+    private var runtimeIdentityGeneration: String?
+    private var runtimeSHA256Hex: String?
+    var currentRuntimeVerified: Bool {
+        available && bootGeneration != nil && control()?.supportsShellRuntimeIdentity == true
+            && runtimeIdentityGeneration == bootGeneration && runtimeSHA256Hex == ScrcpyLaunchConfiguration.serverSHA256Hex
+    }
+    var needsRuntimeUpgrade: Bool {
+        if absenceProofGeneration == bootGeneration && absenceProofSupport == .legacy { return true }
+        guard available, bootGeneration != nil, control()?.supportsShellRuntimeIdentity == true else { return false }
+        return !currentRuntimeVerified
+    }
+    private var runtimeUpgradeInProgress = false
+    private var pendingLeaseAdmissions = 0
+    var runtimeUpgradeRequested: (() -> Void)?
+    /// A new modern broker may bootstrap exact absence proofs for an unavailable
+    /// predecessor. Old handles remain retained; only atomic Helper admission
+    /// authorizes replacement, never this local availability observation.
+    private var canRecoverUnavailableRuntime: Bool { !available && control()?.supportsShellRuntimeIdentity == true }
     var canUpgradeRuntimeSafely: Bool {
-        leases.isEmpty && pending.values.allSatisfy { $0.operation == .status || $0.operation == .listApplications || $0.operation == .verifyRetirement }
+        pendingLeaseAdmissions == 0 && (leases.isEmpty || canRecoverUnavailableRuntime) && pending.values.allSatisfy { $0.operation == .status || $0.operation == .listApplications || $0.operation == .verifyRetirement }
+    }
+    /// Freeze new children before retiring only this Mac's background clipboard.
+    /// The Helper independently rejects replacement if any peer still owns work.
+    func beginRuntimeUpgrade() -> Bool {
+        guard !runtimeUpgradeInProgress, pendingLeaseAdmissions == 0,
+              (canRecoverUnavailableRuntime || leases.values.allSatisfy({ $0.clipboardPort != nil })),
+              pending.values.allSatisfy({ $0.operation == .status || $0.operation == .listApplications || $0.operation == .verifyRetirement }) else { return false }
+        runtimeUpgradeInProgress = true
+        return true
+    }
+    func endRuntimeUpgrade() { runtimeUpgradeInProgress = false }
+    private func notifyRuntimeUpgradeIfIdle() {
+        guard control()?.supportsShellRuntimeIdentity == true, needsRuntimeUpgrade,
+              !runtimeUpgradeInProgress, pendingLeaseAdmissions == 0,
+              leases.values.allSatisfy({ $0.clipboardPort != nil }),
+              pending.values.allSatisfy({ $0.operation == .status || $0.operation == .listApplications || $0.operation == .verifyRetirement }) else { return }
+        runtimeUpgradeRequested?()
+    }
+    private func reserveLeaseAdmission() throws {
+        if control()?.supportsShellRuntimeIdentity == true && needsRuntimeUpgrade {
+            notifyRuntimeUpgradeIfIdle()
+            throw ShellCapabilityBridgeFailure.runtimeInUse
+        }
+        guard !runtimeUpgradeInProgress else { throw ShellCapabilityBridgeFailure.runtimeInUse }
+        guard leases.count + pendingLeaseAdmissions < 8 else { throw ShellCapabilityBridgeFailure.capacity }
+        pendingLeaseAdmissions += 1
+    }
+    private func refreshAdmittedRuntime(context expected: ShellCapabilityBridgeContext) async throws -> String {
+        if !available || bootGeneration == nil {
+            guard await refresh() else { throw ShellCapabilityBridgeFailure.unavailable }
+        }
+        guard control() === expected.control, control()?.authenticatedSessionID == expected.sessionID else {
+            throw ShellCapabilityBridgeFailure.sessionChanged
+        }
+        if control()?.supportsShellRuntimeIdentity == true && !currentRuntimeVerified {
+            throw ShellCapabilityBridgeFailure.runtimeInUse
+        }
+        guard !runtimeUpgradeInProgress, let generation = bootGeneration, available else {
+            throw ShellCapabilityBridgeFailure.unavailable
+        }
+        return generation
     }
     init(hostID: String, control: @escaping () -> CompanionTLSClient?) { self.hostID = hostID; self.control = control }
 
@@ -86,8 +145,14 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
                 item.continuation.resume(throwing: ShellCapabilityBridgeFailure.invalidResult); return
             }
             available = true; bootGeneration = result.bootGeneration
+            if item.operation == .status, result.errorCode.isEmpty {
+                runtimeIdentityGeneration = result.bootGeneration
+                runtimeSHA256Hex = result.runtimeSha256.count == 32
+                    ? result.runtimeSha256.map { String(format: "%02x", $0) }.joined() : nil
+            }
         } else if item.operation != .listApplications { available = false; bootGeneration = nil }
         item.continuation.resume(returning: result)
+        if item.operation == .status { notifyRuntimeUpgradeIfIdle() }
     }
 
     func disconnected(authenticatedSessionID: String) {
@@ -97,6 +162,8 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
         for lease in leases.values where lease.context.sessionID == authenticatedSessionID { lease.cancelLocal() }
         available = false
         bootGeneration = nil
+        runtimeIdentityGeneration = nil
+        runtimeSHA256Hex = nil
     }
 
     @discardableResult func refresh() async -> Bool {
@@ -254,10 +321,11 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
 
     func prepare(configuration: ScrcpyLaunchConfiguration, operation: GBShellBridgeRequest.Operation = .startScrcpy,
                  outputObserver: ScrcpyOwnedProcessOutputObserver? = nil) async throws -> ShellCapabilityBridgeLease {
-        guard leases.count < 8 else { throw ShellCapabilityBridgeFailure.capacity }
-        if bootGeneration == nil { guard await refresh() else { throw ShellCapabilityBridgeFailure.unavailable } }
-        guard let generation = bootGeneration else { throw ShellCapabilityBridgeFailure.unavailable }
-        let context = try context(), id = UUID().uuidString.lowercased()
+        let context = try context()
+        try reserveLeaseAdmission()
+        defer { pendingLeaseAdmissions -= 1; notifyRuntimeUpgradeIfIdle() }
+        let generation = try await refreshAdmittedRuntime(context: context)
+        let id = UUID().uuidString.lowercased()
         var committed = false
         defer {
             if !committed {
@@ -305,10 +373,11 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
     }
 
     func beginPanelOwnership() async throws -> ShellCapabilityBridgeLease {
-        guard leases.count < 8 else { throw ShellCapabilityBridgeFailure.capacity }
-        if bootGeneration == nil { guard await refresh() else { throw ShellCapabilityBridgeFailure.unavailable } }
-        guard let generation = bootGeneration else { throw ShellCapabilityBridgeFailure.unavailable }
-        let owner = ShellCapabilityBridgeLease(id: UUID().uuidString.lowercased(), generation: generation, context: try context(),
+        let context = try context()
+        try reserveLeaseAdmission()
+        defer { pendingLeaseAdmissions -= 1; notifyRuntimeUpgradeIfIdle() }
+        let generation = try await refreshAdmittedRuntime(context: context)
+        let owner = ShellCapabilityBridgeLease(id: UUID().uuidString.lowercased(), generation: generation, context: context,
             relays: [], port: nil, clipboardPort: nil, log: nil, observer: nil)
         // Reserve before sending a mutating request. Unknown outcomes retain an
         // exact retirement handle instead of losing an unacknowledged child.
@@ -348,7 +417,7 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
                 reportUnconfirmedRetirement(lease, stage: .previousSession, result: proof)
                 throw ShellCapabilityBridgeFailure.sessionChanged
             }
-            leases.removeValue(forKey: lease.id); return
+            leases.removeValue(forKey: lease.id); notifyRuntimeUpgradeIfIdle(); return
         }
         do {
             let response = try await perform(operation: .stop, lease: lease.id, generation: lease.generation, context: lease.context)
@@ -366,6 +435,7 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
             }
         }
         leases.removeValue(forKey: lease.id)
+        notifyRuntimeUpgradeIfIdle()
     }
 
     private enum RetirementDiagnosticStage: String { case previousSession = "previous_session", stop, status }

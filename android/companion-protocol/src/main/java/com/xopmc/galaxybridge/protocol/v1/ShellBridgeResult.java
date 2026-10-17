@@ -22,6 +22,7 @@ public  final class ShellBridgeResult extends
     errorCode_ = "";
     streamIds_ = emptyProtobufList();
     applicationCatalogJson_ = com.google.protobuf.ByteString.EMPTY;
+    runtimeSha256_ = com.google.protobuf.ByteString.EMPTY;
   }
   private int bitField0_;
   public static final int REQUEST_ID_FIELD_NUMBER = 1;
@@ -450,6 +451,45 @@ public  final class ShellBridgeResult extends
   private void clearRetirementProof() {
     retirementProof_ = null;
     bitField0_ = (bitField0_ & ~0x00000001);
+  }
+
+  public static final int RUNTIME_SHA256_FIELD_NUMBER = 10;
+  private com.google.protobuf.ByteString runtimeSha256_;
+  /**
+   * <pre>
+   * SHA-256 of the verified JAR loaded by this boot generation.
+   * </pre>
+   *
+   * <code>bytes runtime_sha256 = 10;</code>
+   * @return The runtimeSha256.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString getRuntimeSha256() {
+    return runtimeSha256_;
+  }
+  /**
+   * <pre>
+   * SHA-256 of the verified JAR loaded by this boot generation.
+   * </pre>
+   *
+   * <code>bytes runtime_sha256 = 10;</code>
+   * @param value The runtimeSha256 to set.
+   */
+  private void setRuntimeSha256(com.google.protobuf.ByteString value) {
+    java.util.Objects.requireNonNull(value);
+
+    runtimeSha256_ = value;
+  }
+  /**
+   * <pre>
+   * SHA-256 of the verified JAR loaded by this boot generation.
+   * </pre>
+   *
+   * <code>bytes runtime_sha256 = 10;</code>
+   */
+  private void clearRuntimeSha256() {
+
+    runtimeSha256_ = getDefaultInstance().getRuntimeSha256();
   }
 
   public static com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult parseFrom(
@@ -989,6 +1029,46 @@ public  final class ShellBridgeResult extends
       return this;
     }
 
+    /**
+     * <pre>
+     * SHA-256 of the verified JAR loaded by this boot generation.
+     * </pre>
+     *
+     * <code>bytes runtime_sha256 = 10;</code>
+     * @return The runtimeSha256.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString getRuntimeSha256() {
+      return instance.getRuntimeSha256();
+    }
+    /**
+     * <pre>
+     * SHA-256 of the verified JAR loaded by this boot generation.
+     * </pre>
+     *
+     * <code>bytes runtime_sha256 = 10;</code>
+     * @param value The runtimeSha256 to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRuntimeSha256(com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setRuntimeSha256(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * SHA-256 of the verified JAR loaded by this boot generation.
+     * </pre>
+     *
+     * <code>bytes runtime_sha256 = 10;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRuntimeSha256() {
+      copyOnWrite();
+      instance.clearRuntimeSha256();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:galaxybridge.v1.ShellBridgeResult)
   }
   @java.lang.Override
@@ -1015,10 +1095,11 @@ public  final class ShellBridgeResult extends
             "streamIds_",
             "applicationCatalogJson_",
             "retirementProof_",
+            "runtimeSha256_",
           };
           java.lang.String info =
-              "\u0000\t\u0000\u0001\u0001\t\t\u0000\u0001\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0007\u0005\u0208\u0006\u0208\u0007\u021a\b\n\t\u1009\u0000";
+              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0001\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\u0007\u0005\u0208\u0006\u0208\u0007\u021a\b\n\t\u1009\u0000\n\n";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

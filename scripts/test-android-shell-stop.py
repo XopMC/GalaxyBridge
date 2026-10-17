@@ -64,6 +64,8 @@ disable = body(server[server.index('featureShellLeases.values.filter'):], '.forE
 late_offset = server.index('// A different CONTROL operation may have disabled this feature')
 late_start = server.rfind('\n', 0, server.index('bridge?.executeAuthenticated', late_offset)) + 1
 late_end = server.index('                                writeEnvelope(output, featureDisabled(incoming)); continue', late_start)
+upgrade_fixture = (root / 'scripts/fixtures/ShellRuntimeUpgradeAdmissionSpec.kt').read_text().replace(
+    '        // ACTUAL_RUNTIME_PREPARE', body(source, 'fun prepare('))
 feature_fixture = (root / 'scripts/fixtures/FeatureShellStopOwnershipSpec.kt').read_text() \
     .replace('    // ACTUAL_FEATURE_LEASE', lease_record) \
     .replace('        // ACTUAL_FEATURE_STOP', server[stop_start:stop_end]) \
@@ -81,15 +83,21 @@ with tempfile.TemporaryDirectory(prefix='gb-android-shell-stop-') as temporary:
     actual.write_text(fixture)
     actual_failure = tmp / 'ActualShellFailure.kt'
     actual_failure.write_text(failure_fixture)
+    actual_upgrade = tmp / 'ActualRuntimeUpgrade.kt'
+    actual_upgrade.write_text(upgrade_fixture)
     actual_feature = tmp / 'ActualFeatureShellStop.kt'
     actual_feature.write_text(feature_fixture)
     classpath = os.pathsep.join([str(tmp), str(protocol), stdlib, protobuf, junit, hamcrest])
     run([java, '-cp', compiler, 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect',
          '-jvm-target', '17', '-classpath', classpath, '-d', tmp,
          base / 'ShellBridgePolicy.kt', base / 'ShellBridgeWire.kt',
-         tests / 'ShellBridgePolicyTest.kt', actual, actual_feature, actual_failure])
+         tests / 'ShellBridgePolicyTest.kt', base / 'ShellActivationTicketPolicy.kt',
+         base / 'ShellRuntimeIdentity.kt', tests / 'ShellRuntimeIdentityTest.kt',
+         actual, actual_feature, actual_failure, actual_upgrade])
     run([java, '-cp', classpath, 'org.junit.runner.JUnitCore',
          'com.xopmc.galaxybridge.transport.shell.ShellBridgePolicyTest',
          'com.xopmc.galaxybridge.transport.shell.ShellStopOwnershipSpec',
          'com.xopmc.galaxybridge.transport.shell.FeatureShellStopOwnershipSpec',
-         'com.xopmc.galaxybridge.transport.shell.ShellReadOnlyFailureIsolationSpec'])
+         'com.xopmc.galaxybridge.transport.shell.ShellReadOnlyFailureIsolationSpec',
+         'com.xopmc.galaxybridge.transport.shell.ShellRuntimeIdentityTest',
+         'com.xopmc.galaxybridge.transport.shell.ShellRuntimeUpgradeAdmissionSpec'])

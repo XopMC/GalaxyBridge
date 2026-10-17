@@ -24,6 +24,8 @@ struct GBShellBridgeRequest { enum Operation { case stop, status } }
     var current = "initial-session"
     var replies: [Result<GBShellBridgeResult, Error>] = []
     var operations: [String] = []
+    var upgradeRetryNotifications = 0
+    func notifyRuntimeUpgradeIfIdle() { upgradeRetryNotifications += 1 }
     func control() -> TestControl? { TestControl(authenticatedSessionID: current) }
     func context() throws -> TestContext { TestContext(sessionID: current) }
     func perform(operation: GBShellBridgeRequest.Operation, lease: String, generation: String,
@@ -51,6 +53,8 @@ struct GBShellBridgeRequest { enum Operation { case stop, status } }
         var outcome = "stopped"
         do { try await fixture.retire(lease) } catch { outcome = "fenced" }
         precondition(lease.localCancelled)
+        precondition(fixture.upgradeRetryNotifications == (outcome == "stopped" ? 1 : 0),
+                     "Only proven retirement may wake an idle runtime upgrade")
         let retained = fixture.leases[lease.id] != nil
         precondition(retained == [2,4,5].contains(scenario))
         precondition(outcome == ([2,4,5].contains(scenario) ? "fenced" : "stopped"))

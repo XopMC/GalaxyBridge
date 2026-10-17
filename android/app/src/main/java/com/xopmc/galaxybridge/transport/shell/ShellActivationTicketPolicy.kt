@@ -37,6 +37,10 @@ internal class ShellActivationTicketPolicy {
         ticket = null
         return Claim(revision).also { activeClaim = it }
     }
+    @Synchronized fun isPreparing(nowMillis: Long): Boolean {
+        val prepared = ticket ?: return false
+        return nowMillis < prepared.preparedAt || nowMillis - prepared.preparedAt < TICKET_MILLIS
+    }
     @Synchronized fun isCurrent(claim: Claim): Boolean = activeClaim === claim && claim.revision == revision
     @Synchronized fun revoke() {
         ticket?.token?.fill(0)

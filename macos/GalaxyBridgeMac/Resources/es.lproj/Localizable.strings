@@ -403,3 +403,4 @@
 "CONSENT_DECLINED" = "La solicitud de conexión se ha rechazado en el teléfono.";
 "CONSENT_BUSY" = "El teléfono está atendiendo otra solicitud. Inténtalo de nuevo en un minuto.";
 "CONSENT_OPEN_HELPER" = "Abre Helper en el teléfono e inténtalo de nuevo.";
+"ERROR_RUNTIME_UPGRADE_PENDING" = "La conexión se está actualizando. Cierra las ventanas de control de este teléfono e inténtalo de nuevo.";

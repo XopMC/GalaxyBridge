@@ -31,6 +31,10 @@ enum ShellCapabilityBridgeActivation {
                 try adb.run(arguments: broadcast + ["--es", "operation", "prepare", "--es", "socket_name", activationID,
                     "--es", "token", token, "--es", "boot_generation", generation], timeout: 5)
             }.value
+            if let deferred = ShellCapabilityBridgeActivationReceipt.parse(prepared, generation: generation),
+               deferred.isBusyPreparation {
+                throw ShellCapabilityBridgeFailure.runtimeInUse
+            }
             guard let receipt = ShellCapabilityBridgeActivationReceipt.parse(prepared, generation: generation),
                   !receipt.available, receipt.state == "prepared", receipt.errorCode.isEmpty else {
                 throw ShellCapabilityBridgeFailure.operationFailed
@@ -69,6 +73,7 @@ enum ShellCapabilityBridgeActivation {
             }
             // Before accepting an owner, the bridge exits after ten seconds.
             // Never unlink a possibly live JVM's JAR from the Mac failure path.
+            if error as? ShellCapabilityBridgeFailure == .runtimeInUse { throw ShellCapabilityBridgeFailure.runtimeInUse }
             throw ShellCapabilityBridgeFailure.operationFailed
         }
     }

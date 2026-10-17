@@ -36,7 +36,7 @@ struct GBShellBridgeResult {
 }
 enum ScrcpyLaunchConfiguration { static let serverSHA256Hex = String(repeating: "11", count: 32) }
 struct ProofContext { var sessionID: String }
-struct ProofControl { var authenticatedSessionID: String; var supportsCaptureRetirementProof = true }
+struct ProofControl { var authenticatedSessionID: String; var supportsCaptureRetirementProof = true; var supportsShellRuntimeIdentity = false }
 @MainActor final class ProviderFixture {
     enum Mode { case supported, legacy, unavailable, timeout }
     enum AbsenceProofSupport { case unknown, supported, legacy, unavailable }
@@ -47,6 +47,9 @@ struct ProofControl { var authenticatedSessionID: String; var supportsCaptureRet
     var helperSupportsProof = true
     var absenceProofSupport = AbsenceProofSupport.unknown
     var absenceProofGeneration: String?
+    var runtimeIdentityGeneration: String?
+    var runtimeSHA256Hex: String?
+    var pendingLeaseAdmissions = 0
     var leases: [String: Int] = [:]
     var pending: [String: Pending] = [:]
     var mode = Mode.supported

@@ -20,7 +20,8 @@ provider = (ROOT / 'macos/GalaxyBridgeMac/Transport/ShellCapabilityBridgeProvide
 session = (ROOT / 'macos/GalaxyBridgeMac/Transport/ScrcpySession.swift').read_text()
 fixture = (ROOT / 'macos/GalaxyBridgeMacTests/CaptureAbsenceProofFlowSpec.swift').read_text()
 fixture = fixture.replace('    // ACTUAL_PROVIDER_PROPERTIES', '\n'.join(block(provider, marker) for marker in [
-    '    var needsRuntimeUpgrade:', '    var canUpgradeRuntimeSafely:']))
+    '    var currentRuntimeVerified:', '    var needsRuntimeUpgrade:',
+    '    private var canRecoverUnavailableRuntime:', '    var canUpgradeRuntimeSafely:']))
 methods = '\n'.join(block(provider, marker).replace('private func ', 'func ', 1) for marker in [
     '    @discardableResult func refresh()', '    private func refreshAbsenceProofSupport()',
     '    func confirmADBCaptureAbsent(', '    func confirmDisplayControllerRetired(',

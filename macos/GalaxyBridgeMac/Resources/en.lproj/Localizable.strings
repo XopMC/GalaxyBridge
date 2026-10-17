@@ -401,3 +401,4 @@
 "CONSENT_DECLINED" = "The connection request was declined on the phone.";
 "CONSENT_BUSY" = "The phone is handling another request. Try again in a minute.";
 "CONSENT_OPEN_HELPER" = "Open Helper on the phone, then try again.";
+"ERROR_RUNTIME_UPGRADE_PENDING" = "Updating the connection. Close this phone’s remote windows and try again.";
