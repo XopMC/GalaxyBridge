@@ -366,7 +366,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "附近的手機";
 
-"DISCOVERY_UNTRUSTED_HINT" = "請在手機上的 Helper 中確認連線。";
+"DISCOVERY_UNTRUSTED_HINT" = "請在手機上確認連線。";
 
 "DISCOVERY_GENERIC_PHONE" = "Android 手機";
 
@@ -393,7 +393,7 @@
 "NEARBY_LOCATION_PERMISSION_HINT" = "若要連接附近的手機，請前往「系統設定 → 隱私權與安全性 → 定位服務」，允許 Galaxy Bridge 使用定位資訊。";
 "NOTIFICATIONS_EMPTY_HINT" = "手機的新通知會顯示在這裡。";
 
-"CONSENT_DISCOVER_HINT" = "請在手機上開啟 Helper，然後在下方選擇該手機。";
+"CONSENT_DISCOVER_HINT" = "請在手機上開啟 Galaxy Bridge，然後在下方選擇該手機。";
 "CONSENT_SEARCHING" = "正在尋找附近的手機…";
 "CONSENT_MANUAL_QR" = "改用 QR 碼";
 "CONSENT_REQUESTING" = "正在傳送連線要求…";

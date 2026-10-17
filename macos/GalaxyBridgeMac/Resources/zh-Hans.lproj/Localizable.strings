@@ -366,7 +366,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "附近的手机";
 
-"DISCOVERY_UNTRUSTED_HINT" = "请在手机上的 Helper 中确认连接。";
+"DISCOVERY_UNTRUSTED_HINT" = "请在手机上确认连接。";
 
 "DISCOVERY_GENERIC_PHONE" = "Android 手机";
 
@@ -393,7 +393,7 @@
 "NEARBY_LOCATION_PERMISSION_HINT" = "要连接附近的手机，请前往“系统设置 → 隐私与安全性 → 定位服务”，允许 Galaxy Bridge 使用定位信息。";
 "NOTIFICATIONS_EMPTY_HINT" = "手机的新通知将显示在这里。";
 
-"CONSENT_DISCOVER_HINT" = "请在手机上打开 Helper，然后在下方选择该手机。";
+"CONSENT_DISCOVER_HINT" = "请在手机上打开 Galaxy Bridge，然后在下方选择该手机。";
 "CONSENT_SEARCHING" = "正在查找附近的手机…";
 "CONSENT_MANUAL_QR" = "改用二维码";
 "CONSENT_REQUESTING" = "正在发送连接请求…";

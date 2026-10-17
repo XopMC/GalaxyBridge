@@ -366,7 +366,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "近くのスマートフォン";
 
-"DISCOVERY_UNTRUSTED_HINT" = "スマートフォンのHelperで接続を承認してください。";
+"DISCOVERY_UNTRUSTED_HINT" = "スマートフォンで接続を承認してください。";
 
 "DISCOVERY_GENERIC_PHONE" = "Android スマートフォン";
 
@@ -393,7 +393,7 @@
 "NEARBY_LOCATION_PERMISSION_HINT" = "近くのスマートフォンに接続するには、「システム設定 → プライバシーとセキュリティ → 位置情報サービス」で Galaxy Bridge の位置情報へのアクセスを許可してください。";
 "NOTIFICATIONS_EMPTY_HINT" = "スマートフォンの新しい通知がここに表示されます。";
 
-"CONSENT_DISCOVER_HINT" = "スマートフォンでHelperを開き、下の一覧から選んでください。";
+"CONSENT_DISCOVER_HINT" = "スマートフォンで Galaxy Bridge を開き、下の一覧から選んでください。";
 "CONSENT_SEARCHING" = "近くのスマートフォンを検索中…";
 "CONSENT_MANUAL_QR" = "代わりにQRコードを使う";
 "CONSENT_REQUESTING" = "接続リクエストを送信中…";

@@ -366,7 +366,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "주변 휴대전화";
 
-"DISCOVERY_UNTRUSTED_HINT" = "휴대전화의 Helper에서 연결을 승인하세요.";
+"DISCOVERY_UNTRUSTED_HINT" = "휴대전화에서 연결을 승인하세요.";
 
 "DISCOVERY_GENERIC_PHONE" = "Android 휴대전화";
 
@@ -393,7 +393,7 @@
 "NEARBY_LOCATION_PERMISSION_HINT" = "주변 휴대전화에 연결하려면 시스템 설정 → 개인정보 보호 및 보안 → 위치 서비스에서 Galaxy Bridge의 위치 정보 사용을 허용하세요.";
 "NOTIFICATIONS_EMPTY_HINT" = "휴대전화의 새 알림이 여기에 표시됩니다.";
 
-"CONSENT_DISCOVER_HINT" = "휴대전화에서 Helper를 연 후 아래에서 선택하세요.";
+"CONSENT_DISCOVER_HINT" = "휴대전화에서 Galaxy Bridge를 연 후 아래에서 선택하세요.";
 "CONSENT_SEARCHING" = "주변 휴대전화 검색 중…";
 "CONSENT_MANUAL_QR" = "대신 QR 코드 사용";
 "CONSENT_REQUESTING" = "연결 요청 전송 중…";

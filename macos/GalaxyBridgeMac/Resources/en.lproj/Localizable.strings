@@ -363,7 +363,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "Phones nearby";
 
-"DISCOVERY_UNTRUSTED_HINT" = "Confirm the connection in Helper on your phone.";
+"DISCOVERY_UNTRUSTED_HINT" = "Confirm the connection on your phone.";
 
 "DISCOVERY_GENERIC_PHONE" = "Android phone";
 
@@ -390,7 +390,7 @@
 "NEARBY_LOCATION_PERMISSION_HINT" = "To connect to nearby phones, allow Galaxy Bridge to use Location in System Settings → Privacy & Security → Location Services.";
 "NOTIFICATIONS_EMPTY_HINT" = "New notifications from your phone will appear here.";
 
-"CONSENT_DISCOVER_HINT" = "Open Helper on your phone, then choose it below.";
+"CONSENT_DISCOVER_HINT" = "Open Galaxy Bridge on your phone, then choose your phone below.";
 "CONSENT_SEARCHING" = "Looking for nearby phones…";
 "CONSENT_MANUAL_QR" = "Use a QR code instead";
 "CONSENT_REQUESTING" = "Sending a connection request…";

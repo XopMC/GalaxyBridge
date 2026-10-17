@@ -366,7 +366,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "الهواتف القريبة";
 
-"DISCOVERY_UNTRUSTED_HINT" = "أكد الاتصال في Helper على هاتفك.";
+"DISCOVERY_UNTRUSTED_HINT" = "أكد الاتصال على هاتفك.";
 
 "DISCOVERY_GENERIC_PHONE" = "هاتف Android";
 
@@ -393,7 +393,7 @@
 "NEARBY_LOCATION_PERMISSION_HINT" = "للاتصال بالهواتف القريبة، اسمح لـ Galaxy Bridge باستخدام الموقع في إعدادات النظام ← الخصوصية والأمان ← خدمات الموقع.";
 "NOTIFICATIONS_EMPTY_HINT" = "ستظهر الإشعارات الجديدة من هاتفك هنا.";
 
-"CONSENT_DISCOVER_HINT" = "افتح Helper على هاتفك، ثم اختره أدناه.";
+"CONSENT_DISCOVER_HINT" = "افتح Galaxy Bridge على هاتفك، ثم اختر هاتفك أدناه.";
 "CONSENT_SEARCHING" = "جارٍ البحث عن هواتف قريبة…";
 "CONSENT_MANUAL_QR" = "استخدام رمز QR بدلًا من ذلك";
 "CONSENT_REQUESTING" = "جارٍ إرسال طلب الاتصال…";

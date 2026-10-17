@@ -363,7 +363,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "Телефоны поблизости";
 
-"DISCOVERY_UNTRUSTED_HINT" = "Подтвердите подключение в Helper на телефоне.";
+"DISCOVERY_UNTRUSTED_HINT" = "Подтвердите подключение на телефоне.";
 
 "DISCOVERY_GENERIC_PHONE" = "Телефон Android";
 
@@ -390,7 +390,7 @@
 "NEARBY_LOCATION_PERMISSION_HINT" = "Чтобы подключать телефоны поблизости, разрешите Galaxy Bridge доступ к геопозиции: Системные настройки → Конфиденциальность и безопасность → Службы геолокации.";
 "NOTIFICATIONS_EMPTY_HINT" = "Новые уведомления телефона появятся здесь.";
 
-"CONSENT_DISCOVER_HINT" = "Откройте Helper на телефоне и выберите его ниже.";
+"CONSENT_DISCOVER_HINT" = "Откройте Galaxy Bridge на телефоне и выберите его ниже.";
 "CONSENT_SEARCHING" = "Ищем телефоны рядом…";
 "CONSENT_MANUAL_QR" = "Привязать по QR-коду";
 "CONSENT_REQUESTING" = "Отправляем запрос на телефон…";
