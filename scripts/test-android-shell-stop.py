@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run exact Runtime STOP completion and lease tests without Gradle or Android."""
+"""Run actual Runtime/server STOP ownership bodies without Gradle or Android."""
 from pathlib import Path
 import os
 import shutil
@@ -40,6 +40,31 @@ end = source.index('            return response', start)
 completion = source[start:end]
 assert 'request.operation == ShellBridgeRequest.Operation.STOP' in completion
 fixture = (root / 'scripts/fixtures/ShellStopOwnershipSpec.kt').read_text().replace('        // ACTUAL_STOP_COMPLETION', completion)
+server = Path(os.environ.get('GB_SHELL_STOP_SERVER_SOURCE', root / 'android/app/src/main/java/com/xopmc/galaxybridge/transport/CompanionLanServer.kt')).read_text()
+lease_start = server.index('    private data class FeatureShellLease(')
+lease_end = server.index('    private val featureShellLeases', lease_start)
+lease_record = server[lease_start:lease_end].replace('private data class', 'data class', 1)
+stop_start = server.index('                        if (shellRequest.operation == com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.STOP)')
+stop_end = server.index('                        else if (result.available', stop_start)
+def body(text, marker):
+    start = text.index(marker)
+    opening = text.index('{', start)
+    depth = 0
+    for end in range(opening, len(text)):
+        if text[end] == '{': depth += 1
+        elif text[end] == '}':
+            depth -= 1
+            if depth == 0: return text[opening + 1:end]
+    raise RuntimeError(marker)
+disable = body(server[server.index('featureShellLeases.values.filter'):], '.forEach { lease ->').split('->', 1)[1]
+late_offset = server.index('// A different CONTROL operation may have disabled this feature')
+late_start = server.rfind('\n', 0, server.index('bridge?.executeAuthenticated', late_offset)) + 1
+late_end = server.index('                                writeEnvelope(output, featureDisabled(incoming)); continue', late_start)
+feature_fixture = (root / 'scripts/fixtures/FeatureShellStopOwnershipSpec.kt').read_text() \
+    .replace('    // ACTUAL_FEATURE_LEASE', lease_record) \
+    .replace('        // ACTUAL_FEATURE_STOP', server[stop_start:stop_end]) \
+    .replace('        // ACTUAL_FEATURE_DISABLE', disable) \
+    .replace('        // ACTUAL_LATE_START_DISABLE', server[late_start:late_end])
 with tempfile.TemporaryDirectory(prefix='gb-android-shell-stop-') as temporary:
     tmp = Path(temporary)
     # Freeze the existing protocol artifact; no shared build outputs are written.
@@ -47,11 +72,14 @@ with tempfile.TemporaryDirectory(prefix='gb-android-shell-stop-') as temporary:
     shutil.copyfile(root / 'android/companion-protocol/build/intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar', protocol)
     actual = tmp / 'ActualShellStop.kt'
     actual.write_text(fixture)
+    actual_feature = tmp / 'ActualFeatureShellStop.kt'
+    actual_feature.write_text(feature_fixture)
     classpath = os.pathsep.join([str(tmp), str(protocol), stdlib, protobuf, junit, hamcrest])
     run([java, '-cp', compiler, 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect',
          '-jvm-target', '17', '-classpath', classpath, '-d', tmp,
          base / 'ShellBridgePolicy.kt', base / 'ShellBridgeWire.kt',
-         tests / 'ShellBridgePolicyTest.kt', actual])
+         tests / 'ShellBridgePolicyTest.kt', actual, actual_feature])
     run([java, '-cp', classpath, 'org.junit.runner.JUnitCore',
          'com.xopmc.galaxybridge.transport.shell.ShellBridgePolicyTest',
-         'com.xopmc.galaxybridge.transport.shell.ShellStopOwnershipSpec'])
+         'com.xopmc.galaxybridge.transport.shell.ShellStopOwnershipSpec',
+         'com.xopmc.galaxybridge.transport.shell.FeatureShellStopOwnershipSpec'])

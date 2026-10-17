@@ -19,7 +19,8 @@ python3 -B - "$network_repo_root" "$network_test_dir" <<'PYTEST'
 import importlib.util,pathlib,plistlib,subprocess,sys
 root=pathlib.Path(sys.argv[1]);temp=pathlib.Path(sys.argv[2]);spec=importlib.util.spec_from_file_location('packager',root/'scripts/package-network-helper.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
 app=temp/'Fixture.app';binary=app/'Contents/MacOS/fixture';binary.parent.mkdir(parents=True);resources=app/'Contents/Resources';resources.mkdir();(app/'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable':'fixture','CFBundleIdentifier':'com.xopmc.NetworkHelperFingerprintFixture','CFBundlePackageType':'APPL'}));source=temp/'fixture.c';source.write_text('int main(void){return 0;}')
-subprocess.run(['clang',source,'-o',binary],check=True)
+subprocess.run(['clang','-g',source,'-o',binary],check=True)
+subprocess.run(['xcrun','strip','-S',binary],check=True)
 subprocess.run(['codesign','--force','--sign','-',app],check=True,capture_output=True)
 before=module.program_fingerprint(binary.read_bytes());native=subprocess.check_output([temp/'fingerprint-test',binary],text=True).strip();assert before==native
 (resources/'embedded-helper.pkg').write_bytes(b'owned-test-package')

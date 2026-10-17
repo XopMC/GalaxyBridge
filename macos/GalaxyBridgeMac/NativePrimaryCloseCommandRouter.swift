@@ -3,10 +3,9 @@ import Combine
 import Foundation
 import OSLog
 
-/// Keeps the generated SwiftUI File > Close command native while routing it
-/// to a frontmost presenter-owned borderless mirror. SwiftUI's WindowGroup
-/// command target can otherwise retain the document window that created the
-/// mirror and close that window behind it.
+/// Routes SwiftUI's generated Close command to the focused native window.
+/// A visible presenter-owned mirror is the fallback when there is no key
+/// window; a pinned phone must not take Close away from another focused app.
 @MainActor
 final class NativePrimaryCloseCommandRouter: NSObject, ObservableObject, NSMenuItemValidation {
     enum BindingState: Equatable {
@@ -72,13 +71,14 @@ final class NativePrimaryCloseCommandRouter: NSObject, ObservableObject, NSMenuI
               item.action == Self.closeAction
         else { return }
 
-        if let mirror = frontmostPrimaryWindow(), mirror.styleMask.contains(.closable) {
-            mirror.performClose(item)
+        // Pinned phone windows may sit above the focused app. Native Close
+        // must obey keyboard focus, including an unclosable dialog's veto.
+        if let keyWindow = application.keyWindow {
+            if keyWindow.styleMask.contains(.closable) { keyWindow.performClose(item) }
             return
         }
-        if let keyWindow = application.keyWindow,
-           keyWindow.styleMask.contains(.closable) {
-            keyWindow.performClose(item)
+        if let mirror = frontmostPrimaryWindow(), mirror.styleMask.contains(.closable) {
+            mirror.performClose(item)
             return
         }
         if let frontmost = application.orderedWindows.first(where: { $0.isVisible }),
@@ -101,11 +101,11 @@ final class NativePrimaryCloseCommandRouter: NSObject, ObservableObject, NSMenuI
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard menuItem.action == Self.closeAction else { return false }
-        if let mirror = frontmostPrimaryWindow() {
-            return mirror.styleMask.contains(.closable)
-        }
         if let keyWindow = application.keyWindow {
             return keyWindow.styleMask.contains(.closable)
+        }
+        if let mirror = frontmostPrimaryWindow() {
+            return mirror.styleMask.contains(.closable)
         }
         if let frontmost = application.orderedWindows.first(where: { $0.isVisible }) {
             return frontmost.styleMask.contains(.closable)

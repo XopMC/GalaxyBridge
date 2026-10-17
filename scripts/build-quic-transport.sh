@@ -9,7 +9,7 @@ mkdir -p "$GB_OUT"
 for target in aarch64-apple-darwin aarch64-linux-android; do
     suffix=macos-arm64
     if [[ "$target" == aarch64-linux-android ]]; then prepare_android; suffix=android-arm64; fi
-    "$GB_CARGO" build "${GB_CARGO_NETWORK[@]}" --release --manifest-path "$GB_MANIFEST" --target "$target" --lib --bin gb-quic-probe
+    cargo_build "$target" build "${GB_CARGO_NETWORK[@]}" --release --manifest-path "$GB_MANIFEST" --target "$target" --lib --bin gb-quic-probe
     cp "$CARGO_TARGET_DIR/$target/release/gb-quic-probe" "$GB_OUT/gb-quic-probe-$suffix"
     cp "$CARGO_TARGET_DIR/$target/release/libgalaxybridge_quic.a" "$GB_OUT/libgalaxybridge_quic-$suffix.a"
 done

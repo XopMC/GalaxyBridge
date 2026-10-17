@@ -6,13 +6,18 @@
 
 ## English
 
-0.1.1 is an early Direct-channel release for macOS and Android. This list distinguishes remaining validation from future product work; it is not a promise of delivery dates.
+Work toward the 0.1.2 Direct preview for macOS and Android. Completed checks and remaining work are listed separately.
 
-### Release follow-up
+### Release checks
 
-- [ ] Complete Wi-Fi performance, interruption, and recovery acceptance.
+- [x] Exercise five phone screens and five app windows together over USB and Wi-Fi.
+- [x] Check text and image clipboard, in-app notification replies, file checksums, recording and camera preview.
+- [x] Complete 30 consecutive screen opens and closes over the prepared wireless connection.
+- [ ] Finish the hour-long concurrent run, then recheck the windows and controls.
+- [ ] Complete network interruption and roaming checks, direct groups and two-phone internet sharing with automatic restoration.
+- [ ] Finish large-file cancellation and transfer recovery checks.
 - [ ] Validate installation and first launch on a clean Apple Silicon Mac without development tools.
-- [ ] Expand the Samsung/Android/macOS hardware matrix, including audio, recording, input, notification actions, and transfer recovery.
+- [ ] Expand app, phone and network compatibility testing.
 - [ ] Review all shipped translations with native speakers and check layout on additional devices.
 - [x] Rebuild and validate installable artifacts from the public CMake workflow.
 
@@ -29,13 +34,18 @@ USB and Companion routes have different requirements. A source test, successful 
 
 ## Русский
 
-0.1.1 — ранний выпуск канала Direct для macOS и Android. Ниже отдельно перечислены незавершённые проверки и будущие возможности; сроки не обещаются.
+Подготовка предварительного выпуска 0.1.2 для macOS и Android. Пройденные проверки и оставшиеся задачи перечислены отдельно.
 
-### После выпуска
+### Проверки перед выпуском
 
-- [ ] Завершить приёмку Wi-Fi: производительность, обрывы и восстановление.
+- [x] Проверить пять экранов телефонов и пять окон приложений одновременно по USB и Wi-Fi.
+- [x] Проверить текст и изображения в буфере, ответы внутри панели уведомлений, контрольные суммы файлов, запись и предпросмотр камеры.
+- [x] Пройти 30 открытий и закрытий экрана по подготовленному беспроводному соединению.
+- [ ] Завершить часовую одновременную проверку, затем повторно проверить окна и управление.
+- [ ] Проверить обрывы и смену сети, прямые группы и раздачу интернета с двух телефонов с автоматическим восстановлением.
+- [ ] Завершить проверки отмены больших файлов и восстановления передачи.
 - [ ] Проверить установку и первый запуск на чистом Mac с Apple Silicon без инструментов разработчика.
-- [ ] Расширить матрицу Samsung/Android/macOS: звук, запись, ввод, действия уведомлений и восстановление передачи файлов.
+- [ ] Расширить проверки совместимости приложений, телефонов и сетей.
 - [ ] Проверить все переводы с носителями языка и раскладку интерфейса на дополнительных устройствах.
 - [x] Пересобрать и проверить установочные файлы публичным процессом CMake.
 

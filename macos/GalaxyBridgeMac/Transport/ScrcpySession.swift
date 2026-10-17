@@ -412,7 +412,10 @@ final class ScrcpySession: ObservableObject {
             do {
                 try await shellProvider.retire(lease)
                 retiredShellLeases.removeAll { $0.id == lease.id }
-            } catch { logger.error("Enhanced shell retirement remains fenced: shell-lease-not-retired") }
+            } catch {
+                let reason = MediaFailureDiagnostics.reason(error)
+                logger.error("Enhanced shell retirement remains fenced: shell-lease-not-retired owner=\(lease.diagnosticID, privacy: .public) reason=\(reason, privacy: .public)")
+            }
         }
     }
 
@@ -1311,6 +1314,12 @@ final class ScrcpySession: ObservableObject {
         preparationTask = nil
         let diagnostic = "\(component): \(String(reflecting: error))"
         logger.error("\(diagnostic, privacy: .private)")
+        let componentCode = MediaFailureDiagnostics.component(component)
+        let reason = MediaFailureDiagnostics.reason(error)
+        let route = serial.hasPrefix("shell:") ? "shell" : (serial.contains(":") ? "wireless_adb" : "usb_adb")
+        let target = applicationTarget == nil ? "primary" : "application"
+        let ownerID = shellLease?.diagnosticID ?? retiredShellLeases.last?.diagnosticID ?? 0
+        logger.error("media_failure component=\(componentCode, privacy: .public) reason=\(reason, privacy: .public) route=\(route, privacy: .public) target=\(target, privacy: .public) owner=\(ownerID, privacy: .public)")
         // Decoder errors are protocol diagnostics, not localized product copy.
         let message = error is ScrcpyDeviceMessageError
             ? String(localized: "ERROR_SCREEN_CONNECTION")
@@ -1543,7 +1552,7 @@ enum ScrcpyPrimaryControlDelivery {
     }
 }
 
-private enum ScrcpySessionError: Error, LocalizedError {
+enum ScrcpySessionError: Error, LocalizedError {
     case serverNotFound
     case serverChecksumMismatch
     case invalidPreamble

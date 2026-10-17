@@ -36,12 +36,19 @@ if ! grep -q 'Galaxy Bridge owned-runtime contract v1' "$GB_SOURCE/vendor/adb/ad
   gb_patch "$GB_ROOT/third_party/adb-owned/patches/0001-owned-runtime.patch"
 fi
 export MACOSX_DEPLOYMENT_TARGET=14.0
-if [[ ! -f "$GB_BUILD/build.ninja" ]]; then
-  meson setup "$GB_BUILD" "$GB_SOURCE" --buildtype=release \
-    --default-library=static --wrap-mode=forcefallback -Dlibusb:default_library=shared -Dgenerate_manpages=disabled \
-    -Dc_args=-mmacosx-version-min=14.0 -Dcpp_args=-mmacosx-version-min=14.0 \
-    -Dc_link_args=-mmacosx-version-min=14.0 -Dcpp_link_args=-mmacosx-version-min=14.0
-fi
+GB_COMPILER_ARGS="$(python3 - "$GB_WORK" <<'PYARGS'
+import json, sys
+from pathlib import Path
+print(json.dumps(['-mmacosx-version-min=14.0', '-ffile-prefix-map=' + str(Path(sys.argv[1]).resolve()) + '=/galaxybridge/owned-adb']))
+PYARGS
+)"
+GB_MESON_SETUP=(setup)
+[[ ! -f "$GB_BUILD/build.ninja" ]] || GB_MESON_SETUP+=(--reconfigure)
+meson "${GB_MESON_SETUP[@]}" "$GB_BUILD" "$GB_SOURCE" --buildtype=release \
+  --default-library=static --wrap-mode=forcefallback -Dlibusb:default_library=shared -Dgenerate_manpages=disabled \
+  "-Dc_args=$GB_COMPILER_ARGS" "-Dcpp_args=$GB_COMPILER_ARGS" \
+  -Dc_link_args=-mmacosx-version-min=14.0 -Dcpp_link_args=-mmacosx-version-min=14.0
+
 gb_patch "$GB_ROOT/third_party/adb-owned/patches/0002-nonseizing-usb.patch"
 gb_patch "$GB_ROOT/third_party/adb-owned/patches/0003-private-socket-backlog.patch"
 python3 "$GB_ROOT/scripts/test-owned-adb-usb-policy.py" "$GB_SOURCE/subprojects/libusb-1.0.29/libusb/os/galaxybridge_usb_policy.h"

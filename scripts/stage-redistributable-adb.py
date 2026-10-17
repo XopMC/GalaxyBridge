@@ -30,6 +30,7 @@ for binary in (output / "adb", output / usb.name):
     bad = [d for d in dependencies(binary) if not d.startswith(("/usr/lib/", "/System/Library/", "@executable_path/", "@loader_path/"))]
     if bad:
         raise SystemExit("External runtime dependency: " + str(bad))
+    subprocess.run(["xcrun", "strip", "-S", str(binary)], check=True)
     subprocess.run(["codesign", "--force", "--timestamp=none", "--sign", "-", str(binary)], check=True)
 licenses = output / "licenses"
 for path in source.rglob("*"):
@@ -40,8 +41,15 @@ for path in source.rglob("*"):
         target = licenses / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, target)
+def public_source_metadata(member):
+    # Source contents/licenses remain exact; local filesystem ownership is private.
+    member.uid = member.gid = 0
+    member.uname = member.gname = ""
+    member.mtime = 0
+    member.pax_headers = {}
+    return member
 with tarfile.open(output / "libusb-1.0.29-source.tar.gz", "w:gz") as archive:
-    archive.add(source / "subprojects/libusb-1.0.29", arcname="libusb-1.0.29")
+    archive.add(source / "subprojects/libusb-1.0.29", arcname="libusb-1.0.29", filter=public_source_metadata)
 (output / "NOTICE").write_text(
     "Galaxy Bridge bundles AOSP adb, source-built using android-tools-static 36.0.1.\n"
     "Upstream: https://github.com/meator/android-tools-static/tree/36.0.1\n"
@@ -69,6 +77,7 @@ provenance = {
 }
 if is_owned:
     patches = sorted(owned_patch.parent.glob("*.patch"))
+    provenance["build_script_sha256"] = hashlib.sha256(Path(__file__).with_name("build-owned-adb.sh").read_bytes()).hexdigest()
     provenance["patches_sha256"] = {patch.name: hashlib.sha256(patch.read_bytes()).hexdigest() for patch in patches}
     for patch in patches:
         shutil.copy2(patch, output / patch.name)

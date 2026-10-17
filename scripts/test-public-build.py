@@ -54,3 +54,22 @@ with tempfile.TemporaryDirectory() as temporary:
     assert inherited['CARGO_HOME'] == '/unused/cargo'
     assert env['CARGO_PROFILE_TEST_DEBUG'] == env['CARGO_PROFILE_DEV_DEBUG'] == '0'
 print('CMake dependency caches are isolated in the selected build tree: PASS')
+
+for build_policy in (None, 'stale', 'current'):
+    with tempfile.TemporaryDirectory() as temporary:
+        build = Path(temporary); runtime = build / 'artifacts/adb'; runtime.mkdir(parents=True)
+        patches = {p.name: module.sha(p) for p in (root / 'third_party/adb-owned/patches').glob('*.patch')}
+        provenance = {'patches_sha256': patches, 'staging_script_sha256': module.sha(root / 'scripts/stage-redistributable-adb.py')}
+        if build_policy is not None:
+            provenance['build_script_sha256'] = module.sha(root / 'scripts/build-owned-adb.sh') if build_policy == 'current' else build_policy
+        (runtime / 'PROVENANCE.json').write_text(__import__('json').dumps(provenance))
+        calls = []
+        def capture_native(arguments, env):
+            script = Path(arguments[1]).name
+            calls.append(script)
+            if script == 'build-owned-adb.sh':
+                Path(arguments[2]).mkdir(parents=True)
+        with patch.object(module, 'run', side_effect=capture_native), patch.object(module, 'generate_pins'):
+            module.native(build, {})
+        assert ('build-owned-adb.sh' in calls) == (build_policy != 'current'), 'Changed/missing ADB compiler policy must invalidate cached runtime'
+print('Owned ADB cache tracks both compiler and staging policies: PASS')

@@ -114,13 +114,14 @@ struct NearbyInternetControls: View {
                 get: { internet.enabled }, set: { model.setInternetSharing($0, deviceID: device.id) }))
                 .toggleStyle(.switch).font(.caption.bold())
                 .disabled(model.internetSharing.uninstalling || (!internet.enabled && !model.canShareInternet(deviceID: device.id)))
-            HStack {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(LocalizedStringKey(internet.key == "INTERNET_UNAVAILABLE"
                     ? model.internetSharingAvailabilityKey(deviceID: device.id) ?? "INTERNET_OFF" : internet.key))
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if internet.key == "INTERNET_HELPER_REQUIRED" {
-                    Button("INTERNET_INSTALL_HELPER") { model.internetSharing.installHelper() }.font(.caption)
+                    Button("INTERNET_INSTALL_HELPER") { model.internetSharing.installHelper() }
+                        .font(.caption).fixedSize()
                 }
                 if internet.key == "INTERNET_READY" {
                     Text(LocalizedStringKey(internet.upstream == "vpn" ? "INTERNET_VPN" :

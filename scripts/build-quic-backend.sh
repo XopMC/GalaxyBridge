@@ -18,7 +18,7 @@ printf '%s\n' "$GB_PRODUCER_SHA256" > "$GB_OUT/PRODUCER_SHA256.txt"
 
 if [[ "$GB_MODE" != android ]]; then
     python3 "$GB_ROOT/scripts/verify-rust-macos-deployment.py" --rustc "${RUSTC:-rustc}" --minimum 14.0
-    "$GB_CARGO" build "${GB_CARGO_NETWORK[@]}" --release "${GB_FEATURES[@]}" --manifest-path "$GB_MANIFEST" --target aarch64-apple-darwin
+    cargo_build aarch64-apple-darwin build "${GB_CARGO_NETWORK[@]}" --release "${GB_FEATURES[@]}" --manifest-path "$GB_MANIFEST" --target aarch64-apple-darwin
     cp "$CARGO_TARGET_DIR/aarch64-apple-darwin/release/gb-quic-backend" "$GB_OUT/gb-quic-backend-macos-arm64$GB_SUFFIX"
     cp "$CARGO_TARGET_DIR/aarch64-apple-darwin/release/libgalaxybridge_quic_backend.a" "$GB_OUT/libgalaxybridge_quic_backend-macos-arm64$GB_SUFFIX.a"
     "$GB_OUT/gb-quic-backend-macos-arm64$GB_SUFFIX" --version
@@ -26,7 +26,7 @@ if [[ "$GB_MODE" != android ]]; then
 fi
 if [[ "$GB_MODE" != mac ]]; then
     prepare_android
-    "$GB_CARGO" build "${GB_CARGO_NETWORK[@]}" --release "${GB_FEATURES[@]}" --manifest-path "$GB_MANIFEST" --target aarch64-linux-android
+    cargo_build aarch64-linux-android build "${GB_CARGO_NETWORK[@]}" --release "${GB_FEATURES[@]}" --manifest-path "$GB_MANIFEST" --target aarch64-linux-android
     cp "$CARGO_TARGET_DIR/aarch64-linux-android/release/gb-quic-backend" "$GB_OUT/gb-quic-backend-android-arm64$GB_SUFFIX"
     inspect_android "$GB_OUT/gb-quic-backend-android-arm64$GB_SUFFIX" "$GB_OUT/android-elf$GB_SUFFIX.txt"
 fi

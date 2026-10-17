@@ -32,8 +32,14 @@ prepare_android() {
     mkdir -p "$link"
     cp "$GB_NDK_BIN/../sysroot/usr/lib/aarch64-linux-android/"{libc++_static.a,libc++abi.a} "$link/"
     # Restrict -L to the two C++ archives: the NDK libc.a must not shadow Bionic.
-    export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="-Lnative=$link -lstatic=c++abi -Clink-arg=-Wl,-z,max-page-size=16384 -Clink-arg=-Wl,-z,common-page-size=16384"
+    # build_path_privacy.py adds these link flags as encoded argv, preserving spaces.
 }
+cargo_build() {
+    local target="$1"
+    shift
+    python3 "$GB_ROOT/scripts/build_path_privacy.py" --root "$GB_ROOT" --build-dir "$GB_BUILD_DIR" --target "$target" -- "$GB_CARGO" "$@"
+}
+
 inspect_android() {
     "$GB_NDK_BIN/llvm-readelf" -h -l -d --notes "$1" > "$2"
     grep -Eq 'Type:.*DYN' "$2" && grep -Eq 'Machine:.*AArch64' "$2" && grep -q '/system/bin/linker64' "$2" || fail 'Invalid Android ELF architecture or interpreter.'

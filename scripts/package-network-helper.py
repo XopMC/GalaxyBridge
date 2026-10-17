@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Create an optional unsigned installer; never installs or requests sudo."""
+import os
 import argparse, hashlib, json, pathlib, plistlib, re, shutil, struct, subprocess, tempfile
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 LABEL='com.xopmc.GalaxyBridge.NetworkHelper'
@@ -28,6 +29,7 @@ def program_fingerprint(data):
     struct.pack_into('<Q',normalized,linkedit+48,signature-fileoff)
     return hashlib.sha256(b'GalaxyBridgeProgramFingerprint-v1\0'+normalized[:signature]).hexdigest()
 def main():
+ from build_path_privacy import path_maps
  p=argparse.ArgumentParser();p.add_argument('--app',required=True,type=pathlib.Path);p.add_argument('--output',type=pathlib.Path,default=ROOT/'out/internet-runtime/GalaxyBridge-Network-Helper.pkg');p.add_argument('--identity',default='-');a=p.parse_args()
  app=a.app.resolve();run(['codesign','--verify','--strict',app]);detail=run(['codesign','-d','--verbose=4',app],capture_output=True,text=True)
  info=plistlib.loads((app/'Contents/Info.plist').read_bytes());executable=info['CFBundleExecutable']
@@ -37,7 +39,9 @@ def main():
  with tempfile.TemporaryDirectory(prefix='gb-network-helper-',dir=output.parent) as tmp:
   work=pathlib.Path(tmp);payload=work/'root';tools=payload/'Library/PrivilegedHelperTools';daemons=payload/'Library/LaunchDaemons';tools.mkdir(parents=True);daemons.mkdir(parents=True)
   helper=tools/LABEL;sources=ROOT/'macos/GalaxyBridgeNetworkHelper'
-  run(['clang','-std=c11','-O2','-Wall','-Wextra','-Werror','-mmacosx-version-min=14.0','-I',sources,sources/'GBNetworkLease.c',sources/'GBRouteLease.c',sources/'GBCodeTrust.c',sources/'GBProgramFingerprint.c',sources/'GBNetworkDaemon.c','-framework','Security','-framework','SystemConfiguration','-framework','CoreFoundation','-lbsm','-o',helper])
+  path_flags=['-ffile-prefix-map='+source+'='+destination for source,destination in path_maps(ROOT,work,os.environ)]
+  run(['clang','-g0',*path_flags,'-std=c11','-O2','-Wall','-Wextra','-Werror','-mmacosx-version-min=14.0','-I',sources,sources/'GBNetworkLease.c',sources/'GBRouteLease.c',sources/'GBCodeTrust.c',sources/'GBProgramFingerprint.c',sources/'GBNetworkDaemon.c','-framework','Security','-framework','SystemConfiguration','-framework','CoreFoundation','-lbsm','-o',helper])
+  run(['xcrun','strip','-S',helper])
   run(['codesign','--force','--sign',a.identity,helper]);helper.chmod(0o755)
   pin=tools/(LABEL+'.cdhash.program-sha256');pin.write_text(fingerprint+'\n');pin.chmod(0o600)
   daemon={'Label':LABEL,'ProgramArguments':[BIN],'Sockets':{'Control':{'SockPathName':'/var/run/GalaxyBridgeNetworkHelper.sock','SockType':'seqpacket','SockPathMode':0o666}},'ExitTimeOut':20,'ProcessType':'Interactive'}

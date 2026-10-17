@@ -5,6 +5,7 @@ import GalaxyBridgeCore
 import GalaxyBridgeEnhancedCore
 import GalaxyBridgeProtocol
 import Network
+import OSLog
 
 enum ShellCapabilityBridgeFailure: Error, LocalizedError {
     case unavailable, invalidResult, sessionChanged, timeout, operationFailed, capacity
@@ -24,6 +25,7 @@ struct ShellCapabilityBridgeContext: @unchecked Sendable {
 @MainActor
 final class ShellCapabilityBridgeLease {
     let id: String
+    let diagnosticID = UInt64.random(in: 1...UInt64.max)
     let generation: String
     let context: ShellCapabilityBridgeContext
     let port: UInt16?
@@ -47,6 +49,7 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
     private(set) var bootGeneration: String?
     private let control: () -> CompanionTLSClient?
     private let hostID: String
+    private let cleanupLogger = Logger(subsystem: "com.xopmc.GalaxyBridge", category: "ShellBridgeCleanup")
     private struct Pending {
         let context: ShellCapabilityBridgeContext
         let lease: String
@@ -218,17 +221,36 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
             // proof may cross generations; never inherit mutation authority.
             let current = try context()
             let proof = try await perform(operation: .status, lease: lease.id, generation: "", context: current)
-            guard proof.available, proof.errorCode.isEmpty, proof.state == "stopped" else { throw ShellCapabilityBridgeFailure.sessionChanged }
+            guard proof.available, proof.errorCode.isEmpty, proof.state == "stopped" else {
+                reportUnconfirmedRetirement(lease, stage: .previousSession, result: proof)
+                throw ShellCapabilityBridgeFailure.sessionChanged
+            }
             leases.removeValue(forKey: lease.id); return
         }
         do {
             let response = try await perform(operation: .stop, lease: lease.id, generation: lease.generation, context: lease.context)
-            guard response.available, response.errorCode.isEmpty, response.state == "stopped" else { throw ShellCapabilityBridgeFailure.operationFailed }
+            guard response.available, response.errorCode.isEmpty, response.state == "stopped" else {
+                reportUnconfirmedRetirement(lease, stage: .stop, result: response)
+                throw ShellCapabilityBridgeFailure.operationFailed
+            }
         } catch {
+            let reason = MediaFailureDiagnostics.reason(error)
+            cleanupLogger.notice("shell_stop_retry owner=\(lease.diagnosticID, privacy: .public) reason=\(reason, privacy: .public)")
             let proof = try await perform(operation: .status, lease: lease.id, generation: "", context: lease.context)
-            guard proof.available, proof.errorCode.isEmpty, proof.state == "stopped" else { throw ShellCapabilityBridgeFailure.operationFailed }
+            guard proof.available, proof.errorCode.isEmpty, proof.state == "stopped" else {
+                reportUnconfirmedRetirement(lease, stage: .status, result: proof)
+                throw ShellCapabilityBridgeFailure.operationFailed
+            }
         }
         leases.removeValue(forKey: lease.id)
+    }
+
+    private enum RetirementDiagnosticStage: String { case previousSession = "previous_session", stop, status }
+    private func reportUnconfirmedRetirement(_ lease: ShellCapabilityBridgeLease, stage: RetirementDiagnosticStage,
+                                            result: GBShellBridgeResult) {
+        let metadata = MediaFailureDiagnostics.stopResult(available: result.available, state: result.state,
+            errorCode: result.errorCode, streams: result.streamIds.count)
+        cleanupLogger.notice("shell_stop_unconfirmed owner=\(lease.diagnosticID, privacy: .public) stage=\(stage.rawValue, privacy: .public) \(metadata, privacy: .public)")
     }
 
     private func perform(operation: GBShellBridgeRequest.Operation, lease: String, generation: String,

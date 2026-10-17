@@ -143,7 +143,12 @@ class CompanionLanServer(private val context: Context) {
     private val featureChannels = java.util.concurrent.ConcurrentHashMap<Socket, Set<String>>()
     private val featureControlSessions = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Socket>>()
     private data class FeatureShellLease(val hostID: String, val sessionID: String, val leaseID: String,
-        val bootGeneration: String, val features: Set<String>, val streamIDs: Set<String>)
+        val bootGeneration: String, val features: Set<String>, val streamIDs: Set<String>) {
+        fun confirmsStopped(peer: String, session: String, result: com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult?): Boolean =
+            hostID == peer && sessionID == session && result != null && result.available && result.errorCode.isEmpty() &&
+                leaseID.isNotEmpty() && bootGeneration.isNotEmpty() && result.leaseId == leaseID &&
+                result.bootGeneration == bootGeneration && result.state == "stopped" && result.streamIdsCount == 0
+    }
     private val featureShellLeases = java.util.concurrent.ConcurrentHashMap<String, FeatureShellLease>()
     private val transferReceiverStartup = CompanionReceiverStartup {
         SafTransferReceiver(context).also { it.cleanup() }
@@ -385,10 +390,12 @@ class CompanionLanServer(private val context: Context) {
                             val shell = com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current?.shell
                             featureShellLeases.values.filter { it.hostID == envelope.deviceId && it.sessionID == envelope.sessionId && it.features.any { feature -> feature in disabled } }
                                 .forEach { lease ->
-                                    shell?.executeAuthenticated(lease.hostID, lease.sessionID, com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.newBuilder()
+                                    val stopped = shell?.executeAuthenticated(lease.hostID, lease.sessionID, com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.newBuilder()
                                         .setRequestId(UUID.randomUUID().toString()).setLeaseId(lease.leaseID).setBootGeneration(lease.bootGeneration)
                                         .setOperation(com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.STOP).build())
-                                    featureShellLeases.remove(lease.leaseID, lease)
+                                    if (lease.confirmsStopped(lease.hostID, lease.sessionID, stopped)) {
+                                        featureShellLeases.remove(lease.leaseID, lease)
+                                    }
                                 }
                             if ("internet" in disabled) com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current?.internet?.revokeAuthenticated(envelope.deviceId, envelope.sessionId)
                             if ("notifications" in disabled) NotificationEventBus.discardAll()
@@ -421,7 +428,13 @@ class CompanionLanServer(private val context: Context) {
                                 .setRequestId(incoming.shellBridgeRequest.requestId).setAvailable(false).setState("failed")
                                 .setErrorCode("shell_bridge_not_activated").build()
                         } else bridge.executeAuthenticated(envelope.deviceId, envelope.sessionId, shellRequest)
-                        if (shellRequest.operation == com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.STOP) featureShellLeases.remove(shellRequest.leaseId)
+                        if (shellRequest.operation == com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.STOP) {
+                            featureShellLeases[shellRequest.leaseId]?.let { lease ->
+                                if (lease.confirmsStopped(envelope.deviceId, envelope.sessionId, result)) {
+                                    featureShellLeases.remove(shellRequest.leaseId, lease)
+                                }
+                            }
+                        }
                         else if (result.available && result.errorCode.isEmpty() && result.streamIdsCount > 0) {
                             val required = when (shellRequest.operation) {
                                 com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.START_CLIPBOARD -> setOf("clipboard")
@@ -433,10 +446,12 @@ class CompanionLanServer(private val context: Context) {
                             featureShellLeases[result.leaseId] = lease
                             // A different CONTROL operation may have disabled this feature while the shell was starting.
                             if (required.any { !featurePreferences.isEnabled(it) }) {
-                                bridge?.executeAuthenticated(envelope.deviceId, envelope.sessionId, com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.newBuilder()
+                                val stopped = bridge?.executeAuthenticated(envelope.deviceId, envelope.sessionId, com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.newBuilder()
                                     .setRequestId(UUID.randomUUID().toString()).setLeaseId(result.leaseId).setBootGeneration(result.bootGeneration)
                                     .setOperation(com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest.Operation.STOP).build())
-                                featureShellLeases.remove(result.leaseId, lease)
+                                if (lease.confirmsStopped(envelope.deviceId, envelope.sessionId, stopped)) {
+                                    featureShellLeases.remove(result.leaseId, lease)
+                                }
                                 writeEnvelope(output, featureDisabled(incoming)); continue
                             }
                         }

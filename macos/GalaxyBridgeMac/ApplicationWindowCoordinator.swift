@@ -96,7 +96,7 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
                 defer: false
             )
             window.delegate = self
-            window.title = application.label
+            window.title = "\(application.label) — \(device.name)"
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
             window.titlebarSeparatorStyle = .none

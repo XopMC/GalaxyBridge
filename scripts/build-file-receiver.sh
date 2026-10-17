@@ -14,10 +14,10 @@ PY
 )
 GB_OUTPUT="${GB_OUTPUT_DIR:-$GB_BUILD_DIR/file-receiver}"
 mkdir -p "$GB_OUTPUT"
-"$GB_CARGO" build "${GB_CARGO_NETWORK[@]}" --release --manifest-path "$GB_MANIFEST" --target aarch64-apple-darwin
+cargo_build aarch64-apple-darwin build "${GB_CARGO_NETWORK[@]}" --release --manifest-path "$GB_MANIFEST" --target aarch64-apple-darwin
 cp "$CARGO_TARGET_DIR/aarch64-apple-darwin/release/galaxybridge-file-receiver" "$GB_OUTPUT/galaxybridge-file-receiver-macos-arm64"
 prepare_android
-"$GB_CARGO" build "${GB_CARGO_NETWORK[@]}" --release --manifest-path "$GB_MANIFEST" --target aarch64-linux-android
+cargo_build aarch64-linux-android build "${GB_CARGO_NETWORK[@]}" --release --manifest-path "$GB_MANIFEST" --target aarch64-linux-android
 cp "$CARGO_TARGET_DIR/aarch64-linux-android/release/galaxybridge-file-receiver" "$GB_OUTPUT/galaxybridge-file-receiver-android-arm64"
 inspect_android "$GB_OUTPUT/galaxybridge-file-receiver-android-arm64" "$GB_OUTPUT/android-elf.txt"
 "$GB_CARGO" metadata --manifest-path "$GB_MANIFEST" "${GB_CARGO_NETWORK[@]}" --format-version 1 > "$GB_OUTPUT/metadata-build-input.json"

@@ -30,9 +30,13 @@ for script in ['public-build.py', 'package-macos-direct.py', 'package-android-di
                'test-android-direct-components.py', 'bootstrap-build-tools.py',
                'build-internet-runtime.py', 'package-network-helper.py',
                'network-test-guardian.py', 'test-nearby-bootstrap-interop.py',
-               'verify-rust-macos-deployment.py', 'test-android-shell-stop.py']:
+               'verify-rust-macos-deployment.py', 'test-android-shell-stop.py',
+               'build_path_privacy.py', 'check-release-privacy.py', 'test-release-privacy.py']:
     ast.parse((ROOT / 'scripts' / script).read_text(), filename=script)
 run([sys.executable, ROOT / 'scripts/test-public-build.py'])
+run([sys.executable, ROOT / 'scripts/test-build-path-privacy.py'])
+run([sys.executable, ROOT / 'scripts/test-release-privacy.py'])
+run([sys.executable, ROOT / 'scripts/test-media-failure-diagnostics.py'])
 run([sys.executable, ROOT / 'scripts/test-macos-main-bundle-localization.py'])
 run([sys.executable, ROOT / 'scripts/test-macos-direct-package.py', '--metadata-only'])
 run(['bash', ROOT / 'scripts/test-macos-distribution-resources.sh'])
@@ -61,7 +65,8 @@ for script in ['test-clipboard-agent-protocol.sh', 'test-clipboard-primary-read-
                'test-camera-extension-policy.sh',
                'test-macos-device-row-merge.sh', 'test-macos-device-selection.sh',
                'test-macos-user-facing-text.sh', 'test-macos-synthetic-text-input.sh', 'test-macos-trackpad-lifecycle.sh',
-               'test-macos-native-shortcut-routing.sh', 'test-macos-mirror-window-cycle.sh',
+               'test-macos-native-shortcut-routing.sh', 'test-macos-native-primary-close-command.sh',
+               'test-macos-native-close-all-command.sh', 'test-macos-mirror-window-cycle.sh',
                'test-macos-prepared-shell-selection.sh']:
     run(['sh', ROOT / 'scripts' / script])
 for script in ['test-nearby-connectivity-policy.sh', 'test-nearby-bootstrap-crypto.sh',
@@ -77,7 +82,7 @@ for script in ['test-macos-connectivity-presentation.sh', 'test-macos-nearby-sta
                'test-macos-clipboard-conversion-integration.sh',
                'test-macos-notification-cache-maintenance.sh']:
     run(['bash', ROOT / 'scripts' / script])
-for script in ['test-nearby-bootstrap-interop.py', 'test-android-nearby-discovery.py', 'test-network-test-guardian.py']:
+for script in ['test-nearby-bootstrap-interop.py', 'test-network-test-guardian.py']:
     run([sys.executable, ROOT / 'scripts' / script])
 # Rust tests compile the source crates; do not depend on frozen release binaries.
 run(['bash', ROOT / 'scripts/test-quic-backend.sh'])
@@ -86,5 +91,8 @@ run(['bash', ROOT / 'scripts/test-quic-media-contract.sh'])
 run(['bash', ROOT / 'scripts/test-quic-transport.sh'])
 run(['bash', ROOT / 'scripts/test-scrcpy-gb-sync.sh', source_build])
 run(['bash', ROOT / 'android/gradlew', '-p', ROOT / 'android', ':app:testDirectDebugUnitTest', ':companion-core:testDebugUnitTest', '--console=plain'], {'JAVA_HOME': java})
-run([sys.executable, ROOT / 'scripts/test-android-shell-stop.py'], {'JAVA_HOME': java})
+for script in ['test-android-shell-stop.py', 'test-android-nearby-discovery.py']:
+    # Gradle has now resolved the pinned compiler and JUnit dependencies into
+    # this build's cache; standalone compiler fixtures must not need a home cache.
+    run([sys.executable, ROOT / 'scripts' / script], {'JAVA_HOME': java})
 print('Public source checks passed. No clean-device, GUI, or hardware acceptance claimed.')

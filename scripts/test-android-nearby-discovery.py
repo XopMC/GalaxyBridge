@@ -6,9 +6,12 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parent.parent
-cache = Path.home() / '.gradle/caches/modules-2/files-2.1'
+cache = Path(os.environ.get('GRADLE_USER_HOME', str(Path.home() / '.gradle'))) / 'caches/modules-2/files-2.1'
 def jar(group, artifact, version):
-    return str(next((cache / group / artifact / version).glob('*/*.jar')))
+    candidates = sorted((cache / group / artifact / version).glob('*/*.jar'))
+    if not candidates:
+        raise SystemExit(f'Missing Gradle dependency {group}:{artifact}:{version}; run :app:testDirectDebugUnitTest with the same GRADLE_USER_HOME first.')
+    return str(candidates[0])
 stdlib = jar('org.jetbrains.kotlin', 'kotlin-stdlib', '2.4.10')
 junit = jar('junit', 'junit', '4.13.2')
 hamcrest = jar('org.hamcrest', 'hamcrest-core', '1.3')
@@ -25,7 +28,10 @@ compiler = os.pathsep.join([
 base = root / 'android/app/src/main/java/com/xopmc/galaxybridge/nearby'
 tests = root / 'android/app/src/test/java/com/xopmc/galaxybridge/nearby'
 def run(args):
-    subprocess.run(list(map(str, args)), check=True)
+    command = list(map(str, args))
+    if command[0] in ('java', 'javac') and os.environ.get('JAVA_HOME'):
+        command[0] = str(Path(os.environ['JAVA_HOME']) / 'bin' / command[0])
+    subprocess.run(command, check=True)
 with tempfile.TemporaryDirectory(prefix='gb-android-nearby-discovery-') as temporary:
     tmp = Path(temporary)
     run(['javac', '-cp', junit, '-d', tmp, base / 'NearbyDiscoveryMetadata.java', tests / 'NearbyDiscoveryMetadataTest.java'])
@@ -43,7 +49,8 @@ with tempfile.TemporaryDirectory(prefix='gb-android-nearby-discovery-') as tempo
              '-jvm-target', '17', '-classpath', os.pathsep.join(classpath), '-d', tmp, *files])
     compile_kotlin([tmp / 'ActualRead.kt'], [str(tmp), stdlib])
     run(['java', '-cp', os.pathsep.join([str(tmp), stdlib]), 'com.xopmc.galaxybridge.nearby.NearbyDiscoveryReadSpec'])
-    android = Path(os.environ.get('ANDROID_HOME', str(Path.home() / 'Library/Android/sdk'))) / 'platforms/android-37.0/android.jar'
+    sdk = os.environ.get('ANDROID_SDK_ROOT') or os.environ.get('ANDROID_HOME') or str(Path.home() / 'Library/Android/sdk')
+    android = Path(sdk) / 'platforms' / os.environ.get('GB_ANDROID_PLATFORM', 'android-37.0') / 'android.jar'
     compile_kotlin([base / 'NearbyBlePeripheral.kt', base / 'NearbyAdvertisingLifecycle.kt',
                     base / 'NearbyFrameDecoder.kt', base / 'NearbyDiscoveryRecovery.kt',
                     tests / 'NearbyAdvertisingLifecycleTest.kt', tests / 'NearbyDiscoveryRecoveryTest.kt'],

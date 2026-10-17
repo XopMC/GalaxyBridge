@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from build_path_privacy import path_maps
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = '0.1.2'
@@ -71,7 +72,8 @@ def native(build, env):
         patches = {p.name: sha(p) for p in (ROOT / 'third_party/adb-owned/patches').glob('*.patch')}
         if provenance.get('patches_sha256') != patches:
             raise SystemExit('ADB source patches changed; remove this build tree and rebuild native.')
-        if provenance.get('staging_script_sha256') != sha(ROOT / 'scripts/stage-redistributable-adb.py'):
+        if (provenance.get('staging_script_sha256') != sha(ROOT / 'scripts/stage-redistributable-adb.py') or
+                provenance.get('build_script_sha256') != sha(ROOT / 'scripts/build-owned-adb.sh')):
             with tempfile.TemporaryDirectory(prefix='adb-restage-', dir=artifacts) as temporary:
                 staged = Path(temporary) / 'runtime'
                 run(['bash', ROOT / 'scripts/build-owned-adb.sh', staged],
@@ -91,7 +93,15 @@ def macos_app(build, env):
     # Keep dependency/tool outputs reusable when only resource hashes change;
     # the newly selected BuildPins.swift is still compiled into the application.
     scratch = build / 'swift' / 'macos-release'
-    run(['swift', 'build', '--package-path', ROOT, '--scratch-path', scratch, '--cache-path', build / 'dependency-cache/swiftpm', '-c', 'release', '--product', 'GalaxyBridgeMac', '-j', env.get('GB_BUILD_JOBS', '4')], swift_env)
+    swift_flags = ['-gnone']
+    cc_flags = []
+    for source, destination in path_maps(ROOT, build, env):
+        mapping = source + '=' + destination
+        swift_flags += ['-file-prefix-map', mapping, '-debug-prefix-map', mapping]
+        cc_flags += ['-ffile-prefix-map=' + mapping]
+    forwarding = [value for flag in swift_flags for value in ('-Xswiftc', flag)]
+    forwarding += [value for flag in cc_flags for value in ('-Xcc', flag)]
+    run(['swift', 'build', '--package-path', ROOT, '--scratch-path', scratch, '--cache-path', build / 'dependency-cache/swiftpm', '-c', 'release', '--product', 'GalaxyBridgeMac', '-j', env.get('GB_BUILD_JOBS', '4'), *forwarding], swift_env)
     binary_directory = Path(subprocess.check_output(['swift', 'build', '--package-path', str(ROOT), '--scratch-path', str(scratch), '--cache-path', str(build / 'dependency-cache/swiftpm'), '-c', 'release', '--show-bin-path'], cwd=ROOT, env=swift_env, text=True).strip())
     output = build / 'artifacts/GalaxyBridge.app'
     staging = build / 'app-staging'
@@ -122,18 +132,22 @@ def macos_app(build, env):
     extension = contents / 'Library/SystemExtensions/com.xopmc.GalaxyBridge.CameraExtension.systemextension'
     (extension / 'Contents/MacOS').mkdir(parents=True)
     extension_sources = sorted((ROOT / 'macos/GalaxyBridgeCameraExtension').glob('*.swift'))
-    run(['xcrun', 'swiftc', '-O', '-whole-module-optimization', '-target', 'arm64-apple-macos14.0', *extension_sources,
+    run(['xcrun', 'swiftc', '-O', '-whole-module-optimization', '-target', 'arm64-apple-macos14.0', *swift_flags, *extension_sources,
          '-o', extension / 'Contents/MacOS/GalaxyBridgeCameraExtension'], env)
     ei = plistlib.loads((ROOT / 'macos/GalaxyBridgeCameraExtension/Info.plist').read_bytes())
     ei.update(CFBundleExecutable='GalaxyBridgeCameraExtension', CFBundleIdentifier='com.xopmc.GalaxyBridge.CameraExtension',
               CFBundleShortVersionString=VERSION, CFBundleVersion='3', CMIOExtensionMachServiceName='group.com.xopmc.GalaxyBridge.CameraExtension')
     (extension / 'Contents/Info.plist').write_bytes(plistlib.dumps(ei))
+    # Finalize executable bytes before signatures and the network-helper program pin.
+    for executable in (contents / 'MacOS/GalaxyBridgeMac', extension / 'Contents/MacOS/GalaxyBridgeCameraExtension'):
+        run(['xcrun', 'strip', '-S', executable], env)
     run(['codesign', '--force', '--timestamp=none', '--sign', '-', extension], env)
     run(['codesign', '--force', '--timestamp=none', '--options', 'runtime', '--sign', '-', app], env)
     run(['codesign', '--verify', '--deep', '--strict', app], env)
     run([sys.executable, ROOT / 'scripts/package-network-helper.py', '--app', app, '--output', resources / ('GalaxyBridge-Network-' + VERSION + '.pkg')], env)
     run(['codesign', '--force', '--timestamp=none', '--options', 'runtime', '--sign', '-', app], env)
     run(['codesign', '--verify', '--deep', '--strict', app], env)
+    run([sys.executable, ROOT / 'scripts/check-release-privacy.py', app], env)
     if output.exists(): shutil.rmtree(output)  # Only CMake's declared app output, never an installed app.
     shutil.move(app, output)
     staging.rmdir()
@@ -146,6 +160,7 @@ def android_apk(build, env):
     for path in (output, output.with_suffix('.signature.txt'), output.with_suffix('.sha256')):
         if path.exists(): path.unlink()
     run([sys.executable, ROOT / 'scripts/package-android-direct.py', output], dict(env, GB_INTERNET_ANDROID_LIBS=str(build / 'internet-runtime/artifacts/android')))
+    run([sys.executable, ROOT / 'scripts/check-release-privacy.py', output], env)
 
 def package(build, env):
     output = build / 'packages'
