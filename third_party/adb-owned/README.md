@@ -55,3 +55,11 @@ verified by `scripts/verify-adb-deployment-target.py`. An environment variable
 alone had left static Meson dependencies targeting the build host OS.
 
 Patch 3 SHA-256: `7d2d77c20cd20d62b67f48c1c69388beed303afb85efc1bbd7491589a3b1ee9a`.
+
+Patch 4 keeps the USB handle alive until admitted reads and writes finish.
+Reads and writes remain concurrent; close prevents new transfers and waits for
+the old ones before releasing the interface. Bounded idle waits preserve any
+partially transferred bytes. No USB reset, seize or device-wide mutation is added.
+The source regression uses a synthetic libusb boundary to exercise concurrent
+read/close, independent writes, late-operation rejection, repeated close and
+partial header/payload framing. Hardware detach acceptance is separate.

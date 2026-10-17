@@ -208,6 +208,36 @@ public final class DisplayPowerController {
         } finally { owner.restore(); }
     }
 
+    /** Existing status requests renew a raw owner's lease. The expiry path
+     * restores only this controller's exact snapshot before terminating. */
+    static boolean serveWithOwnerLease(InputStream input, OutputStream output, Controller owner, int pid, String startTime,
+            long timeoutMillis, long pollMillis, java.util.function.IntConsumer expired) throws Exception {
+        if (timeoutMillis <= 0 || pollMillis <= 0 || pollMillis > timeoutMillis) throw new IllegalArgumentException();
+        java.util.concurrent.atomic.AtomicBoolean finished = new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.concurrent.atomic.AtomicLong lastCommand = new java.util.concurrent.atomic.AtomicLong(System.nanoTime());
+        InputStream renewing = new FilterInputStream(input) {
+            @Override public int read() throws IOException {
+                int value = super.read(); if (value >= 0) lastCommand.set(System.nanoTime()); return value;
+            }
+        };
+        Thread deadline = new Thread(() -> {
+            try { while (!finished.get()) {
+                if (System.nanoTime() - lastCommand.get() >= TimeUnit.MILLISECONDS.toNanos(timeoutMillis)) {
+                    if (finished.compareAndSet(false, true)) {
+                        int result = 0;
+                        try { owner.restore(); } catch (Exception unconfirmed) { result = 1; }
+                        expired.accept(result);
+                    }
+                    return;
+                }
+                Thread.sleep(pollMillis);
+            } } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+        }, "gb-panel-owner-deadline");
+        deadline.setDaemon(true); deadline.start();
+        try { return serve(renewing, output, owner, pid, startTime); }
+        finally { finished.set(true); deadline.interrupt(); }
+    }
+
     private static byte[] readBounded(File file, int limit) throws IOException {
         try (InputStream input = new FileInputStream(file); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             byte[] bytes = new byte[4096]; int count;
@@ -215,8 +245,10 @@ public final class DisplayPowerController {
             return output.toByteArray();
         }
     }
-    private static String fixedDump() throws Exception {
-        Process process = new ProcessBuilder("/system/bin/dumpsys", "SurfaceFlinger").redirectErrorStream(true).start();
+    private static String fixedDump(boolean displaysOnly) throws Exception {
+        String[] command = displaysOnly ? new String[] {"/system/bin/dumpsys", "SurfaceFlinger", "--displays"}
+            : new String[] {"/system/bin/dumpsys", "SurfaceFlinger"};
+        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         final IOException[] error = new IOException[1];
         Thread reader = new Thread(() -> { try (InputStream input = process.getInputStream()) {
@@ -233,8 +265,27 @@ public final class DisplayPowerController {
             return new String(output.toByteArray(), StandardCharsets.UTF_8);
         } finally { if (process.isAlive()) process.destroyForcibly(); }
     }
-    static Frame runtimeFrame() throws Exception { return new RuntimeBackend().read(); }
+    interface DumpSource { String read(boolean displaysOnly) throws Exception; }
+    static final class PhysicalStateProbe {
+        private final DumpSource source;
+        private boolean focused = true;
+        PhysicalStateProbe(DumpSource source) { this.source = source; }
+        Map<String, Boolean> read(Set<String> topology) throws Exception {
+            if (focused) {
+                try {
+                    Map<String, Boolean> states = parsePhysical(source.read(true));
+                    // A narrow vendor dump must not omit an inactive fold panel.
+                    if (!states.keySet().equals(topology)) throw new Failure("panel_focused_inventory_incomplete");
+                    return states;
+                } catch (Exception unavailable) { focused = false; }
+            }
+            return parsePhysical(source.read(false));
+        }
+    }
+    private static final class RuntimeBackendHolder { static final RuntimeBackend INSTANCE = new RuntimeBackend(); }
+    static synchronized Frame runtimeFrame() throws Exception { return RuntimeBackendHolder.INSTANCE.read(); }
     private static final class RuntimeBackend implements Backend {
+        private final PhysicalStateProbe stateProbe = new PhysicalStateProbe(DisplayPowerController::fixedDump);
         private final boolean displayControl = !SurfaceControl.hasGetPhysicalDisplayIdsMethod();
         private Set<String> physicalIDs() throws Failure {
             long[] ids = displayControl ? DisplayControl.getPhysicalDisplayIds() : SurfaceControl.getPhysicalDisplayIds();
@@ -251,7 +302,7 @@ public final class DisplayPowerController {
         }
         public Frame read() throws Exception {
             Set<String> physical = physicalIDs(); String active = activeID();
-            Map<String, Boolean> states = parsePhysical(fixedDump());
+            Map<String, Boolean> states = stateProbe.read(physical);
             if (!physical.containsAll(states.keySet()) || !physical.equals(physicalIDs()) || !active.equals(activeID()))
                 throw new Failure("panel_topology_changed");
             return new Frame(states, active, physical);
@@ -267,7 +318,8 @@ public final class DisplayPowerController {
     public static void main(String[] args) {
         Controller owner = null; int result = 1; int pid = 0; String startTime = "";
         try {
-            if (args.length != 0 || android.os.Process.myUid() != 2000) throw new Failure("panel_shell_required");
+            boolean leased = args.length == 1 && args[0].equals("--owner-lease");
+            if ((!leased && args.length != 0) || android.os.Process.myUid() != 2000) throw new Failure("panel_shell_required");
             String self = new String(readBounded(new File("/proc/self/stat"), 4096), StandardCharsets.UTF_8);
             String[] stat = self.substring(self.lastIndexOf(')') + 1).trim().split("\\s+");
             if (stat.length < 20) throw new Failure("panel_identity_unknown");
@@ -279,7 +331,10 @@ public final class DisplayPowerController {
             if (Looper.myLooper() == null) Looper.prepare(); Workarounds.apply();
             owner = new Controller(new RuntimeBackend()); final Controller snapshotOwner = owner;
             Runtime.getRuntime().addShutdownHook(new Thread(() -> { try { snapshotOwner.restore(); } catch (Exception ignored) {} }, "gb-panel-restore"));
-            if (serve(System.in, new FileOutputStream(FileDescriptor.out), owner, android.os.Process.myPid(), stat[19])) result = 0;
+            boolean success = leased
+                ? serveWithOwnerLease(System.in, new FileOutputStream(FileDescriptor.out), owner, pid, startTime, 12000, 200, System::exit)
+                : serve(System.in, new FileOutputStream(FileDescriptor.out), owner, pid, startTime);
+            if (success) result = 0;
         } catch (Throwable failure) {
             if (owner == null && pid > 0 && startTime.matches("[1-9][0-9]{0,19}")) try {
                 reply(new FileOutputStream(FileDescriptor.out), owner, pid, startTime, false,

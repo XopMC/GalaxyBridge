@@ -2,6 +2,7 @@ package com.xopmc.galaxybridge.transport.shell
 
 import com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest
 import com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult
+import com.xopmc.galaxybridge.protocol.v1.CaptureRetirementQuery
 import java.util.UUID
 
 internal object ShellBridgePolicy {
@@ -11,9 +12,31 @@ internal object ShellBridgePolicy {
             (packageName == "com.xopmc.galaxybridge.internal" && distribution == "internal")
     fun activation(socket: String, token: String, generation: String): Boolean =
         socket.matches(Regex("[A-Za-z0-9._-]{8,96}")) && token.matches(Regex("[a-f0-9]{64}")) && uuid(generation)
+    fun readOnly(operation: ShellBridgeRequest.Operation): Boolean =
+        operation == ShellBridgeRequest.Operation.STATUS || operation == ShellBridgeRequest.Operation.VERIFY_RETIREMENT
+    fun usesChildLease(operation: ShellBridgeRequest.Operation): Boolean = operation in setOf(
+        ShellBridgeRequest.Operation.START_SCRCPY, ShellBridgeRequest.Operation.START_CLIPBOARD,
+        ShellBridgeRequest.Operation.START_PANEL, ShellBridgeRequest.Operation.STOP)
     fun valid(request: ShellBridgeRequest): Boolean {
         if (!uuid(request.requestId) || request.operation == ShellBridgeRequest.Operation.UNRECOGNIZED ||
             request.operation == ShellBridgeRequest.Operation.LIST_APPLICATIONS) return false
+        if (request.operation == ShellBridgeRequest.Operation.VERIFY_RETIREMENT ||
+            request.operation == ShellBridgeRequest.Operation.RELEASE_RETIRED_RESOURCE) {
+            if (request.leaseId.isNotEmpty() || !uuid(request.bootGeneration) || request.powerOn ||
+                request.hasOptions() || !request.hasRetirement()) return false
+            val query = request.retirement
+            if (request.operation == ShellBridgeRequest.Operation.RELEASE_RETIRED_RESOURCE) {
+                if (query.kind != CaptureRetirementQuery.Kind.DISPLAY_POWER_CONTROLLER ||
+                    !uuid(query.ownedResourceId) || query.resourceSha256.size() != 32) return false
+            } else if (query.ownedResourceId.isNotEmpty() || !query.resourceSha256.isEmpty) return false
+            return when (query.kind) {
+                CaptureRetirementQuery.Kind.PROBE_SUPPORT -> query.scid == 0 && query.pid == 0 && query.processStartTicks == 0L
+                CaptureRetirementQuery.Kind.SCRCPY_CAPTURE -> query.scid > 0 && query.pid == 0 && query.processStartTicks == 0L
+                CaptureRetirementQuery.Kind.DISPLAY_POWER_CONTROLLER -> query.scid == 0 && query.pid > 1 && query.processStartTicks > 0
+                else -> false
+            }
+        }
+        if (request.hasRetirement()) return false
         if (request.operation != ShellBridgeRequest.Operation.STATUS && (!uuid(request.leaseId) || !uuid(request.bootGeneration))) return false
         val o = request.options
         return o.scid >= 0 && o.displayId >= 0 &&

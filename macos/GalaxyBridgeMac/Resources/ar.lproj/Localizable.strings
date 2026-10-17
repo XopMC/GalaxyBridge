@@ -87,7 +87,7 @@
 "READY_TO_STREAM" = "جاهز لمشاركة الشاشة";
 "ADB_AUTH_REQUIRED" = "قم بتأكيد الاتصال على هاتفك";
 "PHONE_CONNECTION_REQUIRED" = "يلزم الاتصال بالهاتف";
-"COMPANION_CONNECTION_FAILED" = "فشل الاتصال المرافق: %@";
+"COMPANION_CONNECTION_FAILED" = "تعذّر الاتصال بهذا الهاتف: %@";
 "COMPANION_PAIRING_REQUIRED" = "يحتاج Galaxy Bridge إلى إعادة الاتصال بشكل آمن. افتح Galaxy Bridge على الهاتف وقم بمسح رمز الاقتران QR مرة واحدة.";
 "COMPANION_AUTHENTICATION_FAILED" = "فشل التحقق من الاتصال الآمن. قم بإقران Galaxy مع Mac مرة أخرى.";
 "PEER_STORE_FAILED" = "لا يمكن قراءة الأجهزة المقترنة: %@";
@@ -391,3 +391,4 @@
 "FEATURE_DISABLED" = "هذه الميزة متوقفة لهذا الهاتف.";
 
 "NEARBY_LOCATION_PERMISSION_HINT" = "للاتصال بالهواتف القريبة، اسمح لـ Galaxy Bridge باستخدام الموقع في إعدادات النظام ← الخصوصية والأمان ← خدمات الموقع.";
+"NOTIFICATIONS_EMPTY_HINT" = "ستظهر الإشعارات الجديدة من هاتفك هنا.";

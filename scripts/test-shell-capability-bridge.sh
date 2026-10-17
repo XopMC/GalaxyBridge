@@ -22,11 +22,13 @@ bridge_lambda="$bridge_sdk/build-tools/${GB_ANDROID_BUILD_TOOLS:-37.0.0}/core-la
   "$bridge_root/third_party/scrcpy-gb-sync/ShellCapabilityBridge.java"
 "$bridge_jdk/bin/javac" -source 8 -target 8 -Xlint:-options \
   -cp "$bridge_tmp:$bridge_platform:$bridge_classes" -d "$bridge_tmp" \
-  "$bridge_root/third_party/scrcpy-gb-sync/ShellCapabilityBridgePolicyTest.java"
+  "$bridge_root/third_party/scrcpy-gb-sync/ShellCapabilityBridgePolicyTest.java" \
+  "$bridge_root/third_party/scrcpy-gb-sync/ShellCaptureRetirementProbeSpec.java"
 cc -std=c11 -Wall -Wextra -Werror -pthread "$bridge_root/scripts/fixtures/shell-broker-socket-retirement.c" -o "$bridge_tmp/socket-retirement"
 GB_SHELL_SOCKET_RETIREMENT_FIXTURE="$bridge_tmp/socket-retirement" \
 GB_SHELL_SOCKET_FIXTURE_DIRECTORY="$bridge_socket_tmp" \
   "$bridge_jdk/bin/java" -ea -cp "$bridge_tmp:$bridge_platform:$bridge_classes" com.genymobile.scrcpy.ShellCapabilityBridgePolicyTest
+"$bridge_jdk/bin/java" -ea -cp "$bridge_tmp:$bridge_platform:$bridge_classes" com.genymobile.scrcpy.ShellCaptureRetirementProbeSpec
 swiftc -swift-version 6 "$bridge_root/macos/GalaxyBridgeMac/Transport/ShellCapabilityBridgeActivationState.swift" \
   "$bridge_root/macos/GalaxyBridgeMacTests/ShellCapabilityBridgeActivationSpec.swift" -o "$bridge_tmp/activation-spec"
 "$bridge_tmp/activation-spec"

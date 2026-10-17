@@ -13,41 +13,107 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
         let windows: [RouteResume]
         let settled: Bool
     }
+    private final class DeviceIdentity {
+        var id: String
+        init(_ id: String) { self.id = id }
+    }
     private struct Record {
+        let identity: DeviceIdentity
         let leaseID: String
         let window: NSWindow
         let session: ApplicationWindowSession
         let release: () -> Void
         let privacySubscriptions: Set<AnyCancellable>
     }
+    /// Closed UI must not retain a Metal view while its native owner settles.
+    private struct RetiringRecord {
+        let session: ApplicationWindowSession
+        let release: () -> Void
+        var releasedHostCapacity = false
+    }
 
     private var records: [String: Record] = [:]
+    private var retiringRecords: [String: RetiringRecord] = [:]
+    private var retirementTasks: [UUID: Task<Void, Never>] = [:]
+    private var retirementTaskByKey: [String: UUID] = [:]
+    private var localSettlementTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
+
+    func adoptDeviceIdentity(from oldID: String, to newID: String) {
+        guard oldID != newID else { return }
+        let oldPrefix = oldID + "\u{0}"
+        for (key, record) in records.filter({ $0.key.hasPrefix(oldPrefix) }) {
+            let next = newID + "\u{0}" + key.dropFirst(oldPrefix.count)
+            record.identity.id = newID
+            if records[next] != nil {
+                // Keep the existing canonical window; retire the exact colliding
+                // pre-pair owner without overwriting either release handle.
+                beginRetirement(key: key, record: record, closeWindow: true)
+            } else {
+                records.removeValue(forKey: key)
+                records[next] = record
+            }
+        }
+        for (key, record) in retiringRecords.filter({ $0.key.hasPrefix(oldPrefix) }) {
+            let base = newID + "\u{0}" + key.dropFirst(oldPrefix.count)
+            let next = retiringRecords[base] == nil ? base : base + "\u{0}" + UUID().uuidString
+            retiringRecords.removeValue(forKey: key)
+            retiringRecords[next] = record
+            if let task = retirementTaskByKey.removeValue(forKey: key) { retirementTaskByKey[next] = task }
+        }
+    }
+
+    private func ownedSessions(deviceID: String) -> [ApplicationWindowSession] {
+        records.filter { $0.key.hasPrefix(deviceID + "\u{0}") }.values.map(\.session)
+            + retiringRecords.filter { $0.key.hasPrefix(deviceID + "\u{0}") }.values.map(\.session)
+    }
+
+    func captureSerials(deviceID: String) -> Set<String> {
+        Set(ownedSessions(deviceID: deviceID).map { $0.nativeSession.serial })
+    }
+
+    func hasStaleADBGeneration(deviceID: String, currentGeneration: UUID) -> Bool {
+        ownedSessions(deviceID: deviceID).contains {
+            $0.nativeSession.capturedADBGeneration.map { $0 != currentGeneration } == true
+        }
+    }
+
+    func installRetirementRoute(_ route: VerifiedEnhancedRetirementRoute, deviceID: String) {
+        for session in ownedSessions(deviceID: deviceID) where session.nativeSession.serial == route.captureSerial {
+            session.nativeSession.installVerifiedCleanupRoute(route)
+        }
+    }
+
+    func hasRetiringOwners(deviceID: String) -> Bool {
+        retiringRecords.keys.contains { $0.hasPrefix(deviceID + "\u{0}") }
+    }
 
     func hasOwnedADBCaptureWindows(deviceID: String) -> Bool {
-        records.contains { key, record in
-            key.hasPrefix(deviceID + "\u{0}") && !record.session.nativeSession.serial.hasPrefix("shell:")
-        }
+        ownedSessions(deviceID: deviceID).contains { !$0.nativeSession.serial.hasPrefix("shell:") }
     }
 
     func hasOwnedShellCaptureWindows(deviceID: String) -> Bool {
-        records.contains { key, record in
-            key.hasPrefix(deviceID + "\u{0}") && record.session.nativeSession.serial.hasPrefix("shell:")
-        }
+        ownedSessions(deviceID: deviceID).contains { $0.nativeSession.serial.hasPrefix("shell:") }
     }
 
-    func present(application: ApplicationCatalogItem, device: DeviceRow, model: AppModel) {
+    func present(application: ApplicationCatalogItem, device: DeviceRow, model: AppModel,
+                 activate: Bool = true, restoringFrame: NSRect? = nil) {
         guard model.featureEnabled(.applications, deviceID: device.id) else { return }
         model.registerApplicationWindowCoordinator(self)
         let key = "\(device.id)\u{0}\(application.packageName)"
         if let record = records[key] {
-            record.window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            if activate { record.window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+            else { record.window.orderFront(nil) }
+            return
+        }
+        guard !retiringRecords.keys.contains(where: { $0 == key || $0.hasPrefix(key + "\u{0}") }) else {
+            model.reportApplicationWindowError(String(localized: "ERROR_MEDIA_CLEANUP"))
             return
         }
         guard let route = model.enhancedCaptureRoute(for: device) else { return }
         let serial = route.serial
         let clipboardIdentity = model.enhancedClipboardIdentity(deviceID: device.id, serial: serial)
         let leaseID = "app:\(device.id):\(application.packageName)"
+        let identity = DeviceIdentity(device.id)
         guard model.reserveApplicationWindowSession(leaseID) else { return }
         do {
             let session = try ApplicationWindowSession(
@@ -56,11 +122,11 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
                 adb: ADBClient(),
                 quicSelection: model.quicWirelessSelection(for: device),
                 companionTextHandler: { [weak model] text in
-                    model?.sendEnhancedTextViaCompanion(deviceID: device.id, text: text) ?? false
+                    model?.sendEnhancedTextViaCompanion(deviceID: identity.id, text: text) ?? false
                 },
                 companionKeyHandler: { [weak model] isDown, keycode, repeatCount, modifiers in
                     model?.sendEnhancedKeyViaCompanion(
-                        deviceID: device.id,
+                        deviceID: identity.id,
                         isDown: isDown,
                         keycode: keycode,
                         repeatCount: repeatCount,
@@ -69,25 +135,26 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
                 },
                 companionClipboardHandler: { [weak model] operation in
                     model?.sendEnhancedClipboardCommandViaCompanion(
-                        deviceID: device.id,
+                        deviceID: identity.id,
                         operation: operation
                     ) ?? false
                 },
                 clipboardEventHandler: { [weak model] update in
                     model?.acceptEnhancedClipboard(
-                        deviceID: device.id,
+                        deviceID: identity.id,
                         changeID: update.changeID,
                         content: update.content,
                         sourceIdentity: clipboardIdentity
                     )
                 },
                 clipboardEnabled: { [weak model] in
-                    model?.featureEnabled(.clipboard, deviceID: device.id) == true
+                    model?.featureEnabled(.clipboard, deviceID: identity.id) == true
                 },
                 freshFramePresentationReceipt: { [weak model] in
-                    model?.clientSetupEvidenceReceipt(deviceID: device.id, feature: .applications)
+                    model?.clientSetupEvidenceReceipt(deviceID: identity.id, feature: .applications)
                 },
-                shellProvider: route.shellProvider
+                shellProvider: route.shellProvider,
+                remoteAbsenceProof: model.captureRetirementAbsenceProof(deviceID: identity.id, captureSerial: serial)
             )
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: ApplicationWindowResizeGeometry.initialContentSize),
@@ -114,12 +181,13 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
                 ApplicationWindowResizeGeometry.initialContentSize,
                 on: window
             )
-            window.center()
+            if let restoringFrame { window.setFrame(restoringFrame, display: false) }
+            else { window.center() }
             let privacyLease = UUID()
             var privacySubscriptions = Set<AnyCancellable>()
             session.nativeSession.$phoneDisplayPrivacyReady.sink { [weak model] ready in
                 if ready {
-                    model?.phoneDisplaySessionReady(deviceID: device.id, serial: serial, leaseID: privacyLease)
+                    model?.phoneDisplaySessionReady(deviceID: identity.id, serial: serial, leaseID: privacyLease)
                 }
             }.store(in: &privacySubscriptions)
             session.$state.sink { [weak model] state in
@@ -130,6 +198,7 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
                 }
             }.store(in: &privacySubscriptions)
             let record = Record(
+                identity: identity,
                 leaseID: leaseID,
                 window: window,
                 session: session,
@@ -141,8 +210,8 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
             )
             records[key] = record
             let initialGeometry = ApplicationWindowGeometrySampler.sampleAfterPresentationAndLayout(from: window) {
-                window.makeKeyAndOrderFront(nil)
-                NSApp.activate(ignoringOtherApps: true)
+                if activate { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+                else { window.orderFront(nil) }
             }
             session.updateContentGeometry(
                 contentSize: initialGeometry.contentSize,
@@ -159,9 +228,78 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
         guard let window = notification.object as? NSWindow,
               let entry = records.first(where: { $0.value.window === window })
         else { return }
-        entry.value.session.close()
-        entry.value.release()
-        records.removeValue(forKey: entry.key)
+        _ = beginRetirement(key: entry.key, record: entry.value, closeWindow: false)
+    }
+
+    @discardableResult
+    private func beginRetirement(key activeKey: String, record: Record, closeWindow: Bool) -> UUID {
+        records.removeValue(forKey: activeKey)
+        let key = retiringRecords[activeKey] == nil ? activeKey : activeKey + "\u{0}" + UUID().uuidString
+        let retired = RetiringRecord(session: record.session, release: record.release)
+        retiringRecords[key] = retired
+        record.window.delegate = nil
+        record.session.close()
+        if closeWindow { record.window.close() }
+        let ticket = UUID()
+        retirementTaskByKey[key] = ticket
+        retirementTasks[ticket] = Task { [weak self, retired] in
+            await retired.session.closeAndWaitForCleanup()
+            guard let self else { return }
+            if let currentKey = self.retiringRecords.first(where: { $0.value.session === retired.session })?.key {
+                self.releaseRetiredRecord(key: currentKey, session: retired.session)
+            }
+            self.retirementTasks.removeValue(forKey: ticket)
+            self.retirementTaskByKey = self.retirementTaskByKey.filter { $0.value != ticket }
+            self.observeLateLocalSettlement(retired.session)
+        }
+        return ticket
+    }
+
+    private func observeLateLocalSettlement(_ session: ApplicationWindowSession) {
+        let id = ObjectIdentifier(session)
+        guard !session.nativeSession.hostResourcesPhysicallySettled, localSettlementTasks[id] == nil else { return }
+        localSettlementTasks[id] = Task { [weak self, weak session] in
+            while !Task.isCancelled {
+                do {
+                    guard let self else { return }
+                    guard let session, let key = self.retiringRecords.first(where: { $0.value.session === session })?.key else {
+                        self.localSettlementTasks.removeValue(forKey: id)
+                        return
+                    }
+                    self.releaseRetiredRecord(key: key, session: session)
+                    if session.nativeSession.hostResourcesPhysicallySettled {
+                        self.localSettlementTasks.removeValue(forKey: id)
+                        return
+                    }
+                }
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+            }
+        }
+    }
+
+    private func releaseRetiredRecord(key: String, session: ApplicationWindowSession) {
+        guard var retired = retiringRecords[key], retired.session === session else { return }
+        if !retired.releasedHostCapacity, session.nativeSession.hostResourcesPhysicallySettled {
+            retired.releasedHostCapacity = true
+            retiringRecords[key] = retired
+            retired.release()
+        }
+        // Remote ownership is a per-target fence. A disconnected phone must not
+        // consume another phone's decoder capacity after all local work ended.
+        if session.nativeSession.cleanupPhysicallySettled, retiringRecords[key]?.session === session {
+            retiringRecords.removeValue(forKey: key)
+        }
+    }
+
+    func retryRetiringOwners(deviceID: String) async -> Bool {
+        for (key, record) in retiringRecords.filter({ $0.key.hasPrefix(deviceID + "\u{0}") }) {
+            if let ticket = retirementTaskByKey[key], let work = retirementTasks[ticket] { await work.value }
+            guard retiringRecords[key]?.session === record.session else { continue }
+            record.session.nativeSession.retryOwnedCleanup()
+            await record.session.nativeSession.waitForScheduledCleanup()
+            releaseRetiredRecord(key: key, session: record.session)
+        }
+        return !hasRetiringOwners(deviceID: deviceID)
     }
 
     func closeForFeaturePolicy(deviceID: String) {
@@ -171,22 +309,22 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
     }
 
     func suspendForRouteChange(deviceID: String) async -> RouteSuspension {
-        let selected = records.filter { $0.key.hasPrefix(deviceID + "\u{0}") }
-        let windows = selected.values.map { RouteResume(application: $0.session.application, frame: $0.window.frame) }
-        var settled = true
-        for (key, record) in selected {
-            records.removeValue(forKey: key); record.window.delegate = nil
-            await record.session.closeAndWaitForCleanup()
-            settled = settled && record.session.nativeSession.cleanupPhysicallySettled
-            record.release(); record.window.close()
+        var windows: [RouteResume] = []
+        do {
+            let selected = records.filter { $0.key.hasPrefix(deviceID + "\u{0}") }
+            windows = selected.values.map { RouteResume(application: $0.session.application, frame: $0.window.frame) }
+            for (key, record) in selected { beginRetirement(key: key, record: record, closeWindow: true) }
         }
+        // No strong closed window/view graph crosses this await.
+        let settled = await retryRetiringOwners(deviceID: deviceID)
         return RouteSuspension(windows: windows, settled: settled)
     }
 
-    func resumeAfterRouteChange(_ windows: [RouteResume], device: DeviceRow, model: AppModel) {
+    func resumeAfterRouteChange(_ windows: [RouteResume], device: DeviceRow, model: AppModel, activate: Bool = true) {
         for item in windows {
-            present(application: item.application, device: device, model: model)
-            records[device.id + "\u{0}" + item.application.packageName]?.window.setFrame(item.frame, display: true)
+            let key = device.id + "\u{0}" + item.application.packageName
+            if !activate, records[key] != nil { continue }
+            present(application: item.application, device: device, model: model, activate: activate, restoringFrame: item.frame)
         }
     }
 
@@ -205,15 +343,12 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
     }
 
     func shutdownForApplicationTermination() async {
-        let activeRecords = Array(records.values)
-        records.removeAll()
-        for record in activeRecords {
-            record.window.delegate = nil
-            await record.session.closeAndWaitForCleanup()
-            record.release()
-            record.window.orderOut(nil)
-            record.window.close()
+        do {
+            let active = records
+            for (key, record) in active { beginRetirement(key: key, record: record, closeWindow: true) }
         }
+        for work in Array(retirementTasks.values) { await work.value }
+        for (key, record) in Array(retiringRecords) { releaseRetiredRecord(key: key, session: record.session) }
     }
 
     private func updateGeometry(of window: NSWindow, for session: ApplicationWindowSession) {

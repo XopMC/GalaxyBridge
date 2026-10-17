@@ -37,11 +37,15 @@ struct Transfer { let deviceID: String }
 @MainActor final class Surface { func clearFrame() {} }
 struct Route { var shellProvider: String? = nil }
 struct ADBClient { init() throws {} }
+typealias EnhancedCaptureAbsenceProof = @MainActor @Sendable (UInt32) async throws -> Void
 @MainActor final class ScrcpySession {
     enum CopyKey { case none, copy, cut }
+    let remoteAbsenceProof: EnhancedCaptureAbsenceProof?
     let audioCaptureEnabled: Bool; var playbackEnabled = true; var clipboardReads = 0
     init(serial: String, adb: ADBClient, automaticDisplayManagement: Bool, primaryDiagnosticsEnabled: Bool, clipboardPollingEnabled: Bool,
-        audioCaptureEnabled: Bool = true, quicSelection: String?, shellProvider: String?) { self.audioCaptureEnabled = audioCaptureEnabled }
+        audioCaptureEnabled: Bool = true, quicSelection: String?, shellProvider: String?, remoteAbsenceProof: EnhancedCaptureAbsenceProof? = nil) {
+        self.audioCaptureEnabled = audioCaptureEnabled; self.remoteAbsenceProof = remoteAbsenceProof
+    }
     func setPlaybackEnabled(_ enabled: Bool) { playbackEnabled = enabled }
     func requestClipboard(copyKey: CopyKey, afterExternalCopy: Bool = false) { clipboardReads += 1 }
 }
@@ -67,6 +71,7 @@ enum EnhancedClipboardRequest { case readCurrent, atomicCopy, atomicCut }
     var companionClients: [String: CompanionConnections] = ["route": .init()]
     var companionStates: [String: CompanionConnectionState] = ["route": .connected]
     let companionRecoverySupervisor = Supervisor()
+    var proofRequests: [(String, String, UInt32)] = []
     var recoveryCount = 0; var keyCount = 0; var mediaStateCallbacks = 0
     var notificationsByDevice: [String: [BridgeNotificationRow]] = [:]; let macNotifications = NotificationBridge(); var notificationSnapshotReconciliation = Snapshot()
     var callByDevice: [String: String] = [:]; var callHistoryByDevice: [String: String] = [:]; var recordingAudioSources: [String: String] = [:]
@@ -97,13 +102,16 @@ enum EnhancedClipboardRequest { case readCurrent, atomicCopy, atomicCut }
     func recoverCompanionSession(companionID: String, generation: UInt64) -> Bool { recoveryCount += 1; return true }
     func phoneDisplayPrivacyEnabled(deviceID: String) -> Bool { false }
     func quicWirelessSelection(for device: DeviceRow) -> String? { nil }
+    func captureRetirementAbsenceProof(deviceID: String, captureSerial: String) -> EnhancedCaptureAbsenceProof? {
+        { [weak self] scid in self?.proofRequests.append((deviceID, captureSerial, scid)) }
+    }
     func videoSurface(for id: String) -> Surface { .init() }
     func hasEnhancedTransport(deviceID: String) -> Bool { true }
     func sendEnhancedKeyViaCompanion(deviceID: String, isDown: Bool, keycode: Int, repeatCount: Int, modifiers: Int) -> Bool { keyCount += 1; return true }
     // ACTUAL_FEATURE_ENTRY_POINTS
 }
 @main enum FeatureConfigurationEntryPointSpec {
-    @MainActor static func main() throws {
+    @MainActor static func main() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("gb-feature-entry-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         let phone = "device:" + UUID().uuidString.lowercased()
@@ -146,6 +154,13 @@ enum EnhancedClipboardRequest { case readCurrent, atomicCopy, atomicCut }
         try audio.clientSetup.saveSelection(deviceID: phone, features: [.screen, .audio, .clipboard])
         audio.primaryScreenDemand.viewers = [phone, other]
         let first = try audio.createActualEnhancedSession(device: .init(id: phone)), second = try audio.createActualEnhancedSession(device: .init(id: other))
+        precondition(first.remoteAbsenceProof != nil && second.remoteAbsenceProof != nil,
+            "actual capture constructor omitted its phone-specific retirement proof")
+        try await first.remoteAbsenceProof!(17); try await second.remoteAbsenceProof!(23)
+        precondition(audio.proofRequests.count == 2 && audio.proofRequests[0].0 == phone
+            && audio.proofRequests[0].1 == "synthetic" && audio.proofRequests[0].2 == 17
+            && audio.proofRequests[1].0 == other && audio.proofRequests[1].2 == 23,
+            "actual capture constructor crossed phone/SCID retirement authority")
         audio.scrcpySessions = [phone: first, other: second]
         audio.setFeatureSelection(deviceID: phone, features: [.screen])
         precondition(audio.retiredPrimary == [phone] && audio.scrcpySessions[other] === second && audio.applicationWindowCoordinator?.closed.isEmpty == true, "Audio OFF must retire only the target primary capture owner")

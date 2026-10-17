@@ -228,7 +228,7 @@ struct ContentView: View {
 #endif
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
-                if let error = model.lastError {
+                if let error = model.displayedError {
                     Text(error).font(.caption).foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
@@ -758,7 +758,8 @@ private struct NotificationsPanel: View {
             if notifications.isEmpty {
                 VStack {
                     NotificationFiltersMenu(deviceID: deviceID)
-                    PlaceholderPanel(symbol: "bell", title: "NOTIFICATIONS_PANEL")
+                    PlaceholderPanel(symbol: "bell", title: "NOTIFICATIONS_PANEL",
+                        message: model.companionIsConnected(deviceID: deviceID) ? "NOTIFICATIONS_EMPTY_HINT" : "PANEL_CONNECT_HINT")
                 }
             } else {
                 VStack(alignment: .trailing, spacing: 8) {
@@ -1378,9 +1379,10 @@ private struct NotificationCard: View {
 private struct PlaceholderPanel: View {
     let symbol: String
     let title: LocalizedStringKey
+    let message: LocalizedStringKey
 
     var body: some View {
-        ContentUnavailableView(title, systemImage: symbol, description: Text("PANEL_CONNECT_HINT"))
+        ContentUnavailableView(title, systemImage: symbol, description: Text(message))
     }
 }
 

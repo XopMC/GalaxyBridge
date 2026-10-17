@@ -27,7 +27,7 @@ if '    private func handleFeatureConfigurationResult(' not in source:
 # Execute the actual new-owner constructor and first playback binding, with inert native boundaries.
 start=source.index('            let session = ScrcpySession(',source.index('    func ensureEnhancedSession('))
 end=source.index('\n            scrcpySessions[',start)
-methods.append('func createActualEnhancedSession(device: DeviceRow) throws -> ScrcpySession { let serial = "synthetic"; let route = Route(); let preservePhoneDisplay = false; '+source[start:end]+'; return session }')
+methods.append('func createActualEnhancedSession(device: DeviceRow) throws -> ScrcpySession { let serial = "synthetic"; let route = Route(); '+source[start:end]+'; return session }')
 start=source.index('        let surface = videoSurface(for: deviceID)',source.index('    private func bindEnhancedNativeFrames('))
 end=source.index('        session.recordingAudioEventHandler',start)
 methods.append('func bindActualEnhancedPlayback(_ session: ScrcpySession, deviceID: String) { '+source[start:end]+' _ = surface }')

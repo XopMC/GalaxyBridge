@@ -29,6 +29,7 @@ assert gate, 'Missing actual shell retirement retry branch'
 fixture=fixture.replace('// ACTUAL_SHELL_RETIREMENT_GATE','if '+gate.group(1)+'{ return true }; return false')
 marker='    func hasOwnedADBCaptureWindows('
 query=method(windows,marker) if marker in windows else 'func hasOwnedADBCaptureWindows(deviceID: String) -> Bool { false }'
+fixture=fixture.replace('// ACTUAL_OWNED_SESSIONS',method(windows,'    private func ownedSessions('))
 fixture=fixture.replace('// ACTUAL_OWNED_APP_QUERY',query)
 fixture=fixture.replace('// ACTUAL_OWNED_SHELL_APP_QUERY',method(windows,'    func hasOwnedShellCaptureWindows('))
 (out/'ActualPreparedShellSelection.swift').write_text(fixture)

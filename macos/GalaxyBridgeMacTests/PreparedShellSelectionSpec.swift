@@ -26,9 +26,11 @@ struct ApplicationWindowSession { let nativeSession: ScrcpySession }
 @MainActor final class ApplicationWindowCoordinator {
     struct Record { let session: ApplicationWindowSession }
     var records: [String: Record] = [:]
+    var retiringRecords: [String: Record] = [:]
     func add(deviceID: String, package: String = "com.example.synthetic", serial: String) {
         records[deviceID + "\u{0}" + package] = Record(session: .init(nativeSession: ScrcpySession(serial)))
     }
+    // ACTUAL_OWNED_SESSIONS
     // ACTUAL_OWNED_APP_QUERY
     // ACTUAL_OWNED_SHELL_APP_QUERY
 }
@@ -48,6 +50,7 @@ enum CompanionConnectionState { case connected, disconnected }
     var enhancedRetirementDeviceIDs: [UUID: String] = [:]
     var applicationWindowCoordinator: ApplicationWindowCoordinator?
     var preparingDirectDevices = Set<String>()
+    var captureRouteTransitionDevices = Set<String>()
     // The actual policy must not depend on Nearby state or invoke preparation.
     var nearbyAutoConnectEnabled = false
     func row(id: String) -> DeviceRow? { devices[id] }
@@ -126,7 +129,11 @@ enum CompanionConnectionState { case connected, disconnected }
         windows.add(deviceID: phone, serial: "raw-app-adb:1")
         precondition(windows.hasOwnedADBCaptureWindows(deviceID: phone))
         precondition(model.activeShellProvider(deviceID: phone) == nil, "Automatic selection must not migrate existing raw app windows")
+        windows.retiringRecords = windows.records
         windows.records.removeAll()
+        precondition(model.activeShellProvider(deviceID: phone) == nil,
+            "A closed raw app with unconfirmed ownership must still fence backend replacement")
+        windows.retiringRecords.removeAll()
         windows.add(deviceID: phone, serial: "shell:" + String(phone.dropFirst(7)))
         windows.add(deviceID: phone + "-unrelated", serial: "other-raw:1")
         precondition(!windows.hasOwnedADBCaptureWindows(deviceID: phone), "App ownership query must use the exact device delimiter and distinguish shell owners")

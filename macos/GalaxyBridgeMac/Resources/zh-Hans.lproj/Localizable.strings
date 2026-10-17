@@ -87,7 +87,7 @@
 "READY_TO_STREAM" = "准备共享屏幕";
 "ADB_AUTH_REQUIRED" = "确认手机连接";
 "PHONE_CONNECTION_REQUIRED" = "需要电话连接";
-"COMPANION_CONNECTION_FAILED" = "同伴连接失败：%@";
+"COMPANION_CONNECTION_FAILED" = "无法连接到此手机：%@";
 "COMPANION_PAIRING_REQUIRED" = "Galaxy Bridge 需要安全地重新连接。在手机上打开Galaxy Bridge，扫描一次配对的QR码。";
 "COMPANION_AUTHENTICATION_FAILED" = "安全连接验证失败。再次将此 Galaxy 与 Mac 配对。";
 "PEER_STORE_FAILED" = "无法读取配对设备：%@";
@@ -391,3 +391,4 @@
 "FEATURE_DISABLED" = "此手机已关闭此功能。";
 
 "NEARBY_LOCATION_PERMISSION_HINT" = "要连接附近的手机，请前往“系统设置 → 隐私与安全性 → 定位服务”，允许 Galaxy Bridge 使用定位信息。";
+"NOTIFICATIONS_EMPTY_HINT" = "手机的新通知将显示在这里。";

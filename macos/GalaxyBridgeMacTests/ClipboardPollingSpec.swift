@@ -24,6 +24,8 @@ struct PollEchoes {
     var pollTask: Task<Void, Never>?
     var controlSocket: PollControlSocket? = PollControlSocket()
     var agentSocket: PollAgentSocket? = PollAgentSocket()
+    var agentOwnerLifetime: ScrcpyADBOwnerLifetime?
+    var agentProcess: Process?
     var pendingAgentMessage: ScrcpyClipboardAgentMessage?
     var usesClipboardOccurrences = false
     var supportsClipboardAvailability = false
@@ -92,7 +94,19 @@ final class AgentInputProbe {
 
         let fallback = ClipboardPollingProbe(), previous = UUID()
         fallback.didBecomeReady(request: fallback.generation)
+        let rawOwner = try ScrcpyADBOwnerLifetime(), rawAgent = Process()
+        rawAgent.executableURL = URL(fileURLWithPath: "/bin/cat")
+        rawAgent.standardInput = rawOwner.pipe; rawAgent.standardOutput = FileHandle.nullDevice
+        rawAgent.standardError = FileHandle.nullDevice
+        try rawAgent.run(); rawOwner.start()
+        fallback.agentOwnerLifetime = rawOwner; fallback.agentProcess = rawAgent
         fallback.agentUnavailable(request: fallback.generation, reason: "missing legacy agent")
+        let rawRetirementDeadline = ContinuousClock.now + .seconds(2)
+        while rawAgent.isRunning && ContinuousClock.now < rawRetirementDeadline { try await Task.sleep(for: .milliseconds(20)) }
+        let rawAgentWasRetired = !rawAgent.isRunning && fallback.agentOwnerLifetime == nil && fallback.agentProcess == nil
+        if rawAgent.isRunning { rawOwner.stop(); rawAgent.terminate(); rawAgent.waitUntilExit() }
+        rawAgent.waitUntilExit()
+        precondition(rawAgentWasRetired, "failed agent left its real owned stdin/process alive while falling back to text")
         fallback.didBecomeAgentReady(usesOccurrences: true, request: previous)
         fallback.agentUnavailable(request: previous, reason: "stale socket")
         precondition(!fallback.usesClipboardOccurrences && fallback.pollTask != nil && fallback.failures == 0,

@@ -106,4 +106,15 @@ public interface ShellBridgeResultOrBuilder extends
    * @return The applicationCatalogJson.
    */
   com.google.protobuf.ByteString getApplicationCatalogJson();
+
+  /**
+   * <code>.galaxybridge.v1.CaptureRetirementProof retirement_proof = 9;</code>
+   * @return Whether the retirementProof field is set.
+   */
+  boolean hasRetirementProof();
+  /**
+   * <code>.galaxybridge.v1.CaptureRetirementProof retirement_proof = 9;</code>
+   * @return The retirementProof.
+   */
+  com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof getRetirementProof();
 }

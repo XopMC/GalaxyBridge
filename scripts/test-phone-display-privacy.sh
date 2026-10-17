@@ -16,6 +16,7 @@ swiftc -swift-version 6 -I "$privacy_test_dir" -L "$privacy_test_dir" -lGalaxyBr
   -Xlinker -rpath -Xlinker "$privacy_test_dir" -parse-as-library \
   macos/GalaxyBridgeMac/Transport/DisplayPowerControllerProtocol.swift \
   macos/GalaxyBridgeMac/Transport/DisplayPowerControllerProcess.swift \
+  macos/GalaxyBridgeMac/Transport/ADBCommandRunner.swift \
   macos/GalaxyBridgeMacTests/DisplayPowerControllerProtocolSpec.swift -o "$privacy_test_dir/controller-spec"
 "$privacy_test_dir/controller-spec"
 "$privacy_test_dir/spec"

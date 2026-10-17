@@ -39,7 +39,8 @@ final class ApplicationWindowSession: ObservableObject {
         clipboardEventHandler: @escaping @MainActor @Sendable (ScrcpyClipboardUpdate) -> Void,
         clipboardEnabled: @escaping @MainActor () -> Bool = { true },
         freshFramePresentationReceipt: (@MainActor () -> (@MainActor @Sendable () -> Void)?)? = nil,
-        shellProvider: ShellCapabilityBridgeProvider? = nil
+        shellProvider: ShellCapabilityBridgeProvider? = nil,
+        remoteAbsenceProof: EnhancedCaptureAbsenceProof? = nil
     ) throws {
         self.application = application
         self.companionTextHandler = companionTextHandler
@@ -53,7 +54,8 @@ final class ApplicationWindowSession: ObservableObject {
             physicalDisplayPolicy: .leaveUnchanged,
             clipboardPollingEnabled: false,
             quicSelection: quicSelection,
-            shellProvider: shellProvider
+            shellProvider: shellProvider,
+            remoteAbsenceProof: remoteAbsenceProof
         )
         surface.freshFramePresentationReceipt = { [weak self] in
             guard let self, !self.closed,
@@ -156,6 +158,7 @@ final class ApplicationWindowSession: ObservableObject {
     func close() {
         closed = true
         surface.freshFramePresentationReceipt = nil
+        surface.clearFrame()
         scrcpy.ownedDecodedFrameHandler = nil
         resizeTask?.cancel()
         resizeTask = nil
@@ -168,6 +171,7 @@ final class ApplicationWindowSession: ObservableObject {
     func closeAndWaitForCleanup() async {
         closed = true
         surface.freshFramePresentationReceipt = nil
+        surface.clearFrame()
         scrcpy.ownedDecodedFrameHandler = nil
         resizeTask?.cancel()
         resizeTask = nil

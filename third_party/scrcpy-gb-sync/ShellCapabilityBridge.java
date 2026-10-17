@@ -313,7 +313,7 @@ public final class ShellCapabilityBridge implements AutoCloseable {
         String id = request.optString("request_id"), leaseID = request.optString("lease_id");
         if (!canonicalUUID(id) || !generation.equals(request.optString("boot_generation")))
             return result(id, leaseID, "failed", "invalid_request", Collections.emptyList());
-        Set<String> allowed = new HashSet<>(Arrays.asList("request_id", "lease_id", "boot_generation", "operation", "options", "power_on"));
+        Set<String> allowed = new HashSet<>(Arrays.asList("request_id", "lease_id", "boot_generation", "operation", "options", "power_on", "retirement"));
         for (Iterator<String> keys = request.keys(); keys.hasNext();) if (!allowed.contains(keys.next()))
             return result(id, leaseID, "failed", "unsupported_field", Collections.emptyList());
         // Same request UUID has one exact body and outcome. Different bodies
@@ -330,9 +330,24 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             Object rawOperation = request.get("operation");
             if (!(rawOperation instanceof Integer) && !(rawOperation instanceof Long)) throw new IllegalArgumentException();
             long operationValue = ((Number) rawOperation).longValue();
-            if (operationValue < 0 || operationValue > 4) throw new IllegalArgumentException();
+            if (operationValue < 0 || operationValue > 7 || operationValue == 5) throw new IllegalArgumentException();
             int operation = (int) operationValue;
-            if (operation == 0) {
+            if (operation != 6 && operation != 7 && request.has("retirement")) throw new IllegalArgumentException();
+            if (operation == 6 || operation == 7) {
+                if (!leaseID.isEmpty() || request.optBoolean("power_on")) throw new IllegalArgumentException();
+                JSONObject raw = request.getJSONObject("retirement");
+                Map<String, Object> fields = new HashMap<>();
+                for (Iterator<String> keys = raw.keys(); keys.hasNext();) { String key = keys.next(); fields.put(key, raw.get(key)); }
+                RetirementQuery query = RetirementQuery.parse(fields, operation == 7);
+                JSONObject proof;
+                if (operation == 7) {
+                    confirmControllerAbsent(query.pid, query.startTicks, () -> readControllerStat(query.pid));
+                    boolean removed = releasePrivacyResource(new File("/data/local/tmp"), query.resourceID, query.resourceSHA, jar);
+                    proof = baseRetirementProof(query).put("absent", true).put("resource_removed", removed);
+                } else proof = retirementProof(query);
+                response = result(id, leaseID, operation == 7 ? "resources_released" : query.kind == 0 ? "retirement_supported" : "retired", "", Collections.emptyList())
+                    .put("retirement_proof", proof);
+            } else if (operation == 0) {
                 if (!leaseID.isEmpty() && !canonicalUUID(leaseID)) throw new IllegalArgumentException();
                 response = result(id, leaseID, !leaseID.isEmpty() && !leases.containsKey(leaseID) ? "stopped" :
                     readOnlyPanelStatus(() -> panelState()), "", Collections.emptyList());
@@ -564,6 +579,32 @@ public final class ShellCapabilityBridge implements AutoCloseable {
         }
     }
 
+    /** Raw ADB media may retain a stalled relay after USB detach. This lease is
+     * private to one child; its deadline cannot retire a sibling capture. */
+    static final class OwnedCaptureLifetime implements AutoCloseable {
+        private final AtomicBoolean closed = new AtomicBoolean();
+        private volatile long lastHeartbeat = System.nanoTime();
+        private final Thread deadline;
+        OwnedCaptureLifetime(InputStream input, long timeoutMillis, long pollMillis, Runnable expired) {
+            if (timeoutMillis <= 0 || pollMillis <= 0 || pollMillis > timeoutMillis) throw new IllegalArgumentException();
+            Runnable retire = () -> { if (closed.compareAndSet(false, true)) expired.run(); };
+            Thread reader = new Thread(() -> {
+                try { int value; while (!closed.get() && (value = input.read()) == 126) lastHeartbeat = System.nanoTime(); }
+                catch (IOException ignored) {}
+                retire.run();
+            }, "gb-adb-owner-input");
+            reader.setDaemon(true);
+            deadline = new Thread(() -> {
+                try { while (!closed.get()) {
+                    if (System.nanoTime() - lastHeartbeat >= TimeUnit.MILLISECONDS.toNanos(timeoutMillis)) { retire.run(); return; }
+                    Thread.sleep(pollMillis);
+                } } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            }, "gb-adb-owner-deadline");
+            deadline.setDaemon(true); reader.start(); deadline.start();
+        }
+        @Override public void close() { closed.set(true); deadline.interrupt(); }
+    }
+
     public static final class ChildMain {
         public static void main(String[] args) throws Exception {
             if (args.length < 1 || android.os.Process.myUid() != 2000) return;
@@ -572,6 +613,11 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             if (mode.equals("panel")) {
                 if (values.length != 0) return;
                 DisplayPowerController.main(values);
+            } else if ((mode.equals("scrcpy") || mode.equals("clipboard")) && values.length > 0 && values[0].equals("--owner-lease")) {
+                try (OwnedCaptureLifetime lifetime = new OwnedCaptureLifetime(System.in, 12000, 200, () -> System.exit(0))) {
+                    String[] payload = Arrays.copyOfRange(values, 1, values.length);
+                    if (mode.equals("scrcpy")) Server.main(payload); else ClipboardAgent.main(payload);
+                }
             } else if (mode.equals("scrcpy") || mode.equals("clipboard")) {
                 Thread lifetime = new Thread(() -> { try { while (System.in.read() != -1) {} } catch (IOException ignored) {}
                     System.exit(0); }, "gb-shell-parent-lifetime"); lifetime.setDaemon(true); lifetime.start();
@@ -696,17 +742,172 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             Arrays.asList("video", "audio", "control", "clipboard", "log").contains(value.substring(slash + 1));
     }
     private static String hex(byte[] bytes) { StringBuilder out = new StringBuilder(); for (byte b : bytes) out.append(String.format(Locale.ROOT, "%02x", b & 255)); return out.toString(); }
+    static final class RetirementQuery {
+        final int kind, scid, pid;
+        final long startTicks;
+        final String resourceID, resourceSHA;
+        private RetirementQuery(Map<String, Object> fields, boolean release) {
+            kind = (int) Policy.number(fields, "kind", 0, 2);
+            scid = (int) Policy.number(fields, "scid", 0, 0x7fffffffL);
+            pid = (int) Policy.number(fields, "pid", 0, 0x7fffffffL);
+            startTicks = Policy.number(fields, "process_start_ticks", 0, Long.MAX_VALUE);
+            resourceID = Policy.text(fields, "owned_resource_id"); resourceSHA = Policy.text(fields, "resource_sha256");
+            if (release) {
+                if (kind != 2 || !canonicalUUID(resourceID) || !resourceSHA.matches("[a-f0-9]{64}")) throw new IllegalArgumentException();
+            } else if (!resourceID.isEmpty() || !resourceSHA.isEmpty()) throw new IllegalArgumentException();
+            if (kind == 0 && (scid != 0 || pid != 0 || startTicks != 0)) throw new IllegalArgumentException();
+            if (kind == 1 && (scid <= 0 || pid != 0 || startTicks != 0)) throw new IllegalArgumentException();
+            if (kind == 2 && (scid != 0 || pid <= 1 || startTicks <= 0)) throw new IllegalArgumentException();
+        }
+        static RetirementQuery parse(Map<String, Object> fields) { return parse(fields, false); }
+        static RetirementQuery parse(Map<String, Object> fields, boolean release) {
+            if (!new HashSet<>(Arrays.asList("kind", "scid", "pid", "process_start_ticks", "owned_resource_id", "resource_sha256")).containsAll(fields.keySet()))
+                throw new IllegalArgumentException();
+            return new RetirementQuery(fields, release);
+        }
+    }
+
+    private static JSONObject baseRetirementProof(RetirementQuery query) throws Exception {
+        return new JSONObject().put("kind", query.kind).put("scid", query.scid).put("pid", query.pid)
+            .put("process_start_ticks", query.startTicks).put("supported", true).put("absent", false)
+            .put("owned_resource_id", query.resourceID).put("resource_removed", false).put("panels", new JSONArray());
+    }
+
+    static boolean releasePrivacyResource(File directory, String id, String suppliedSHA, byte[] verifiedJar) throws Exception {
+        if (!canonicalUUID(id) || !suppliedSHA.matches("[a-f0-9]{64}") || verifiedJar.length == 0 || verifiedJar.length > 4 * 1024 * 1024)
+            throw new IllegalArgumentException("runtime_resource_identity");
+        byte[] expected = MessageDigest.getInstance("SHA-256").digest(verifiedJar);
+        if (!hex(expected).equals(suppliedSHA)) throw new IOException("runtime_resource_hash");
+        File parent = directory.getCanonicalFile();
+        File file = new File(parent, "galaxybridge-privacy-" + id + ".jar");
+        if (!file.getAbsolutePath().equals(file.getCanonicalPath())) throw new IOException("runtime_resource_path");
+        if (!file.exists()) return true;
+        if (!file.isFile() || file.length() != verifiedJar.length) throw new IOException("runtime_resource_bytes");
+        byte[] actual = MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file.toPath()));
+        if (!MessageDigest.isEqual(actual, expected)) throw new IOException("runtime_resource_hash");
+        if (!file.delete() && file.exists()) throw new IOException("runtime_resource_cleanup");
+        return true;
+    }
+
+    private JSONObject retirementProof(RetirementQuery query) throws Exception {
+        JSONObject proof = baseRetirementProof(query);
+        JSONArray panels = new JSONArray();
+        if (query.kind == 1) {
+            confirmCaptureAbsent(query.scid, () -> fixedRead("/system/bin/ps", "-A", "-w", "-o", "PID,ARGS"));
+            proof.put("absent", true);
+        } else if (query.kind == 2) {
+            confirmControllerAbsent(query.pid, query.startTicks, () -> readControllerStat(query.pid));
+            DisplayPowerController.Frame frame = DisplayPowerController.runtimeFrame();
+            for (Map.Entry<String, Boolean> panel : frame.states.entrySet())
+                panels.put(new JSONObject().put("physical_id", panel.getKey()).put("on", panel.getValue()));
+            proof.put("absent", true);
+        }
+        return proof.put("panels", panels);
+    }
+
+    private static String readControllerStat(int pid) throws Exception {
+        try {
+            byte[] bytes = Files.readAllBytes(new File("/proc/" + pid + "/stat").toPath());
+            if (bytes.length > 4096) throw new IOException("controller_stat_limit");
+            return StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+        } catch (java.nio.file.NoSuchFileException gone) { return null; }
+    }
+
+    static String controllerRetirementState(int pid, long ticks, String stat) throws IOException {
+        if (pid <= 1 || ticks <= 0) throw new IllegalArgumentException("controller_identity_invalid");
+        if (stat == null) return "absent";
+        if (stat.length() > 4096 || !stat.endsWith("\n")) throw new IOException("controller_stat_incomplete");
+        int opening = stat.indexOf('('), closing = stat.lastIndexOf(')');
+        if (opening < 1 || closing <= opening || !stat.substring(0, opening).trim().equals(Integer.toString(pid)))
+            throw new IOException("controller_stat_identity");
+        String[] fields = stat.substring(closing + 1).trim().split("\\s+");
+        if (fields.length < 20 || !fields[0].matches("[RSDZTWXtIPKx]")) throw new IOException("controller_stat_incomplete");
+        long current;
+        try { current = Long.parseUnsignedLong(fields[19]); }
+        catch (NumberFormatException invalid) { throw new IOException("controller_start_ticks", invalid); }
+        if (!Long.toUnsignedString(current).equals(fields[19])) throw new IOException("controller_start_ticks");
+        return current != ticks || fields[0].equals("Z") ? "absent" : "present";
+    }
+
+    static void confirmControllerAbsent(int pid, long ticks, CaptureInventory inventory) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+        for (int sample = 0; sample < 5; sample++) {
+            if (System.nanoTime() >= deadline) throw new IOException("retirement_probe_timeout");
+            if (!controllerRetirementState(pid, ticks, inventory.read()).equals("absent")) throw new IOException("display_controller_present");
+            if (System.nanoTime() >= deadline) throw new IOException("retirement_probe_timeout");
+            if (sample + 1 < 5) Thread.sleep(50);
+        }
+    }
+
+    interface CaptureInventory { String read() throws Exception; }
+
+    static String captureRetirementState(int scid, String inventory) throws IOException {
+        if (scid <= 0) throw new IllegalArgumentException("capture_scid_invalid");
+        if (inventory == null || inventory.length() > 8 * 1024 * 1024 || !inventory.endsWith("\n") || inventory.indexOf('\0') >= 0)
+            throw new IOException("capture_inventory_incomplete");
+        String[] lines = inventory.split("\n", -1);
+        if (lines.length < 3 || !(lines[0].trim().matches("PID\\s+(ARGS|COMMAND)")))
+            throw new IOException("capture_inventory_header");
+        Set<Integer> pids = new HashSet<>();
+        boolean hasInit = false, present = false;
+        String expected = String.format(Locale.ROOT, "scid=%08x", scid);
+        for (int i = 1; i < lines.length - 1; i++) {
+            String[] fields = lines[i].trim().split("\\s+");
+            if (fields.length < 2 || !fields[0].matches("[0-9]+")) throw new IOException("capture_inventory_row");
+            int pid;
+            try { pid = Integer.parseInt(fields[0]); }
+            catch (NumberFormatException invalid) { throw new IOException("capture_inventory_pid", invalid); }
+            if (pid <= 0 || !pids.add(pid)) throw new IOException("capture_inventory_pid");
+            hasInit |= pid == 1;
+            List<String> tokens = Arrays.asList(fields);
+            boolean producer = tokens.contains("com.genymobile.scrcpy.Server");
+            int child = tokens.indexOf("com.genymobile.scrcpy.ShellCapabilityBridge$ChildMain");
+            if (child >= 0 && child + 1 < fields.length && fields[child + 1].equals("scrcpy")) producer = true;
+            if (!producer) continue;
+            int scids = 0;
+            for (String field : fields) if (field.startsWith("scid=")) {
+                if (!field.matches("scid=[0-7][a-f0-9]{7}") || ++scids > 1) throw new IOException("capture_inventory_scid");
+                if (field.equals(expected)) present = true;
+            }
+        }
+        if (!hasInit) throw new IOException("capture_inventory_incomplete");
+        return present ? "present" : "absent";
+    }
+
+    static void confirmCaptureAbsent(int scid, CaptureInventory inventory) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+        for (int sample = 0; sample < 5; sample++) {
+            if (System.nanoTime() >= deadline) throw new IOException("retirement_probe_timeout");
+            if (!captureRetirementState(scid, inventory.read()).equals("absent")) throw new IOException("adb_capture_present");
+            if (System.nanoTime() >= deadline) throw new IOException("retirement_probe_timeout");
+            if (sample + 1 < 5) Thread.sleep(50);
+        }
+    }
+
+
+
     private static String fixedRead(String... args) throws Exception {
         Process process = new ProcessBuilder(args).redirectErrorStream(true).start();
+        process.getOutputStream().close();
         ByteArrayOutputStream output = new ByteArrayOutputStream();
+        java.util.concurrent.atomic.AtomicReference<IOException> failure = new java.util.concurrent.atomic.AtomicReference<>();
         Thread reader = new Thread(() -> { try (InputStream input = process.getInputStream()) {
             byte[] buffer = new byte[4096]; int n;
-            while ((n = input.read(buffer)) != -1) { synchronized (output) { if (output.size() + n > 8 * 1024 * 1024) return; output.write(buffer, 0, n); } }
-        } catch (IOException ignored) {} }, "gb-shell-fixed-read"); reader.setDaemon(true); reader.start();
-        if (!process.waitFor(2, TimeUnit.SECONDS)) { process.destroyForcibly(); throw new IOException("fixed_read_timeout"); }
-        reader.join(200);
-        if (process.exitValue() != 0 || reader.isAlive()) throw new IOException("fixed_read_failed");
-        return new String(output.toByteArray(), StandardCharsets.UTF_8);
+            while ((n = input.read(buffer)) != -1) {
+                if (output.size() + n > 8 * 1024 * 1024) throw new IOException("fixed_read_limit");
+                output.write(buffer, 0, n);
+            }
+        } catch (IOException error) { failure.set(error); } }, "gb-shell-fixed-read");
+        reader.setDaemon(true); reader.start();
+        try {
+            if (!process.waitFor(2, TimeUnit.SECONDS)) throw new IOException("fixed_read_timeout");
+            reader.join(200);
+            if (process.exitValue() != 0 || reader.isAlive()) throw new IOException("fixed_read_failed");
+            if (failure.get() != null) throw failure.get();
+            return StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(output.toByteArray())).toString();
+        } finally {
+            if (process.isAlive()) process.destroyForcibly();
+        }
     }
     private static int packageUID(String packageName) throws Exception {
         String output = fixedRead("/system/bin/cmd", "package", "list", "packages", "-U", packageName);
@@ -797,7 +998,9 @@ public final class ShellCapabilityBridge implements AutoCloseable {
                 args.add("display_ime_policy=hide");
                 if (audio) { args.add("audio_codec=aac"); args.add("audio_bit_rate=128000"); }
                 args.add("video_codec=" + codec); args.add("max_size=" + size); args.add("max_fps=" + fps); args.add("video_bit_rate=" + bitrate);
-                args.add("video_codec_options=i-frame-interval=1" + (codec.equals("h264") ? ",bitrate-mode=2" : ""));
+                // Match ScrcpyLaunchProfile.wirelessADB: prepared capture must
+                // keep the same standard interactive encoder hints as raw ADB.
+                args.add("video_codec_options=i-frame-interval=1,priority=0,latency=0" + (codec.equals("h264") ? ",bitrate-mode=2" : ""));
                 if (width > 0 && height > 0) {
                     args.add("new_display=" + width + "x" + height + "/420"); args.add("vd_destroy_content=true");
                     args.add("vd_system_decorations=" + application.isEmpty());

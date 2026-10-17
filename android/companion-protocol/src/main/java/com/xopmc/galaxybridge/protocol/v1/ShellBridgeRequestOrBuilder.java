@@ -73,4 +73,15 @@ public interface ShellBridgeRequestOrBuilder extends
    * @return The powerOn.
    */
   boolean getPowerOn();
+
+  /**
+   * <code>.galaxybridge.v1.CaptureRetirementQuery retirement = 7;</code>
+   * @return Whether the retirement field is set.
+   */
+  boolean hasRetirement();
+  /**
+   * <code>.galaxybridge.v1.CaptureRetirementQuery retirement = 7;</code>
+   * @return The retirement.
+   */
+  com.xopmc.galaxybridge.protocol.v1.CaptureRetirementQuery getRetirement();
 }

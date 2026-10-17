@@ -31,6 +31,7 @@ struct DeviceRow { let id: String; var isReady = true; var adbSerial: String? = 
     var primaryPhonePrivacyLeases: [ObjectIdentifier: UUID] = [:]
     var phonePrivacyRoutes: [String: String] = [:]
     var phonePrivacyManualPower: [String: Bool] = [:]
+    var captureRouteHandoffTasks: [String: Task<Void, Never>] = [:]
     var phonePrivacyUpdates: [String: Task<Void, Never>] = [:]
     var phonePrivacyUpdateTickets: [String: UUID] = [:]
     var phoneDisplayPrivacyStatuses: [String: PhoneDisplayPrivacyStatus] = [:]

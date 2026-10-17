@@ -2,6 +2,7 @@
 import CoreMedia
 import CoreVideo
 import CryptoKit
+import Darwin
 import Foundation
 import GalaxyBridgeCore
 import GalaxyBridgeEnhancedCore
@@ -62,10 +63,13 @@ final class ScrcpySession: ObservableObject {
     @Published private(set) var applicationDisplayIdentity: ScrcpyApplicationDisplayIdentity?
 
     let serial: String
+    var capturedADBGeneration: UUID? { serial.hasPrefix("shell:") ? nil : adb.acquiredGeneration }
     var clipboardTrustGeneration: UUID { preparationID }
     var clipboardTrustPeer: PairedPeer? { shellLease?.context.peer }
     private let adb: ADBClient
     private let shellProvider: ShellCapabilityBridgeProvider?
+    private let remoteAbsenceProof: EnhancedCaptureAbsenceProof?
+    private var retiringADBLaunchers: [ObjectIdentifier: Process] = [:]
     private var shellLease: ShellCapabilityBridgeLease?
     private var retiredShellLeases: [ShellCapabilityBridgeLease] = []
     private let remoteRetirement: EnhancedRemoteRetirementFence
@@ -88,6 +92,7 @@ final class ScrcpySession: ObservableObject {
     private let nativePreparationBoundary: (@MainActor @Sendable (ScrcpyNativeMediaOwner, ScrcpyCodec) async throws -> Bool)?
     private var configuration: ScrcpyLaunchConfiguration?
     private var serverProcess: Process?
+    private var serverOwnerLifetime: ScrcpyADBOwnerLifetime?
     private var serverSCID: UInt32?
     private var serverOutputObserver: ScrcpyOwnedProcessOutputObserver?
     private var applicationDisplayLaunchGeneration: ScrcpyApplicationDisplayLaunchGeneration?
@@ -178,11 +183,14 @@ final class ScrcpySession: ObservableObject {
     var nativeRetirementSnapshot: NativeMediaSnapshot? { retiredNativeHandle?.snapshot }
     /// A deadline result is not proof that vendor/native references are gone.
     /// Cross-instance owners must check this before admitting a successor.
-    var cleanupPhysicallySettled: Bool {
-        (retiredNativeOwner?.attempt.snapshot.actuallySettled ?? true)
+    var hostResourcesPhysicallySettled: Bool {
+        nativeOwner == nil && quicTransport == nil && serverProcess == nil
+            && (retiredNativeOwner?.attempt.snapshot.actuallySettled ?? true)
             && (retiredQuicTransport?.physicallySettled ?? true)
-            && remoteRetirement.settled
-            && retiredShellLeases.isEmpty
+            && retiringADBLaunchers.isEmpty
+    }
+    var cleanupPhysicallySettled: Bool {
+        hostResourcesPhysicallySettled && remoteRetirement.settled && retiredShellLeases.isEmpty
     }
 
     /// Actual prepare and host-native fixtures share this allocation seam.
@@ -278,11 +286,13 @@ final class ScrcpySession: ObservableObject {
             Task { @MainActor in action() }
         },
         nativePreparationBoundary: (@MainActor @Sendable (ScrcpyNativeMediaOwner, ScrcpyCodec) async throws -> Bool)? = nil,
-        shellProvider: ShellCapabilityBridgeProvider? = nil
+        shellProvider: ShellCapabilityBridgeProvider? = nil,
+        remoteAbsenceProof: EnhancedCaptureAbsenceProof? = nil
     ) {
         self.serial = serial
         self.adb = adb
         self.shellProvider = shellProvider
+        self.remoteAbsenceProof = remoteAbsenceProof
         self.remoteRetirement = EnhancedRemoteRetirementFence(captureSerial: serial)
         self.physicalDisplayPolicy = physicalDisplayPolicy
         self.automaticDisplayManagement = shellProvider == nil && automaticDisplayManagement
@@ -396,13 +406,26 @@ final class ScrcpySession: ObservableObject {
     }
 
     private func retirePendingRemoteServers() async {
-        await remoteRetirement.retire { [adb] serial, scid in
-            try await Task.detached(priority: .utility) {
-                try adb.retireScrcpyServer(serial: serial, scid: scid)
-            }.value
+        await retireLocalLaunchers()
+        await remoteRetirement.retire { [adb, remoteAbsenceProof] serial, scid in
+            do {
+                try await Task.detached(priority: .utility) {
+                    try adb.retireScrcpyServer(serial: serial, scid: scid)
+                }.value
+            } catch {
+                guard let remoteAbsenceProof else { throw error }
+                try await remoteAbsenceProof(scid)
+            }
         }
         if !remoteRetirement.settled {
             logger.error("Enhanced remote retirement remains fenced: remote-server-not-retired")
+        }
+    }
+
+    private func retireLocalLaunchers() async {
+        for (id, process) in Array(retiringADBLaunchers) {
+            await Task.detached(priority: .utility) { ADBProcessRegistry.stopAndReap(process) }.value
+            if retiringADBLaunchers[id] === process { retiringADBLaunchers.removeValue(forKey: id) }
         }
     }
 
@@ -781,7 +804,12 @@ final class ScrcpySession: ObservableObject {
         // startup can still retire only this exact server instance.
         if shellProvider == nil {
             serverSCID = configuration.scid
-            serverProcess = try adb.launch(serial: serial, arguments: configuration.serverArguments, outputObserver: outputObserver)
+            let lifetime = try ScrcpyADBOwnerLifetime()
+            serverOwnerLifetime = lifetime
+            serverProcess = try adb.launch(serial: serial,
+                arguments: ScrcpyADBOwnerLifetime.launchArguments(configuration.serverArguments),
+                outputObserver: outputObserver, inputPipe: lifetime.pipe)
+            lifetime.start()
             if configuration.tunnelForward {
                 try await Task.detached(priority: .userInitiated) { [adb, serial] in
                     try adb.waitForAbstractSocket(serial: serial, socketName: configuration.socketName)
@@ -1412,8 +1440,16 @@ final class ScrcpySession: ObservableObject {
         }
         injectedClipboardEchoes = ScrcpyInjectedClipboardEchoSuppressor()
         injectedClipboardEchoesBySequence.removeAll(keepingCapacity: true)
-        serverProcess?.terminate()
-        serverProcess = nil
+        serverOwnerLifetime?.stop()
+        serverOwnerLifetime = nil
+        if let process = serverProcess {
+            serverProcess = nil
+            if process.isRunning { process.terminate() }
+            retiringADBLaunchers[ObjectIdentifier(process)] = process
+            // Reap this exact local launcher before checking remote absence:
+            // a still-starting adb shell must not launch after the proof.
+            scheduleCleanup { [weak self] in await self?.retireLocalLaunchers() }
+        }
         if let scid = serverSCID {
             remoteRetirement.requireRetirement(scid: scid)
             scheduleCleanup { [weak self] in await self?.retirePendingRemoteServers() }
@@ -1967,5 +2003,60 @@ final class ScrcpyControlSocket: @unchecked Sendable {
             receiveControl()
         }
     }
+}
+/// A private stdin lease, independent of the media sockets that ADB may keep
+/// half-open after detach. All writes and close share one queue; never block UI.
+final class ScrcpyADBOwnerLifetime: @unchecked Sendable {
+    let pipe = Pipe()
+    private let queue = DispatchQueue(label: "com.xopmc.GalaxyBridge.adb-capture-owner")
+    private final class State: @unchecked Sendable { var stopped = false }
+    private let state = State()
+    private var timer: DispatchSourceTimer?
+    init() throws {
+        let descriptor = pipe.fileHandleForWriting.fileDescriptor
+        let flags = fcntl(descriptor, F_GETFL)
+        guard flags >= 0, fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0,
+              fcntl(descriptor, F_SETNOSIGPIPE, 1) == 0 else { throw POSIXError(.EIO) }
+    }
+    static func launchArguments(_ arguments: [String]) throws -> [String] {
+        guard arguments.count >= 6, arguments[0] == "shell", arguments[1].hasPrefix("CLASSPATH="),
+              arguments[2] == "app_process", arguments[3] == "/" else { throw POSIXError(.EINVAL) }
+        let mode: String
+        switch arguments[4] {
+        case "com.genymobile.scrcpy.Server" where arguments.count >= 7: mode = "scrcpy"
+        case "com.genymobile.scrcpy.ClipboardAgent" where arguments.count == 6: mode = "clipboard"
+        default: throw POSIXError(.EINVAL)
+        }
+        var result = arguments
+        // adb shell joins these arguments into a remote shell command.
+        result[4] = "'com.genymobile.scrcpy.ShellCapabilityBridge$ChildMain'"
+        result.insert("--owner-lease", at: 5)
+        result.insert(mode, at: 5)
+        result.insert("-T", at: 1)
+        return result
+    }
+    func start() {
+        queue.sync {
+            guard timer == nil, !state.stopped else { return }
+            let source = DispatchSource.makeTimerSource(queue: queue)
+            let input = pipe.fileHandleForWriting, state = state
+            source.setEventHandler {
+                guard !state.stopped else { return }
+                var heartbeat: UInt8 = 126
+                // Nonblocking: a stalled relay is allowed to expire remotely.
+                _ = Darwin.write(input.fileDescriptor, &heartbeat, 1)
+            }
+            source.schedule(deadline: .now(), repeating: .seconds(1), leeway: .milliseconds(100))
+            timer = source; source.resume()
+        }
+    }
+    func stop() {
+        queue.sync {
+            guard !state.stopped else { return }
+            state.stopped = true; timer?.cancel(); timer = nil
+            try? pipe.fileHandleForWriting.close()
+        }
+    }
+    deinit { stop() }
 }
 #endif

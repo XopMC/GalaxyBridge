@@ -86,7 +86,7 @@
 "READY_TO_STREAM" = "Bereit zum Teilen des Bildschirms";
 "ADB_AUTH_REQUIRED" = "Verbindung auf dem Smartphone bestätigen";
 "PHONE_CONNECTION_REQUIRED" = "Smartphone-Verbindung erforderlich";
-"COMPANION_CONNECTION_FAILED" = "Companion-Verbindung fehlgeschlagen: %@";
+"COMPANION_CONNECTION_FAILED" = "Verbindung mit diesem Smartphone fehlgeschlagen: %@";
 "COMPANION_PAIRING_REQUIRED" = "Galaxy Bridge muss erneut eine sichere Verbindung herstellen. Öffnen Sie Galaxy Bridge auf dem Smartphone und scannen Sie den Kopplungs-QR-Code einmal.";
 "COMPANION_AUTHENTICATION_FAILED" = "Die sichere Verbindung konnte nicht überprüft werden. Koppeln Sie dieses Galaxy erneut mit dem Mac.";
 "PEER_STORE_FAILED" = "Gekoppelte Geräte konnten nicht gelesen werden: %@";
@@ -389,3 +389,4 @@
 "FEATURE_DISABLED" = "Diese Funktion ist für dieses Telefon ausgeschaltet.";
 
 "NEARBY_LOCATION_PERMISSION_HINT" = "Erlaube Galaxy Bridge den Standortzugriff unter Systemeinstellungen → Datenschutz & Sicherheit → Ortungsdienste, um Telefone in der Nähe zu verbinden.";
+"NOTIFICATIONS_EMPTY_HINT" = "Neue Benachrichtigungen deines Smartphones werden hier angezeigt.";

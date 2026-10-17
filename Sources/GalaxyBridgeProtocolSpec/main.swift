@@ -71,6 +71,31 @@ do {
     precondition(decodedActionResult.notificationActionResult == actionResult)
     precondition(GBCapability.notificationActionResults.rawValue == 13)
 
+    var retirement = GBCaptureRetirementQuery()
+    retirement.kind = .displayPowerController; retirement.pid = 42; retirement.processStartTicks = 123456
+    var retirementRequest = GBShellBridgeRequest()
+    retirementRequest.operation = .verifyRetirement
+    retirementRequest.retirement = retirement
+    let decodedRetirement = try GBShellBridgeRequest(serializedBytes: retirementRequest.serializedData())
+    precondition(decodedRetirement.hasRetirement && decodedRetirement.retirement == retirement)
+    var support = GBShellBridgeRequest()
+    support.operation = .verifyRetirement; support.retirement = GBCaptureRetirementQuery()
+    let decodedSupport = try GBShellBridgeRequest(serializedBytes: support.serializedData())
+    precondition(decodedSupport.hasRetirement,
+        "empty support query must preserve explicit message presence")
+    retirement.ownedResourceID = "69830b65-6352-4b3a-8a21-70bcda45787e"
+    retirement.resourceSha256 = Data(repeating: 0x11, count: 32)
+    retirementRequest.operation = .releaseRetiredResource; retirementRequest.retirement = retirement
+    let decodedRelease = try GBShellBridgeRequest(serializedBytes: retirementRequest.serializedData())
+    precondition(decodedRelease == retirementRequest)
+    var proof = GBCaptureRetirementProof()
+    proof.kind = .displayPowerController; proof.pid = 42; proof.processStartTicks = 123456
+    proof.supported = true; proof.absent = true
+    var panel = GBPhysicalPanelPowerState(); panel.physicalID = "18446744073709551615"; panel.on = false
+    proof.panels = [panel]
+    var retirementResult = GBShellBridgeResult(); retirementResult.retirementProof = proof
+    let decodedProof = try GBShellBridgeResult(serializedBytes: retirementResult.serializedData())
+    precondition(decodedProof.hasRetirementProof && decodedProof.retirementProof == proof)
     print("PASS GalaxyBridge protobuf golden fixture and notification request/result compatibility")
 } catch {
     FileHandle.standardError.write(Data("FAIL \(error)\n".utf8))

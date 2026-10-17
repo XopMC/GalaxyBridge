@@ -3,6 +3,9 @@ import Foundation
 import GalaxyBridgeCore
 import OSLog
 
+typealias DisplayControllerRetirementProof = @MainActor @Sendable (DisplayPowerControllerIdentity, PhonePanelPowerSnapshot) async throws -> Void
+typealias DisplayControllerResourceRelease = @MainActor @Sendable (DisplayPowerControllerIdentity, String) async throws -> Void
+
 /// Capture-free, snapshot-owning UID2000 child. EOF and shutdown restore exact
 /// panel states; no stock all-ON scrcpy cleanup, brightness or keyguard changes.
 @MainActor
@@ -12,6 +15,11 @@ final class ScrcpyDisplayPowerSession: PhoneDisplayPowerOwner {
     var panelPowerChangedHandler: ((PhonePanelPowerSnapshot) -> Void)?
     private var serial: String
     private let adb: ADBClient
+    private var retirementProof: DisplayControllerRetirementProof?
+    private var resourceRelease: DisplayControllerResourceRelease?
+    private let retirementProofResolver: ((String) -> DisplayControllerRetirementProof?)?
+    private let resourceReleaseResolver: ((String) -> DisplayControllerResourceRelease?)?
+    private var independentRetirementConfirmed = false
     private var shellProvider: ShellCapabilityBridgeProvider?
     private let shellProviderResolver: ((String) -> ShellCapabilityBridgeProvider?)?
     private var shellLease: ShellCapabilityBridgeLease?
@@ -30,8 +38,14 @@ final class ScrcpyDisplayPowerSession: PhoneDisplayPowerOwner {
     private var routeSettlementPending = false
 
     init(serial: String, adb: ADBClient, shellProvider: ShellCapabilityBridgeProvider? = nil,
-         shellProviderResolver: ((String) -> ShellCapabilityBridgeProvider?)? = nil) {
+         shellProviderResolver: ((String) -> ShellCapabilityBridgeProvider?)? = nil,
+         retirementProof: DisplayControllerRetirementProof? = nil,
+         resourceRelease: DisplayControllerResourceRelease? = nil,
+         retirementProofResolver: ((String) -> DisplayControllerRetirementProof?)? = nil,
+         resourceReleaseResolver: ((String) -> DisplayControllerResourceRelease?)? = nil) {
         self.serial = serial; self.adb = adb; self.shellProvider = shellProvider; self.shellProviderResolver = shellProviderResolver
+        self.retirementProof = retirementProof; self.resourceRelease = resourceRelease
+        self.retirementProofResolver = retirementProofResolver; self.resourceReleaseResolver = resourceReleaseResolver
     }
     func useRoute(serial: String) async throws -> PhoneDisplayPowerRouteChange {
         let next = shellProviderResolver?(serial)
@@ -60,6 +74,10 @@ final class ScrcpyDisplayPowerSession: PhoneDisplayPowerOwner {
         }
         if controller != nil, acknowledgement != nil, !restored { return }
         if controller != nil { try await stop() }
+        // Freeze callbacks for this raw controller, after the previous backend
+        // settled. A Shell-origin owner may now use a newly verified USB route.
+        if let retirementProofResolver { retirementProof = retirementProofResolver(serial) }
+        if let resourceReleaseResolver { resourceRelease = resourceReleaseResolver(serial) }
         let owned = PhonePrivacyServerOwnership()
         ownership = owned
         do {
@@ -69,7 +87,7 @@ final class ScrcpyDisplayPowerSession: PhoneDisplayPowerOwner {
             }.value
             let input = Pipe(), output = Pipe()
             let process = try adb.launch(serial: serial, arguments: ["shell", "-T", "CLASSPATH=\(owned.remoteJarPath)",
-                "app_process", "/", "com.genymobile.scrcpy.DisplayPowerController"], inputPipe: input, outputPipe: output)
+                "app_process", "/", "com.genymobile.scrcpy.DisplayPowerController", "--owner-lease"], inputPipe: input, outputPipe: output)
             // Parent copies must not keep EOF from reaching the remote child.
             try input.fileHandleForReading.close(); try output.fileHandleForWriting.close()
             let controller = DisplayPowerControllerProcess(process: process, input: input.fileHandleForWriting, output: output.fileHandleForReading)
@@ -159,19 +177,41 @@ final class ScrcpyDisplayPowerSession: PhoneDisplayPowerOwner {
             try await finishControllerExit()
         }
         if let ownership {
-            _ = try await shell("rm -f '\(ownership.remoteJarPath)'")
+            do { _ = try await shell("rm -f '\(ownership.remoteJarPath)'") }
+            catch {
+                guard let identity = acknowledgement?.identity ?? startupFailureIdentity, let resourceRelease else { throw error }
+                try await resourceRelease(identity, ownership.resourceID)
+            }
         }
-        controller = nil; acknowledgement = nil; startupFailureIdentity = nil; ownership = nil; observed = nil; restored = false; deliveredInitialSnapshot = false; confirmedRestoredFailure = false
+        controller = nil; acknowledgement = nil; startupFailureIdentity = nil; ownership = nil; observed = nil; restored = false; deliveredInitialSnapshot = false; confirmedRestoredFailure = false; independentRetirementConfirmed = false
     }
     private func finishControllerExit() async throws {
         guard let controller else { return }
-        try await controller.closeAndWait(confirmedRestoredFailure: confirmedRestoredFailure)
-        if let identity = acknowledgement?.identity ?? startupFailureIdentity {
-            let deadline = ContinuousClock.now + .seconds(8)
-            while try await identityIsCurrent(identity) {
-                guard ContinuousClock.now < deadline else { throw PowerError.cleanupUnsettled }
-                try await Task.sleep(for: .milliseconds(100))
+        if independentRetirementConfirmed { try await controller.retireAfterIndependentProof(); return }
+        do {
+            try await controller.closeAndWait(confirmedRestoredFailure: confirmedRestoredFailure)
+            if let identity = acknowledgement?.identity ?? startupFailureIdentity {
+                let deadline = ContinuousClock.now + .seconds(8)
+                while try await identityIsCurrent(identity) {
+                    guard ContinuousClock.now < deadline else { throw PowerError.cleanupUnsettled }
+                    try await Task.sleep(for: .milliseconds(100))
+                }
             }
+        } catch {
+            let transportFailure = error
+            guard let acknowledgement else { throw transportFailure }
+            do {
+                // A verified Wireless ADB alias can outlive the original USB
+                // transport, including with a previous Helper version.
+                guard try await !identityIsCurrent(acknowledgement.identity),
+                      let current = PhonePanelPowerParser.snapshot(try await shell("dumpsys SurfaceFlinger")),
+                      current == acknowledgement.initial else { throw PowerError.panelNotConfirmed }
+            } catch {
+                guard let retirementProof else { throw transportFailure }
+                try await retirementProof(acknowledgement.identity, acknowledgement.initial)
+            }
+            independentRetirementConfirmed = true
+            try await controller.retireAfterIndependentProof()
         }
     }
     private func command(_ byte: UInt8) async throws -> DisplayPowerControllerAcknowledgement {

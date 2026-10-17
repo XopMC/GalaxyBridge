@@ -71,7 +71,10 @@ enum ADBScrcpyServerProcessParser {
             guard fields.count >= 3,
                   let processID = Int32(fields[0]),
                   processID > 1,
-                  fields.contains("com.genymobile.scrcpy.Server"),
+                  (fields.contains("com.genymobile.scrcpy.Server") || fields.indices.contains(where: {
+                      fields[$0] == "com.genymobile.scrcpy.ShellCapabilityBridge$ChildMain" && $0 + 2 < fields.count && fields[$0 + 1] == "scrcpy" && fields[$0 + 2] == "--owner-lease"
+                  })),
+                  fields.filter({ $0.hasPrefix("scid=") }).count == 1,
                   fields.contains(where: { $0 == Substring(expectedSCID) })
             else { continue }
             result.insert(processID)
@@ -136,6 +139,8 @@ struct ADBClient: Sendable {
     }
     private let distribution: ADBDistributionChannel
     private let ownedRuntime: ADBOwnedRuntimeClient?
+    var acquiredGeneration: UUID? { ownedRuntime?.acquiredGeneration }
+    var acquiredGenerationIsRetired: Bool { ownedRuntime?.acquiredGenerationIsRetired ?? false }
     private var commandCancellation: ADBProcessCancellation? = nil
 
     /// Explicit fake-process injection is confined to test call sites. Public

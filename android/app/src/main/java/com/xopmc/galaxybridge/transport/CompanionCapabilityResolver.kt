@@ -27,6 +27,7 @@ internal object CompanionCapabilityResolver {
             Capability.CAPABILITY_FEATURE_CONFIGURATION,
         )
         val unavailable = linkedMapOf<String, String>()
+        if (BuildConfig.DISTRIBUTION != "play") available += Capability.CAPABILITY_CAPTURE_RETIREMENT_PROOF
         if (BuildConfig.DISTRIBUTION != "play" && com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current?.shell?.isAvailable == true) {
             available += Capability.CAPABILITY_PRIVILEGED_BRIDGE
         } else unavailable[Capability.CAPABILITY_PRIVILEGED_BRIDGE.name] = "shell_bridge_not_activated"

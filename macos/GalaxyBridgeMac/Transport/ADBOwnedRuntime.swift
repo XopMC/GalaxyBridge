@@ -50,6 +50,18 @@ final class ADBOwnedRuntimeClient: @unchecked Sendable {
     private let owner: ADBOwnedRuntime
     private var configuration: ADBRuntimeConfiguration?
     init(owner: ADBOwnedRuntime) { self.owner = owner }
+    /// Observation never acquires or revives a retired daemon generation.
+    var acquiredGeneration: UUID? {
+        lock.lock(); defer { lock.unlock() }
+        return configuration?.generation
+    }
+    /// True only after this exact private daemon exited or was replaced.
+    /// Closing admission alone is not evidence that its forwards disappeared.
+    var acquiredGenerationIsRetired: Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard let configuration else { return false }
+        return owner.generationIsRetired(configuration.generation)
+    }
     func acquire() throws -> ADBRuntimeConfiguration {
         lock.lock(); defer { lock.unlock() }
         if let configuration {
@@ -70,7 +82,7 @@ enum ADBOwnedUSBPolicy: String, Sendable {
 }
 
 final class ADBOwnedRuntime: @unchecked Sendable {
-    // Build-specific, ad-hoc signed arm64 artifact from the pinned source + all three
+    // Build-specific, ad-hoc signed arm64 artifact from the pinned source + the reviewed
     // owned-runtime patches. A self-asserted manifest cannot authorize an SDK
     // binary that might touch ~/.android before rejecting our runtime marker.
     static let pinnedADBSHA256 = GalaxyBridgeBuildPins.adbSHA
@@ -106,6 +118,13 @@ final class ADBOwnedRuntime: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard acceptingClients, !failed else { throw ADBOwnedRuntimeError.stopped }
         return ADBOwnedRuntimeClient(owner: self)
+    }
+
+    /// Observation only: never starts a daemon or changes an existing lease.
+    var activeGeneration: UUID? {
+        lock.lock(); defer { lock.unlock() }
+        guard acceptingClients, !failed, server?.isRunning == true else { return nil }
+        return configuration?.generation
     }
 
     private static func privateDirectory(_ url: URL, create: Bool) throws {
@@ -203,7 +222,16 @@ final class ADBOwnedRuntime: @unchecked Sendable {
     fileprivate func acquire() throws -> ADBRuntimeConfiguration {
         lock.lock(); defer { lock.unlock() }
         guard acceptingClients, !failed else { throw ADBOwnedRuntimeError.stopped }
-        if let configuration { try validate(generation: configuration.generation); return configuration }
+        if let configuration {
+            if server?.isRunning == true {
+                try validate(generation: configuration.generation)
+                return configuration
+            }
+            // Only a fresh client reaches this path. Frozen clients still fail
+            // validation and can never send capture commands to a successor.
+            configuration.processes.drainAndCancel(timeout: 1)
+            releaseResources()
+        }
         do {
             try validateArtifact()
             try Self.privateDirectory(identityRoot, create: true)
@@ -265,6 +293,11 @@ final class ADBOwnedRuntime: @unchecked Sendable {
             releaseResources()
             throw error
         }
+    }
+
+    fileprivate func generationIsRetired(_ generation: UUID) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return configuration?.generation != generation || server?.isRunning != true
     }
 
     fileprivate func validate(generation: UUID) throws {

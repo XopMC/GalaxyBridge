@@ -8,6 +8,30 @@ import AppKit
 
 @Suite(.serialized)
 struct PrimaryMediaDiagnosticsTests {
+    @Test func firstVideoBytesAndPacketRemainSeparateFromVisibleChange() throws {
+  let meter=PrimaryMediaDiagnostics(generation:7,now:{0},sink:{_ in})
+  let dark=PrimaryFrameSignature(luma:Array(repeating:0,count:576)),light=PrimaryFrameSignature(luma:Array(repeating:100,count:576))
+  let baseline=meter.received(stream:.video,bytes:1,pts:1,epoch:1,now:1)!
+  meter.drawablePresented(trace:baseline,submittedAt:1,presentedAt:1.01,signature:dark)
+  let input=meter.received(stream:.control,bytes:1,pts:nil,epoch:nil,now:2)!
+  meter.inputDispatched(trace:input,at:2,epochMS:123)
+  meter.socketReceived(stream:.audio,bytes:500,armedAt:2,callbackAt:2.005)
+  meter.socketReceived(stream:.video,bytes:0,armedAt:2,callbackAt:2.006)
+  meter.socketReceived(stream:.video,bytes:4096,armedAt:2,callbackAt:2.01)
+  _=meter.received(stream:.video,bytes:20,pts:nil,epoch:1,now:2.02)
+  let first=meter.received(stream:.video,bytes:175000,pts:100,epoch:1,now:2.05)!
+  meter.drawablePresented(trace:first,submittedAt:2.05,presentedAt:2.08,signature:dark)
+  meter.socketReceived(stream:.video,bytes:1200,armedAt:2.01,callbackAt:2.09)
+  _=meter.received(stream:.video,bytes:1500,pts:200,epoch:1,now:2.1)
+  let changed=meter.received(stream:.video,bytes:2500,pts:300,epoch:1,now:2.6)!
+  meter.drawablePresented(trace:changed,submittedAt:2.6,presentedAt:2.65,signature:light)
+  let summary=meter.snapshot(now:2.7),text=summary.logLines.joined(separator:" ")
+  #expect(summary.inputFrameSamples.count==1 && summary.inputFrameSamples[0].frameSequence==changed.sequence)
+  #expect(text.contains("inputFrameTiming=input:\(input.sequence),dispatch_uptime_s:2.0,received_uptime_s:2.6,first_byte_uptime_s:2.01"),"cannot distinguish first socket bytes from delayed visible change")
+  #expect(text.contains("first_frame:\(first.sequence),first_pts_us:100,first_frame_uptime_s:2.05,first_frame_bytes:175000"),"configuration, audio or a later packet replaced the first video candidate")
+  #expect(summary.logLines.allSatisfy{$0.utf8.count<900},"diagnostic line budget exceeded")
+    }
+
     @Test func ownerWorkAndWaitRemainSeparateWithLateBoundedOutliers() {
         let meter = PrimaryMediaDiagnostics(generation: 12, now: { 0 }, sink: { _ in })
         for index in 0..<1_000 {

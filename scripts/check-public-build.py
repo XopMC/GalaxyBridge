@@ -31,12 +31,18 @@ for script in ['public-build.py', 'package-macos-direct.py', 'package-android-di
                'build-internet-runtime.py', 'package-network-helper.py',
                'network-test-guardian.py', 'test-nearby-bootstrap-interop.py',
                'verify-rust-macos-deployment.py', 'test-android-shell-stop.py',
-               'build_path_privacy.py', 'check-release-privacy.py', 'test-release-privacy.py']:
+               'build_path_privacy.py', 'check-release-privacy.py', 'test-release-privacy.py',
+               'test-application-retirement-ownership.py', 'test-capture-absence-proof.py', 'test-capture-route-recovery.py', 'test-owned-adb-transfer-lifetime.py', 'test-owned-adb-tunnel-generation.py', 'test-scrcpy-adb-owner-lifetime.py']:
     ast.parse((ROOT / 'scripts' / script).read_text(), filename=script)
 run([sys.executable, ROOT / 'scripts/test-public-build.py'])
 run([sys.executable, ROOT / 'scripts/test-build-path-privacy.py'])
 run([sys.executable, ROOT / 'scripts/test-release-privacy.py'])
 run([sys.executable, ROOT / 'scripts/test-media-failure-diagnostics.py'])
+run([sys.executable, ROOT / 'scripts/test-application-retirement-ownership.py'])
+run([sys.executable, ROOT / 'scripts/test-capture-absence-proof.py'])
+run([sys.executable, ROOT / 'scripts/test-capture-route-recovery.py'])
+run([sys.executable, ROOT / 'scripts/test-owned-adb-tunnel-generation.py'])
+run([sys.executable, ROOT / 'scripts/test-scrcpy-adb-owner-lifetime.py'])
 run([sys.executable, ROOT / 'scripts/test-macos-main-bundle-localization.py'])
 run([sys.executable, ROOT / 'scripts/test-macos-direct-package.py', '--metadata-only'])
 run(['bash', ROOT / 'scripts/test-macos-distribution-resources.sh'])
@@ -55,7 +61,7 @@ env.update(JAVA_HOME=java, GB_NEARBY_SWIFT_MODULES=str(swift_bin / 'Modules'),
            GB_NEARBY_PROTOC=str(swift_bin / 'protoc-tool'),
            GB_SCRCPY_CLASS_DIR=str(source_build / '4.1/classes'))
 env['GB_OWNED_ADB_TEST_RUNTIME'] = str(build / 'artifacts/adb')
-for script in ['test-macos-companion-diagnostics.sh', 'test-macos-owned-adb-runtime.sh', 'test-macos-incoming-file-store.sh', 'test-macos-client-setup.sh', 'test-macos-feature-configuration-entrypoint.sh', 'test-macos-file-transfer-presentation.sh']:
+for script in ['test-macos-companion-tunnel.sh', 'test-macos-companion-diagnostics.sh', 'test-macos-owned-adb-runtime.sh', 'test-macos-incoming-file-store.sh', 'test-macos-client-setup.sh', 'test-macos-feature-configuration-entrypoint.sh', 'test-macos-file-transfer-presentation.sh']:
     run(['sh', ROOT / 'scripts' / script])
 for script in ['test-clipboard-agent-protocol.sh', 'test-clipboard-primary-read-admission.sh', 'test-macos-clipboard-polling.sh', 'test-macos-clipboard-hub.sh',
                'test-macos-clipboard-policy.sh', 'test-macos-notification-bridge.sh',
@@ -71,7 +77,7 @@ for script in ['test-clipboard-agent-protocol.sh', 'test-clipboard-primary-read-
     run(['sh', ROOT / 'scripts' / script])
 for script in ['test-nearby-connectivity-policy.sh', 'test-nearby-bootstrap-crypto.sh',
                'test-nearby-transport.sh', 'test-nearby-discovery.sh', 'test-raw-channel-upgrade.sh',
-               'test-shell-capability-bridge.sh', 'test-network-helper.sh',
+               'test-shell-capability-bridge.sh', 'test-display-power-controller.sh', 'test-network-helper.sh',
                'test-macos-internet-sharing-lifecycle.sh',
                'test-macos-nearby-preparation.sh', 'test-internet-tunnel-lifecycle.sh']:
     run(['bash', ROOT / 'scripts' / script])

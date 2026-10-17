@@ -39,6 +39,10 @@ start = source.index('            synchronized(lock) {', source.index('         
 end = source.index('            return response', start)
 completion = source[start:end]
 assert 'request.operation == ShellBridgeRequest.Operation.STOP' in completion
+failure_start = source.index('        } catch (_: Exception) {', source.index('fun executeAuthenticated')) + len('        } catch (_: Exception) {')
+failure_end = source.index('        } finally {', failure_start)
+failure_fixture = (root / 'scripts/fixtures/ShellReadOnlyFailureIsolationSpec.kt').read_text().replace(
+    '        // ACTUAL_EXECUTE_FAILURE', source[failure_start:failure_end])
 fixture = (root / 'scripts/fixtures/ShellStopOwnershipSpec.kt').read_text().replace('        // ACTUAL_STOP_COMPLETION', completion)
 server = Path(os.environ.get('GB_SHELL_STOP_SERVER_SOURCE', root / 'android/app/src/main/java/com/xopmc/galaxybridge/transport/CompanionLanServer.kt')).read_text()
 lease_start = server.index('    private data class FeatureShellLease(')
@@ -67,19 +71,25 @@ feature_fixture = (root / 'scripts/fixtures/FeatureShellStopOwnershipSpec.kt').r
     .replace('        // ACTUAL_LATE_START_DISABLE', server[late_start:late_end])
 with tempfile.TemporaryDirectory(prefix='gb-android-shell-stop-') as temporary:
     tmp = Path(temporary)
-    # Freeze the existing protocol artifact; no shared build outputs are written.
-    protocol = tmp / 'protocol.jar'
-    shutil.copyfile(root / 'android/companion-protocol/build/intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar', protocol)
+    # Compile checked-in protocol source so a stale Gradle JAR cannot hide a wire change.
+    protocol = tmp / 'protocol-classes'
+    protocol.mkdir()
+    javac = str(Path(java).with_name('javac'))
+    generated = sorted((root / 'android/companion-protocol/src/main/java').rglob('*.java'))
+    run([javac, '--release', '17', '-encoding', 'UTF-8', '-cp', protobuf, '-d', protocol, *generated])
     actual = tmp / 'ActualShellStop.kt'
     actual.write_text(fixture)
+    actual_failure = tmp / 'ActualShellFailure.kt'
+    actual_failure.write_text(failure_fixture)
     actual_feature = tmp / 'ActualFeatureShellStop.kt'
     actual_feature.write_text(feature_fixture)
     classpath = os.pathsep.join([str(tmp), str(protocol), stdlib, protobuf, junit, hamcrest])
     run([java, '-cp', compiler, 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect',
          '-jvm-target', '17', '-classpath', classpath, '-d', tmp,
          base / 'ShellBridgePolicy.kt', base / 'ShellBridgeWire.kt',
-         tests / 'ShellBridgePolicyTest.kt', actual, actual_feature])
+         tests / 'ShellBridgePolicyTest.kt', actual, actual_feature, actual_failure])
     run([java, '-cp', classpath, 'org.junit.runner.JUnitCore',
          'com.xopmc.galaxybridge.transport.shell.ShellBridgePolicyTest',
          'com.xopmc.galaxybridge.transport.shell.ShellStopOwnershipSpec',
-         'com.xopmc.galaxybridge.transport.shell.FeatureShellStopOwnershipSpec'])
+         'com.xopmc.galaxybridge.transport.shell.FeatureShellStopOwnershipSpec',
+         'com.xopmc.galaxybridge.transport.shell.ShellReadOnlyFailureIsolationSpec'])

@@ -18,16 +18,25 @@ struct ADBCompanionTunnelResource: Sendable {
     let remove: @Sendable () throws -> Void
 }
 
+/// The proof is frozen with the client before allocation starts, so even a
+/// failed allocation retains evidence of that exact daemon's eventual exit.
+struct ADBCompanionTunnelAllocation: Sendable {
+    let create: @Sendable () throws -> ADBCompanionTunnelResource
+    let ownershipRetired: @Sendable () -> Bool
+}
+
 /// A forward is only a transport. The caller must still pin the peer's TLS certificate and
 /// perform signed session authentication on every channel before trusting this endpoint.
 actor ADBCompanionTunnelCoordinator {
     typealias Allocate = @Sendable (String) throws -> ADBCompanionTunnelResource
+    typealias Prepare = @Sendable (String) throws -> ADBCompanionTunnelAllocation
     private struct Entry {
         let token: UUID
         let serial: String
+        let ownershipRetired: @Sendable () -> Bool
         let task: Task<ADBCompanionTunnelResource, Error>
     }
-    private let allocate: Allocate
+    private let prepare: Prepare
     private var entries: [String: Entry] = [:]
     private var revoked: Set<String> = []
     private var retiringSerials: Set<String> = []
@@ -38,12 +47,21 @@ actor ADBCompanionTunnelCoordinator {
     private let capacity: Int
 
     init(capacity: Int = 8, allocate: @escaping Allocate) {
-        self.capacity = max(1, min(32, capacity)); self.allocate = allocate
+        self.capacity = max(1, min(32, capacity))
+        prepare = { serial in .init(create: { try allocate(serial) }, ownershipRetired: { false }) }
+    }
+
+    init(capacity: Int = 8, prepare: @escaping Prepare) {
+        self.capacity = max(1, min(32, capacity)); self.prepare = prepare
     }
 
     init(clientFactory: @escaping @Sendable () throws -> ADBClient = { try ADBClient() }) {
         capacity = 8
-        allocate = { serial in try Self.allocateForward(serial: serial, client: clientFactory()) }
+        prepare = { serial in
+            let client = try clientFactory()
+            return .init(create: { try Self.allocateForward(serial: serial, client: client) },
+                         ownershipRetired: { client.acquiredGenerationIsRetired })
+        }
     }
 
     /// peerID must include the verified pairing generation. Never call this using an
@@ -54,6 +72,14 @@ actor ADBCompanionTunnelCoordinator {
         guard !peerID.isEmpty, peerID.utf8.count <= 512, !serial.isEmpty, serial.utf8.count <= 256,
               !serial.contains(where: { $0.isWhitespace || $0.isNewline || $0 == "\0" })
         else { throw ADBCompanionTunnelError.invalidBinding }
+        // A departed phone must not strand capacity for other phones after
+        // its private daemon exited. Each entry keeps its own frozen proof.
+        for (key, previous) in quarantined where previous.ownershipRetired() {
+            quarantined.removeValue(forKey: key)
+        }
+        for (key, previous) in entries where previous.ownershipRetired() {
+            entries.removeValue(forKey: key)
+        }
         guard quarantined[serial] == nil else { throw ADBCompanionTunnelError.ownershipUncertain }
         let entry: Entry
         if let existing = entries[peerID] {
@@ -63,9 +89,9 @@ actor ADBCompanionTunnelCoordinator {
             guard entries.count + retirements.count + quarantined.count < capacity else { throw ADBCompanionTunnelError.capacity }
             guard !retiringSerials.contains(serial), !entries.values.contains(where: { $0.serial == serial })
             else { throw ADBCompanionTunnelError.serialRetiring }
-            let allocate = self.allocate
-            entry = Entry(token: UUID(), serial: serial,
-                          task: Task.detached(priority: .utility) { try allocate(serial) })
+            let allocation = try prepare(serial)
+            entry = Entry(token: UUID(), serial: serial, ownershipRetired: allocation.ownershipRetired,
+                          task: Task.detached(priority: .utility) { try allocation.create() })
             entries[peerID] = entry
         }
         do {
@@ -130,15 +156,17 @@ actor ADBCompanionTunnelCoordinator {
         retiringSerials.insert(entry.serial)
         retiringEntries[entry.token] = entry
         retirements[entry.token] = Task.detached(priority: .utility) {
+            if entry.ownershipRetired() { return }
             let resource: ADBCompanionTunnelResource
             do { resource = try await entry.task.value }
             catch {
                 // A failed command may still have installed a forward. Losing
                 // its receipt is not proof that this serial is safe to reuse.
-                if error as? ADBCompanionTunnelError == .ownershipUncertain { throw error }
+                if error as? ADBCompanionTunnelError == .ownershipUncertain, !entry.ownershipRetired() { throw error }
                 return
             }
-            try resource.remove()
+            do { try resource.remove() }
+            catch { if !entry.ownershipRetired() { throw error } }
         }
     }
     private func retire(_ entry: Entry) async throws {
@@ -178,19 +206,29 @@ actor ADBCompanionTunnelCoordinator {
         } catch { commandFailure = error }
         let after: Set<UInt16>
         do { after = try matchingPorts() }
-        catch { throw ADBCompanionTunnelError.ownershipUncertain }
+        catch {
+            if client.acquiredGenerationIsRetired { throw ADBCompanionTunnelError.stopped }
+            throw ADBCompanionTunnelError.ownershipUncertain
+        }
         let created = after.subtracting(before)
         guard created.count == 1, let port = created.first, port > 0 else {
             // No guessed port removal if a command's outcome cannot be established.
             throw ADBCompanionTunnelError.ownershipUncertain
         }
         let remove: @Sendable () throws -> Void = {
-            let listing = try client.run(arguments: ["forward", "--list"], timeout: 3)
-            let exact = listing.split(whereSeparator: \.isNewline).contains {
-                $0.split(whereSeparator: \.isWhitespace).map(String.init) == [serial, "tcp:\(port)", "tcp:46737"]
+            // Forward listeners belong to the exact app-owned daemon. Its exit
+            // proves they are gone; never migrate this cleanup onto a successor.
+            if client.acquiredGenerationIsRetired { return }
+            do {
+                let listing = try client.run(arguments: ["forward", "--list"], timeout: 3)
+                let exact = listing.split(whereSeparator: \.isNewline).contains {
+                    $0.split(whereSeparator: \.isWhitespace).map(String.init) == [serial, "tcp:\(port)", "tcp:46737"]
+                }
+                guard exact else { return } // Already gone or reassigned; never remove another mapping.
+                _ = try client.run(arguments: ["-s", serial, "forward", "--remove", "tcp:\(port)"], timeout: 3)
+            } catch {
+                guard client.acquiredGenerationIsRetired else { throw error }
             }
-            guard exact else { return } // Already gone or reassigned; never remove another mapping.
-            _ = try client.run(arguments: ["-s", serial, "forward", "--remove", "tcp:\(port)"], timeout: 3)
         }
         if commandFailure != nil || reported != port {
             do { try remove() }

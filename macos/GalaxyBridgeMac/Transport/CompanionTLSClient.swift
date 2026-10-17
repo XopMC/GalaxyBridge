@@ -63,6 +63,7 @@ final class CompanionTLSClient: @unchecked Sendable {
     }
 
     var supportsShellBridge: Bool { connectivityCapabilities.supportsShellBridge }
+    var supportsCaptureRetirementProof: Bool { connectivityCapabilities.supportsCaptureRetirementProof }
 
     var connectivityCapabilities: CompanionConnectivityCapabilities {
         notificationActionCapabilityLock.lock(); defer { notificationActionCapabilityLock.unlock() }
@@ -427,7 +428,8 @@ final class CompanionTLSClient: @unchecked Sendable {
             featureConfigurationSupported = update.available.contains(.featureConfiguration)
             connectivityCapabilitiesState = CompanionConnectivityCapabilities(negotiated: true,
                 nearbyLink: update.available.contains(.nearbyLink), internetGateway: update.available.contains(.internetGateway),
-                privilegedBridge: update.available.contains(.privilegedBridge), unavailableReasons: update.unavailableReasons)
+                privilegedBridge: update.available.contains(.privilegedBridge),
+                captureRetirementProof: update.available.contains(.captureRetirementProof), unavailableReasons: update.unavailableReasons)
             notificationActionCapabilityLock.unlock()
     }
         if case let .internetSharingStatus(status)? = envelope.payload,

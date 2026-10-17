@@ -114,7 +114,7 @@ def macos_app(build, env):
     info.update(CFBundleIdentifier='com.xopmc.GalaxyBridge', CFBundleName='Galaxy Bridge',
                 CFBundleExecutable='GalaxyBridgeMac', GalaxyBridgeDistribution='github-direct',
                 GalaxyBridgeReleaseStatus='candidate', GalaxyBridgeCameraExtensionProvisioned=False,
-                CFBundleShortVersionString=VERSION, CFBundleVersion='3')
+                CFBundleShortVersionString=VERSION, CFBundleVersion='4')
     (contents / 'Info.plist').write_bytes(plistlib.dumps(info))
     for locale in (ROOT / 'macos/GalaxyBridgeMac/Resources').glob('*.lproj'):
         shutil.copytree(locale, resources / locale.name)
@@ -136,7 +136,7 @@ def macos_app(build, env):
          '-o', extension / 'Contents/MacOS/GalaxyBridgeCameraExtension'], env)
     ei = plistlib.loads((ROOT / 'macos/GalaxyBridgeCameraExtension/Info.plist').read_bytes())
     ei.update(CFBundleExecutable='GalaxyBridgeCameraExtension', CFBundleIdentifier='com.xopmc.GalaxyBridge.CameraExtension',
-              CFBundleShortVersionString=VERSION, CFBundleVersion='3', CMIOExtensionMachServiceName='group.com.xopmc.GalaxyBridge.CameraExtension')
+              CFBundleShortVersionString=VERSION, CFBundleVersion='4', CMIOExtensionMachServiceName='group.com.xopmc.GalaxyBridge.CameraExtension')
     (extension / 'Contents/Info.plist').write_bytes(plistlib.dumps(ei))
     # Finalize executable bytes before signatures and the network-helper program pin.
     for executable in (contents / 'MacOS/GalaxyBridgeMac', extension / 'Contents/MacOS/GalaxyBridgeCameraExtension'):

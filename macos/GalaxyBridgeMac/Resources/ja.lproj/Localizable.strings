@@ -87,7 +87,7 @@
 "READY_TO_STREAM" = "画面共有の準備ができました";
 "ADB_AUTH_REQUIRED" = "携帯電話で接続を確認する";
 "PHONE_CONNECTION_REQUIRED" = "電話接続が必要です";
-"COMPANION_CONNECTION_FAILED" = "コンパニオン接続に失敗しました: %@";
+"COMPANION_CONNECTION_FAILED" = "このスマートフォンに接続できませんでした: %@";
 "COMPANION_PAIRING_REQUIRED" = "Galaxy Bridge は安全に再接続する必要があります。電話機で Galaxy Bridge を開き、ペアリングする QR コードを 1 回スキャンします。";
 "COMPANION_AUTHENTICATION_FAILED" = "安全な接続の検証に失敗しました。この Galaxy を Mac と再度ペアリングします。";
 "PEER_STORE_FAILED" = "ペアリングされたデバイスを読み取れませんでした: %@";
@@ -391,3 +391,4 @@
 "FEATURE_DISABLED" = "この端末ではこの機能がオフになっています。";
 
 "NEARBY_LOCATION_PERMISSION_HINT" = "近くのスマートフォンに接続するには、「システム設定 → プライバシーとセキュリティ → 位置情報サービス」で Galaxy Bridge の位置情報へのアクセスを許可してください。";
+"NOTIFICATIONS_EMPTY_HINT" = "スマートフォンの新しい通知がここに表示されます。";

@@ -636,8 +636,9 @@ mod tests {
             }
         }
         let (sent, received) = mpsc::sync_channel(1);
-        let (emitter, worker) = DiagnosticEmitter::start(Box::new(Sink(sent)));
+        let (emitter, worker, resume_writer) = diagnostic_fixture_paused_at_idle(Box::new(Sink(sent)));
         assert!(emitter.offer_trace([9, 1, 1, 1, 1, 1, 1, 20, 1, 2, 0]));
+        resume_writer.store(true, std::sync::atomic::Ordering::Release);
         // No high-priority error or terminal is sent: admitting a ready trace
         // must itself wake the writer, not wait for its 500 ms idle timeout.
         let observation = received.recv_timeout(Duration::from_millis(200));
@@ -723,13 +724,14 @@ mod tests {
         let (entered, rx) = mpsc::sync_channel(1);
         let (release, gate) = mpsc::sync_channel(1);
         let bytes = Arc::new(Mutex::new(vec![]));
-        let (emitter, worker) = DiagnosticEmitter::start(Box::new(Sink {
+        let (emitter, worker, resume_writer) = diagnostic_fixture_paused_at_idle(Box::new(Sink {
             entered,
             release: gate,
             first: true,
             bytes: bytes.clone(),
         }));
         assert!(emitter.offer_trace([1; 11]));
+        resume_writer.store(true, std::sync::atomic::Ordering::Release);
         rx.recv_timeout(Duration::from_secs(1)).unwrap();
         let before = Instant::now();
         assert!(
@@ -907,7 +909,7 @@ mod tests {
             }
         }
         let bytes = Arc::new(Mutex::new(vec![]));
-        let (emitter, worker) = DiagnosticEmitter::start(Box::new(Sink(bytes.clone())));
+        let (emitter, worker, resume_writer) = diagnostic_fixture_paused_at_idle(Box::new(Sink(bytes.clone())));
         let line = crate::progress::Line::without_pressure([
             9,
             2,
@@ -930,6 +932,7 @@ mod tests {
         );
         drop(guard);
         assert!(emitter.offer_low(LowDiagnostic::Progress(line)));
+        resume_writer.store(true, std::sync::atomic::Ordering::Release);
         let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while bytes.lock().unwrap().is_empty() {
             assert!(std::time::Instant::now() < until);
@@ -1270,6 +1273,38 @@ pub(crate) fn first_cause_enabled() -> bool {
     std::env::var_os("GB_QUIC_FIRST_ERROR_DIAGNOSTICS").is_some_and(|v| v == "1")
 }
 #[cfg(test)]
+fn diagnostic_fixture_paused_at_idle(
+    sink: Box<dyn std::io::Write + Send>,
+) -> (
+    DiagnosticEmitter,
+    Option<std::thread::JoinHandle<()>>,
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc};
+    use std::time::{Duration, Instant};
+    let (ready, entered) = mpsc::sync_channel(1);
+    let resume = Arc::new(AtomicBool::new(false));
+    let released = resume.clone();
+    let mut first_idle = true;
+    let (emitter, worker) = DiagnosticEmitter::start_observing_idle(sink, move || {
+        if first_idle {
+            first_idle = false;
+            // Real owner offers deliberately reject a busy try_lock. Pause the
+            // fixture only after the writer released that lock, before seeding.
+            ready.send(()).unwrap();
+            // A blocking mpsc receive may consume thread::unpark's token.
+            // This test gate must preserve the emitter's real wake signal.
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while !released.load(Ordering::Acquire) {
+                assert!(Instant::now() < deadline, "fixture writer was not released");
+                std::thread::yield_now();
+            }
+        }
+    });
+    entered.recv_timeout(Duration::from_secs(1)).unwrap();
+    (emitter, worker, resume)
+}
+#[cfg(test)]
 #[test]
 fn first_cause_terminal_offer_is_bounded_under_held_sink_and_failure() {
     use std::sync::{atomic::Ordering, mpsc, Arc, Mutex};
@@ -1297,13 +1332,14 @@ fn first_cause_terminal_offer_is_bounded_under_held_sink_and_failure() {
     let (entered, rx) = mpsc::sync_channel(1);
     let (release, gate) = mpsc::sync_channel(1);
     let bytes = Arc::new(Mutex::new(vec![]));
-    let (emitter, worker) = DiagnosticEmitter::start(Box::new(Sink {
+    let (emitter, worker, resume_writer) = diagnostic_fixture_paused_at_idle(Box::new(Sink {
         entered,
         gate,
         held: false,
         bytes: bytes.clone(),
     }));
     assert!(emitter.offer_trace([1; 11]));
+    resume_writer.store(true, std::sync::atomic::Ordering::Release);
     rx.recv_timeout(Duration::from_secs(1)).unwrap();
     let record = TerminalRecord {
         first: Some([0, 771, 9, 12, 34, 101, 8, 56, 0, 0, 0, 0, 0]),

@@ -60,6 +60,13 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
     }
     private var pending: [String: Pending] = [:]
     private var leases: [String: ShellCapabilityBridgeLease] = [:]
+    private enum AbsenceProofSupport { case unknown, supported, legacy, unavailable }
+    private var absenceProofSupport: AbsenceProofSupport = .unknown
+    private var absenceProofGeneration: String?
+    var needsRuntimeUpgrade: Bool { absenceProofGeneration == bootGeneration && absenceProofSupport == .legacy }
+    var canUpgradeRuntimeSafely: Bool {
+        leases.isEmpty && pending.values.allSatisfy { $0.operation == .status || $0.operation == .listApplications || $0.operation == .verifyRetirement }
+    }
     init(hostID: String, control: @escaping () -> CompanionTLSClient?) { self.hostID = hostID; self.control = control }
 
     private func context() throws -> ShellCapabilityBridgeContext {
@@ -96,8 +103,49 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
         do {
             let response = try await perform(operation: .status, lease: "", generation: "", context: context())
             available = response.available && response.errorCode.isEmpty
+            if available && control()?.supportsCaptureRetirementProof == true {
+                if absenceProofGeneration != bootGeneration {
+                    absenceProofGeneration = bootGeneration
+                    absenceProofSupport = .unknown
+                }
+                if absenceProofSupport == .unknown || absenceProofSupport == .unavailable {
+                    await refreshAbsenceProofSupport()
+                }
+            } else {
+                absenceProofGeneration = nil
+                absenceProofSupport = .unknown
+            }
             return available
         } catch { available = false; bootGeneration = nil; return false }
+    }
+
+    private func refreshAbsenceProofSupport() async {
+        guard available, let generation = bootGeneration, control()?.supportsCaptureRetirementProof == true else { return }
+        do {
+            let current = try context()
+            let query = GBCaptureRetirementQuery()
+            let result = try await perform(operation: .verifyRetirement, lease: "", generation: generation,
+                                           context: current, retirement: query)
+            guard control()?.authenticatedSessionID == current.sessionID, bootGeneration == generation,
+                  result.bootGeneration == generation else { return }
+            absenceProofGeneration = generation
+            let proof = result.retirementProof
+            if result.available, result.errorCode.isEmpty, result.streamIds.isEmpty,
+               result.state == "retirement_supported", result.hasRetirementProof,
+               proof.supported, !proof.absent, proof.kind == .probeSupport,
+               proof.scid == 0, proof.pid == 0, proof.processStartTicks == 0,
+               proof.panels.isEmpty, proof.ownedResourceID.isEmpty, !proof.resourceRemoved {
+                absenceProofSupport = .supported
+            } else if result.available, !result.hasRetirementProof,
+                      result.state == "failed", result.errorCode == "shell_operation_failed" {
+                absenceProofSupport = .legacy
+            } else {
+                absenceProofSupport = .unavailable
+            }
+        } catch {
+            // A failed optional probe must not disable an otherwise usable broker.
+            if bootGeneration == generation { absenceProofSupport = .unavailable }
+        }
     }
 
     func panelPower() async throws -> PhonePanelPowerState {
@@ -108,6 +156,81 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
         case "panel_off", "panel_multi_off": return .off
         default: return .unknown
         }
+    }
+
+    /// A typed, read-only proof for a raw ADB owner whose transport disappeared.
+    /// Old brokers return panel/lease status and cannot satisfy this response.
+    func confirmADBCaptureAbsent(scid: UInt32) async throws {
+        guard scid > 0, scid <= 0x7fff_ffff else { throw ShellCapabilityBridgeFailure.invalidResult }
+        var query = GBCaptureRetirementQuery()
+        query.kind = .scrcpyCapture; query.scid = scid
+        let proof = try await verifiedRetirementResult(query)
+        guard proof.absent, proof.panels.isEmpty else { throw ShellCapabilityBridgeFailure.operationFailed }
+    }
+
+    func confirmDisplayControllerRetired(identity: DisplayPowerControllerIdentity, initial: PhonePanelPowerSnapshot) async throws {
+        guard case .physical = initial, initial.isValid else { throw ShellCapabilityBridgeFailure.invalidResult }
+        let query = try displayRetirementQuery(identity)
+        let proof = try await verifiedRetirementResult(query)
+        let observed = try PhonePanelPowerSnapshot(validating: proof.panels.map {
+            PhonePhysicalPanelState(id: $0.physicalID, on: $0.on)
+        })
+        guard initial.isValid, proof.absent, observed == initial else { throw ShellCapabilityBridgeFailure.operationFailed }
+    }
+
+    func releaseRetiredControllerResource(identity: DisplayPowerControllerIdentity, resourceID: String) async throws {
+        guard UUID(uuidString: resourceID)?.uuidString.lowercased() == resourceID else {
+            throw ShellCapabilityBridgeFailure.invalidResult
+        }
+        var query = try displayRetirementQuery(identity)
+        query.ownedResourceID = resourceID
+        let digest = Array(ScrcpyLaunchConfiguration.serverSHA256Hex.utf8)
+        guard digest.count == 64 else { throw ShellCapabilityBridgeFailure.invalidResult }
+        var bytes = Data()
+        for offset in stride(from: 0, to: digest.count, by: 2) {
+            guard let byte = UInt8(String(decoding: digest[offset..<offset + 2], as: UTF8.self), radix: 16) else {
+                throw ShellCapabilityBridgeFailure.invalidResult
+            }
+            bytes.append(byte)
+        }
+        query.resourceSha256 = bytes
+        let proof = try await verifiedRetirementResult(query, operation: .releaseRetiredResource)
+        guard proof.absent, proof.resourceRemoved, proof.panels.isEmpty else {
+            throw ShellCapabilityBridgeFailure.operationFailed
+        }
+    }
+
+    private func displayRetirementQuery(_ identity: DisplayPowerControllerIdentity) throws -> GBCaptureRetirementQuery {
+        guard identity.pid > 1, let ticks = UInt64(identity.startTime), ticks > 0,
+              ticks <= UInt64(Int64.max), String(ticks) == identity.startTime else {
+            throw ShellCapabilityBridgeFailure.invalidResult
+        }
+        var query = GBCaptureRetirementQuery()
+        query.kind = .displayPowerController; query.pid = UInt32(identity.pid); query.processStartTicks = ticks
+        return query
+    }
+
+    private func verifiedRetirementResult(_ query: GBCaptureRetirementQuery,
+        operation: GBShellBridgeRequest.Operation = .verifyRetirement) async throws -> GBCaptureRetirementProof {
+        guard available, let generation = bootGeneration, control()?.supportsCaptureRetirementProof == true else {
+            throw ShellCapabilityBridgeFailure.unavailable
+        }
+        let context = try context()
+        let result = try await perform(operation: operation, lease: "", generation: generation,
+                                       context: context, retirement: query)
+        let proof = result.retirementProof
+        let expectedState = operation == .releaseRetiredResource ? "resources_released" : "retired"
+        guard control()?.authenticatedSessionID == context.sessionID,
+              bootGeneration == generation, result.bootGeneration == generation,
+              result.available, result.errorCode.isEmpty, result.streamIds.isEmpty,
+              result.state == expectedState, result.hasRetirementProof, proof.supported,
+              proof.kind == query.kind, proof.scid == query.scid, proof.pid == query.pid,
+              proof.processStartTicks == query.processStartTicks,
+              proof.ownedResourceID == query.ownedResourceID,
+              proof.resourceRemoved == (operation == .releaseRetiredResource) else {
+            throw ShellCapabilityBridgeFailure.operationFailed
+        }
+        return proof
     }
 
     func fetchApplicationCatalog() async throws -> [ApplicationCatalogItem] {
@@ -254,7 +377,8 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
     }
 
     private func perform(operation: GBShellBridgeRequest.Operation, lease: String, generation: String,
-                         context: ShellCapabilityBridgeContext, options: GBShellCaptureOptions? = nil, powerOn: Bool = false) async throws -> GBShellBridgeResult {
+                         context: ShellCapabilityBridgeContext, options: GBShellCaptureOptions? = nil, powerOn: Bool = false,
+                         retirement: GBCaptureRetirementQuery? = nil) async throws -> GBShellBridgeResult {
         guard control()?.authenticatedSessionID == context.sessionID else { throw ShellCapabilityBridgeFailure.sessionChanged }
         guard pending.count < 32 else { throw ShellCapabilityBridgeFailure.capacity }
         try Task.checkCancellation()
@@ -269,6 +393,7 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
             var request = GBShellBridgeRequest(); request.requestID = id; request.leaseID = lease; request.bootGeneration = generation
             request.operation = operation; request.powerOn = powerOn
             if let options { request.options = options }
+            if let retirement { request.retirement = retirement }
             do { try context.control.sendShellBridge(request) }
             catch { pending.removeValue(forKey: id)?.timeout.cancel(); continuation.resume(throwing: error) }
         }

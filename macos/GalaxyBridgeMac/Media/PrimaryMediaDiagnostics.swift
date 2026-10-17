@@ -34,6 +34,15 @@ struct PrimaryMediaTrace: Sendable {
     let sequence: UInt64
 }
 
+/// A candidate after dispatch, not proof that this packet reflects the input.
+/// PTS and byte count allow matching to an independent encoder trace.
+struct PrimaryInputPacketCandidate: Equatable, Sendable {
+    let sequence: UInt64
+    let pts: UInt64
+    let receivedAt: Double
+    let bytes: Int
+}
+
 struct PrimaryInputFrameSample: Equatable, Sendable {
     let inputSequence: UInt64
     let frameSequence: UInt64
@@ -42,10 +51,19 @@ struct PrimaryInputFrameSample: Equatable, Sendable {
     let relativeVideoArrivalMS: Double?
     let inputToFrameMS: Double
     let frameToVisibleMS: Double
+    let inputDispatchUptime: Double
+    let frameReceivedUptime: Double
+    let firstSocketUptime: Double?
+    let firstPacket: PrimaryInputPacketCandidate?
 
     var logField: String {
         let relativeArrival = relativeVideoArrivalMS.map { String($0) } ?? "none"
+        let socket = firstSocketUptime.map { String($0) } ?? "none"
+        let packet = firstPacket.map {
+            "first_frame:\($0.sequence),first_pts_us:\($0.pts),first_frame_uptime_s:\($0.receivedAt),first_frame_bytes:\($0.bytes)"
+        } ?? "first_frame:none,first_pts_us:none,first_frame_uptime_s:none,first_frame_bytes:none"
         return "inputFrameSample=input:\(inputSequence),frame:\(frameSequence),pts_us:\(videoPTSUs),dispatch_epoch_ms:\(inputDispatchEpochMS),relative_video_arrival_ms:\(relativeArrival),to_frame_ms:\(inputToFrameMS),to_visible_ms:\(frameToVisibleMS)"
+            + " inputFrameTiming=input:\(inputSequence),dispatch_uptime_s:\(inputDispatchUptime),received_uptime_s:\(frameReceivedUptime),first_byte_uptime_s:\(socket)," + packet
     }
 }
 
@@ -253,6 +271,8 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
         let sequence: UInt64
         let dispatchedAt: Double
         let dispatchEpochMS: Double
+        var firstSocketUptime: Double?
+        var firstPacket: PrimaryInputPacketCandidate?
     }
     let generation: UInt64
     private let now: @Sendable () -> Double
@@ -382,6 +402,11 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
                 }
             }
             entries[stream.rawValue][index] = entry
+            if stream == .video, isPacket, bytes > 0, let pts {
+                for i in inputProbes.indices where inputProbes[i].firstPacket == nil && time >= inputProbes[i].dispatchedAt {
+                    inputProbes[i].firstPacket = PrimaryInputPacketCandidate(sequence: nextSequence, pts: pts, receivedAt: time, bytes: bytes)
+                }
+            }
             return PrimaryMediaTrace(collector: self, stream: stream, sequence: nextSequence)
         }
     }
@@ -409,6 +434,11 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
             socketReceiveCalls[stream.rawValue] = primarySaturatingAdd(socketReceiveCalls[stream.rawValue], 1)
             socketReceiveBytes[stream.rawValue] = primarySaturatingAdd(socketReceiveBytes[stream.rawValue], UInt64(bytes))
             socketReceiveWait[stream.rawValue].observe(seconds: callbackAt - armedAt)
+            if stream == .video, bytes > 0 {
+                for i in inputProbes.indices where inputProbes[i].firstSocketUptime == nil && callbackAt >= inputProbes[i].dispatchedAt {
+                    inputProbes[i].firstSocketUptime = callbackAt
+                }
+            }
         }
     }
 
@@ -604,7 +634,11 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
                         inputDispatchEpochMS: latestEligible.dispatchEpochMS,
                         relativeVideoArrivalMS: frameEntry.relativeArrivalMS,
                         inputToFrameMS: (receivedAt - latestEligible.dispatchedAt) * 1_000,
-                        frameToVisibleMS: (presentedAt - receivedAt) * 1_000
+                        frameToVisibleMS: (presentedAt - receivedAt) * 1_000,
+                        inputDispatchUptime: latestEligible.dispatchedAt,
+                        frameReceivedUptime: receivedAt,
+                        firstSocketUptime: latestEligible.firstSocketUptime,
+                        firstPacket: latestEligible.firstPacket
                     ))
                 }
             }

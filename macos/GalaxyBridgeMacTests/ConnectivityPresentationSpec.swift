@@ -8,6 +8,8 @@ struct Connections { var control = Control() }
     var companionStates: [String: CompanionConnectionState] = [:]
     var companionClients: [String: Connections] = [:]
     @Published var nearbyPreparationTasks: [String: Task<Void, Never>] = [:]
+    var captureRouteHandoffTasks: [String: Task<Void, Never>] = [:]
+    var captureRouteTransitionDevices = Set<String>()
     var isNearbyPairingPresented = false
     var merges = 0
     func companionID(for deviceID: String) -> String? { companionClients[deviceID] != nil ? deviceID : nil }
@@ -57,6 +59,14 @@ final class NearbyConnectionCoordinator {
         precondition(model.nearbyIsPreparing(deviceID: id) && model.nearbyIsPreparing(deviceID: "phone"))
         model.nearbyPreparationTasks.removeValue(forKey: id)
         precondition(!model.nearbyIsPreparing(deviceID: id))
+        model.captureRouteHandoffTasks[id] = preparation
+        precondition(model.nearbyIsPreparing(deviceID: id) && !model.nearbyIsPreparing(deviceID: "device:other"),
+            "capture handoff must show only this phone as preparing")
+        model.captureRouteHandoffTasks.removeValue(forKey: id)
+        model.captureRouteTransitionDevices.insert(id)
+        precondition(model.nearbyIsPreparing(deviceID: "phone"), "unconfirmed retirement must keep duplicate preparation disabled between retries")
+        model.captureRouteTransitionDevices.remove(id)
+        precondition(!model.nearbyIsPreparing(deviceID: id), "confirmed handoff left the phone permanently preparing")
         model.isNearbyPairingPresented = true; model.pairingAcknowledged()
         precondition(!model.isNearbyPairingPresented && model.merges == 1,
             "A committed pairing must dismiss its QR and publish the device; network creation remains a separate action")

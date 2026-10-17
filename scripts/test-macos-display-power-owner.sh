@@ -26,5 +26,6 @@ swiftc -swift-version 6 -typecheck -I "$tmp" "$tmp/Boundaries.swift" \
   "$root/macos/GalaxyBridgeMac/Transport/PhonePrivacyServerOwnership.swift" \
   "$root/macos/GalaxyBridgeMac/Transport/DisplayPowerControllerProtocol.swift" \
   "$root/macos/GalaxyBridgeMac/Transport/DisplayPowerControllerProcess.swift" \
+  "$root/macos/GalaxyBridgeMac/Transport/ADBCommandRunner.swift" \
   "$root/macos/GalaxyBridgeMac/Transport/ScrcpyDisplayPowerSession.swift"
 printf '%s\n' 'PASS actual snapshot owner/protocol/serial pipe I/O source typecheck with inert ADB and shell boundaries'

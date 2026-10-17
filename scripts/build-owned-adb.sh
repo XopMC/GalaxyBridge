@@ -51,6 +51,8 @@ meson "${GB_MESON_SETUP[@]}" "$GB_BUILD" "$GB_SOURCE" --buildtype=release \
 
 gb_patch "$GB_ROOT/third_party/adb-owned/patches/0002-nonseizing-usb.patch"
 gb_patch "$GB_ROOT/third_party/adb-owned/patches/0003-private-socket-backlog.patch"
+gb_patch "$GB_ROOT/third_party/adb-owned/patches/0004-usb-transfer-lifetime.patch"
+python3 "$GB_ROOT/scripts/test-owned-adb-transfer-lifetime.py" "$GB_SOURCE/vendor/adb/client/usb_libusb_device.cpp"
 python3 "$GB_ROOT/scripts/test-owned-adb-usb-policy.py" "$GB_SOURCE/subprojects/libusb-1.0.29/libusb/os/galaxybridge_usb_policy.h"
 python3 "$GB_ROOT/scripts/test-owned-adb-darwin-open.py" "$GB_SOURCE/subprojects/libusb-1.0.29/libusb/os/darwin_usb.c"
 meson compile -C "$GB_BUILD" ./vendor/adb:executable -j "${GB_BUILD_JOBS:-4}"

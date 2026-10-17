@@ -86,7 +86,7 @@
 "READY_TO_STREAM" = "Готово к трансляции экрана";
 "ADB_AUTH_REQUIRED" = "Подтвердите подключение на телефоне";
 "PHONE_CONNECTION_REQUIRED" = "Требуется подключение телефона";
-"COMPANION_CONNECTION_FAILED" = "Ошибка Companion-подключения: %@";
+"COMPANION_CONNECTION_FAILED" = "Не удалось подключиться к этому телефону: %@";
 "COMPANION_PAIRING_REQUIRED" = "Galaxy Bridge нужно восстановить защищённое подключение. Откройте Galaxy Bridge на телефоне и один раз отсканируйте QR-код привязки.";
 "COMPANION_AUTHENTICATION_FAILED" = "Не удалось проверить защищённое подключение. Повторно привяжите этот Galaxy к Mac.";
 "PEER_STORE_FAILED" = "Не удалось прочитать привязанные устройства: %@";
@@ -388,3 +388,4 @@
 "FEATURE_DISABLED" = "Эта функция выключена для этого телефона.";
 
 "NEARBY_LOCATION_PERMISSION_HINT" = "Чтобы подключать телефоны поблизости, разрешите Galaxy Bridge доступ к геопозиции: Системные настройки → Конфиденциальность и безопасность → Службы геолокации.";
+"NOTIFICATIONS_EMPTY_HINT" = "Новые уведомления телефона появятся здесь.";

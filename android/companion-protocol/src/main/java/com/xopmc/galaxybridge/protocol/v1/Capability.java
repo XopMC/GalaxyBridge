@@ -87,6 +87,14 @@ public enum Capability
    * <code>CAPABILITY_FEATURE_CONFIGURATION = 17;</code>
    */
   CAPABILITY_FEATURE_CONFIGURATION(17),
+  /**
+   * <pre>
+   * Typed read-only retirement proofs, independent of broker activation.
+   * </pre>
+   *
+   * <code>CAPABILITY_CAPTURE_RETIREMENT_PROOF = 18;</code>
+   */
+  CAPABILITY_CAPTURE_RETIREMENT_PROOF(18),
   UNRECOGNIZED(-1),
   ;
 
@@ -166,6 +174,14 @@ public enum Capability
    * <code>CAPABILITY_FEATURE_CONFIGURATION = 17;</code>
    */
   public static final int CAPABILITY_FEATURE_CONFIGURATION_VALUE = 17;
+  /**
+   * <pre>
+   * Typed read-only retirement proofs, independent of broker activation.
+   * </pre>
+   *
+   * <code>CAPABILITY_CAPTURE_RETIREMENT_PROOF = 18;</code>
+   */
+  public static final int CAPABILITY_CAPTURE_RETIREMENT_PROOF_VALUE = 18;
 
 
   @java.lang.Override
@@ -206,6 +222,7 @@ public enum Capability
       case 15: return CAPABILITY_INTERNET_GATEWAY;
       case 16: return CAPABILITY_PRIVILEGED_BRIDGE;
       case 17: return CAPABILITY_FEATURE_CONFIGURATION;
+      case 18: return CAPABILITY_CAPTURE_RETIREMENT_PROOF;
       default: return null;
     }
   }

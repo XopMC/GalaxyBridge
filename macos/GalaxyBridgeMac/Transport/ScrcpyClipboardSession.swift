@@ -38,12 +38,14 @@ final class ScrcpyClipboardSession {
     private var preparationTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var serverProcess: Process?
+    private var serverOwnerLifetime: ScrcpyADBOwnerLifetime?
     private var serverSCID: UInt32?
     private var forwardedPort: UInt16?
     private var agentForwardedPort: UInt16?
     private var controlSocket: ScrcpyControlSocket?
     private var agentSocket: ClipboardAgentSocket?
     private var agentProcess: Process?
+    private var agentOwnerLifetime: ScrcpyADBOwnerLifetime?
     private var receiveSequence: UInt64 = 1
     private var sendSequence: UInt64 = 1
     private var lastObservedContent: Data?
@@ -143,7 +145,11 @@ final class ScrcpyClipboardSession {
                     throw CancellationError()
                 }
                 forwardedPort = port
-                serverProcess = try adb.launch(serial: serial, arguments: configuration.serverArguments)
+                let serverLifetime = try ScrcpyADBOwnerLifetime()
+                serverOwnerLifetime = serverLifetime
+                serverProcess = try adb.launch(serial: serial,
+                    arguments: ScrcpyADBOwnerLifetime.launchArguments(configuration.serverArguments), inputPipe: serverLifetime.pipe)
+                serverLifetime.start()
                 try await Task.detached(priority: .utility) { [adb, serial] in
                     try adb.waitForAbstractSocket(serial: serial, socketName: configuration.socketName)
                 }.value
@@ -174,14 +180,17 @@ final class ScrcpyClipboardSession {
                         try adb.forwardAutomatically(serial: serial, socketName: agentName)
                     }.value
                     agentForwardedPort = agentPort
-                    agentProcess = try adb.launch(serial: serial, arguments: [
+                    let agentLifetime = try ScrcpyADBOwnerLifetime()
+                    agentOwnerLifetime = agentLifetime
+                    agentProcess = try adb.launch(serial: serial, arguments: ScrcpyADBOwnerLifetime.launchArguments([
                         "shell",
                         "CLASSPATH=\(ScrcpyLaunchConfiguration.remoteServerPath)",
                         "app_process",
                         "/",
                         "com.genymobile.scrcpy.ClipboardAgent",
                         agentName,
-                    ])
+                    ]), inputPipe: agentLifetime.pipe)
+                    agentLifetime.start()
                     try await Task.detached(priority: .utility) { [adb, serial] in
                         try adb.waitForAbstractSocket(serial: serial, socketName: agentName)
                     }.value
@@ -310,6 +319,9 @@ final class ScrcpyClipboardSession {
         if usesClipboardOccurrences { fail(request: request, reason: reason); return }
         agentSocket?.cancel()
         agentSocket = nil
+        agentOwnerLifetime?.stop(); agentOwnerLifetime = nil
+        if let agentProcess, agentProcess.isRunning { agentProcess.terminate() }
+        agentProcess = nil
         if state == .ready { startLegacyClipboardPolling(request: request) }
     }
 
@@ -397,6 +409,8 @@ final class ScrcpyClipboardSession {
         controlSocket = nil
         agentSocket?.cancel()
         agentSocket = nil
+        serverOwnerLifetime?.stop(); serverOwnerLifetime = nil
+        agentOwnerLifetime?.stop(); agentOwnerLifetime = nil
         serverProcess?.terminate()
         serverProcess = nil
         agentProcess?.terminate()

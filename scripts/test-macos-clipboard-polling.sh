@@ -27,7 +27,15 @@ socket = (root / 'macos/GalaxyBridgeMac/Transport/ClipboardAgentSocket.swift').r
 start = socket.index('    private func consume(')
 end = socket.index('\n    }', start) + len('\n    }')
 fixture = fixture.replace('// ACTUAL_AGENT_INPUT_METHOD', socket[start:end].replace('private func', 'func', 1))
-(out / 'ActualClipboardPolling.swift').write_text(fixture.replace('// ACTUAL_CLIPBOARD_METHODS', '\n'.join(methods)))
+owner = (root / 'macos/GalaxyBridgeMac/Transport/ScrcpySession.swift').read_text()
+start = owner.index('final class ScrcpyADBOwnerLifetime:')
+opening = owner.index('{', start); depth = 0
+for end in range(opening, len(owner)):
+    if owner[end] == '{': depth += 1
+    elif owner[end] == '}':
+        depth -= 1
+        if depth == 0: break
+(out / 'ActualClipboardPolling.swift').write_text('import Darwin\n' + fixture.replace('// ACTUAL_CLIPBOARD_METHODS', '\n'.join(methods)) + '\n' + owner[start:end + 1])
 PY
 swiftc -swift-version 6 -parse-as-library \
   "$root/Sources/GalaxyBridgeEnhancedCore/ScrcpyDeviceMessage.swift" \

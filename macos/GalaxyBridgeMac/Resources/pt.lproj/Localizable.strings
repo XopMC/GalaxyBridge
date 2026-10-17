@@ -87,7 +87,7 @@
 "READY_TO_STREAM" = "Pronto para compartilhar tela";
 "ADB_AUTH_REQUIRED" = "Confirme a conexão no seu telefone";
 "PHONE_CONNECTION_REQUIRED" = "Conexão telefônica necessária";
-"COMPANION_CONNECTION_FAILED" = "Falha na conexão complementar: %@";
+"COMPANION_CONNECTION_FAILED" = "Não foi possível ligar a este telefone: %@";
 "COMPANION_PAIRING_REQUIRED" = "Galaxy Bridge precisa se reconectar com segurança. Abra Galaxy Bridge no telefone e leia o código de emparelhamento QR uma vez.";
 "COMPANION_AUTHENTICATION_FAILED" = "Falha na verificação da conexão segura. Emparelhe este Galaxy com o Mac novamente.";
 "PEER_STORE_FAILED" = "Não foi possível ler dispositivos emparelhados: %@";
@@ -390,3 +390,4 @@
 "FEATURE_DISABLED" = "Esta função está desativada para este telefone.";
 
 "NEARBY_LOCATION_PERMISSION_HINT" = "Para conectar telefones próximos, permita que o Galaxy Bridge use a localização em Ajustes do Sistema → Privacidade e Segurança → Serviços de Localização.";
+"NOTIFICATIONS_EMPTY_HINT" = "As novas notificações do telefone aparecerão aqui.";

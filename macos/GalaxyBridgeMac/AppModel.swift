@@ -74,6 +74,10 @@ final class AppModel: ObservableObject {
     @Published var selectedDeviceID: String?
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastError: String?
+    @Published private var companionConnectionErrors: [String: String] = [:]
+    var displayedError: String? {
+        lastError ?? selectedDeviceID.flatMap { companionConnectionErrors[$0] }
+    }
     @Published var isPairingPresented = false
     @Published private(set) var enhancedStates: [String: ScrcpySessionState] = [:]
     private var enhancedSessionDiagnostics = EnhancedSessionDiagnostics()
@@ -111,6 +115,7 @@ final class AppModel: ObservableObject {
     private var adbRows: [DeviceRow] = []
 #if !GALAXYBRIDGE_APP_STORE
     private var adbTopologyRefreshState = ADBTopologyRefreshState()
+    private var observedADBGeneration: UUID?
     private var validatedWirelessSerials = Set<String>()
     private var routedCompanionIPv4ByPeer =
         UserDefaults.standard.dictionary(forKey: "com.xopmc.GalaxyBridge.routed-companion-ipv4") as? [String: String] ?? [:]
@@ -147,8 +152,18 @@ final class AppModel: ObservableObject {
     }
     private var shellReadinessTasks: [String: ShellReadinessPreparation] = [:]
     private var shellPreferredDevices = Set<String>()
+    private var captureRetirementAuthorities: [String: CaptureRetirementAuthority] = [:]
     private var requestedDirectDevices = Set<String>()
     private var preparingDirectDevices = Set<String>()
+    @Published private var captureRouteTransitionDevices = Set<String>()
+    private var captureRouteHandoffTasks: [String: Task<Void, Never>] = [:]
+    private var captureRouteHandoffTickets: [String: UUID] = [:]
+    private var captureRoutePendingWindows: [String: [ApplicationWindowCoordinator.RouteResume]] = [:]
+    private var captureRoutePeerKeys: [String: Data] = [:]
+    private var captureRouteRetryTasks: [String: Task<Void, Never>] = [:]
+    private var captureRouteRetryTickets: [String: UUID] = [:]
+    private var captureRouteAttemptSignatures: [String: String] = [:]
+    private var captureRouteBackoffs: [String: ReconnectBackoff] = [:]
     @Published private var nearbyPreparationTasks: [String: Task<Void, Never>] = [:]
     private var nearbyPreparationTickets: [String: UUID] = [:]
     private var nearbyAutomaticPreparationTickets: [String: UUID] = [:]
@@ -170,8 +185,15 @@ final class AppModel: ObservableObject {
     private var phonePrivacyAliases: [String: String] = [:]
     private lazy var phoneDisplayPrivacy: PhoneDisplayPrivacyCoordinator = {
         let coordinator = PhoneDisplayPrivacyCoordinator { [weak self] serial in
-            ScrcpyDisplayPowerSession(serial: serial, adb: try ADBClient(), shellProvider: self?.shellProviderForOwner(serial),
-                shellProviderResolver: { [weak self] in self?.shellProviderForOwner($0) })
+            return ScrcpyDisplayPowerSession(serial: serial, adb: try ADBClient(), shellProvider: self?.shellProviderForOwner(serial),
+                shellProviderResolver: { [weak self] in self?.shellProviderForOwner($0) },
+                retirementProofResolver: { [weak self] current in
+                    let id = (try? ADBBindingStore().record(for: current)).map { "device:" + $0.deviceID } ?? "adb:" + current
+                    return self?.displayControllerRetirementProof(deviceID: id, captureSerial: current)
+                }, resourceReleaseResolver: { [weak self] current in
+                    let id = (try? ADBBindingStore().record(for: current)).map { "device:" + $0.deviceID } ?? "adb:" + current
+                    return self?.displayControllerResourceRelease(deviceID: id, captureSerial: current)
+                })
         }
         coordinator.statusHandler = { [weak self] id, status in
             self?.phoneDisplayPrivacyStatuses[id] = status
@@ -336,7 +358,7 @@ final class AppModel: ObservableObject {
     @Published var isNearbyPairingPresented = false
     func nearbyIsPreparing(deviceID: String) -> Bool {
         let id = deviceID.hasPrefix("device:") ? deviceID : "device:" + deviceID
-        return nearbyPreparationTasks[id] != nil
+        return nearbyPreparationTasks[id] != nil || captureRouteHandoffTasks[id] != nil || captureRouteTransitionDevices.contains(id)
     }
     func nearbyConnectionHint(deviceID: String) -> String? {
         guard let id = companionID(for: deviceID), companionStates[id] == .connected,
@@ -527,7 +549,7 @@ final class AppModel: ObservableObject {
         return shellProviders["device:" + serial.dropFirst("shell:".count)]
     }
     func enhancedCaptureRoute(for device: DeviceRow) -> (serial: String, shellProvider: ShellCapabilityBridgeProvider?)? {
-        guard device.isReady, !preparingDirectDevices.contains(device.id) else { return nil }
+        guard device.isReady, !preparingDirectDevices.contains(device.id), !captureRouteTransitionDevices.contains(device.id) else { return nil }
         if let provider = activeShellProvider(deviceID: device.id), let peer = companionControl(for: device.id)?.peer {
             return ("shell:" + peer.deviceID, provider)
         }
@@ -579,9 +601,9 @@ final class AppModel: ObservableObject {
             guard self.shellReadinessIsCurrent(deviceID: deviceID, serial: serial, sessionID: sessionID, provider: provider) else {
                 throw CancellationError()
             }
-            if ready { return true }
+            if ready && (!provider.needsRuntimeUpgrade || !provider.canUpgradeRuntimeSafely) { return true }
             guard let serial, let control = self.companionControl(for: deviceID),
-                  ADBBindingStore().isVerified(serial: serial, peer: control.peer) else { return false }
+                  ADBBindingStore().isVerified(serial: serial, peer: control.peer) else { return ready }
             do { try await ShellCapabilityBridgeActivation.activate(adb: ADBClient(), serial: serial) }
             catch { try Task.checkCancellation(); throw error }
             try Task.checkCancellation()
@@ -615,7 +637,8 @@ final class AppModel: ObservableObject {
     private func prepareNearbyConnection(deviceID: String, automatic: Bool, connectAfterPreparation: Bool = true) {
         let id = deviceID.hasPrefix("device:") ? deviceID : "device:" + deviceID
         guard terminationAdmission.admitsWork, (!automatic || nearbyAutoConnect(deviceID: id)),
-              nearbyPreparationTasks[id] == nil, canConnectNearby(deviceID: id) else { return }
+              nearbyPreparationTasks[id] == nil, captureRouteHandoffTasks[id] == nil,
+              !captureRouteTransitionDevices.contains(id), canConnectNearby(deviceID: id) else { return }
         let ticket = UUID(); nearbyPreparationTickets[id] = ticket
         if automatic { nearbyAutomaticPreparationTickets[id] = ticket }
         if connectAfterPreparation { requestedDirectDevices.insert(id) }
@@ -747,6 +770,7 @@ final class AppModel: ObservableObject {
                         connectAfterPreparation: self.requestedDirectDevices.contains(device.id))
                 }
                 if device.adbSerial == nil { self.loadApplicationCatalog(deviceID: device.id, force: true) }
+                self.reconcileCaptureRouteHandoffs()
                 self.reconcileEnhancedClipboardSessions(); self.reconcileEnhancedPrimaryRoutes(); self.reconcilePhoneDisplayPrivacyRoutes()
             }
         }
@@ -996,7 +1020,7 @@ final class AppModel: ObservableObject {
                             routedAddresses[record.deviceID] = address
                         }
                     }
-                    return (rows, routedAddresses, restoredWirelessSerials)
+                    return (rows, routedAddresses, restoredWirelessSerials, client.acquiredGeneration)
                 }.value
                 guard terminationAdmission.admitsWork else {
                     adbTopologyRefreshState.finish()
@@ -1007,6 +1031,10 @@ final class AppModel: ObservableObject {
                     previous: adbRows,
                     current: result.0
                 )
+                // A replacement daemon may enumerate identical USB serials;
+                // its pinned capture clients still need ownership handoff.
+                if observedADBGeneration != result.3 { shouldMerge = true }
+                observedADBGeneration = result.3
                 adbRows = result.0
                 validatedWirelessSerials.formIntersection(Set(adbRows.filter(\.isReady).compactMap(\.adbSerial)))
                 if !result.2.isSubset(of: validatedWirelessSerials) {
@@ -1052,6 +1080,9 @@ final class AppModel: ObservableObject {
         clipboardConversion.stop()
 #if !GALAXYBRIDGE_APP_STORE
         for task in nearbyPreparationTasks.values { task.cancel() }
+        for task in captureRouteHandoffTasks.values { task.cancel() }
+        for task in captureRouteRetryTasks.values { task.cancel() }
+        captureRoutePendingWindows.removeAll()
         for task in shellProbeTasks.values { task.cancel() }
         for preparation in shellReadinessTasks.values { preparation.task.cancel() }
         ADBOwnedRuntime.shared.beginShutdown()
@@ -1156,6 +1187,15 @@ final class AppModel: ObservableObject {
         guard let peerID = deviceID.removingPrefix("device:") else { return }
 #if !GALAXYBRIDGE_APP_STORE
         nearbyPreparationTasks[deviceID]?.cancel()
+        captureRouteHandoffTasks.removeValue(forKey: deviceID)?.cancel()
+        captureRouteHandoffTickets.removeValue(forKey: deviceID)
+        captureRouteRetryTasks.removeValue(forKey: deviceID)?.cancel()
+        captureRouteRetryTickets.removeValue(forKey: deviceID)
+        captureRoutePendingWindows.removeValue(forKey: deviceID)
+        captureRoutePeerKeys.removeValue(forKey: deviceID)
+        captureRouteTransitionDevices.remove(deviceID)
+        captureRouteBackoffs.removeValue(forKey: deviceID)
+        captureRouteAttemptSignatures.removeValue(forKey: deviceID)
         internetSharing.forget(deviceID: deviceID)
         nearbyConnection.revoke(deviceID: peerID)
         nearbyDirectEndpoints.removeValue(forKey: peerID)
@@ -1231,6 +1271,7 @@ final class AppModel: ObservableObject {
             companionConnectionBootstrap?.forget(deviceID: peerID)
             companionAuthenticationBlockedPeerIDs.remove(peerID)
 
+            companionConnectionErrors.removeValue(forKey: deviceID)
             notificationsByDevice.removeValue(forKey: deviceID)
 #if !GALAXYBRIDGE_APP_STORE
             shellProbeTasks.removeValue(forKey: deviceID)?.cancel()
@@ -1761,7 +1802,8 @@ final class AppModel: ObservableObject {
                 primaryDiagnosticsEnabled: primaryMediaDiagnosticsEnabled,
                 clipboardPollingEnabled: false,
                 audioCaptureEnabled: featureEnabled(.audio, deviceID: device.id),
-                quicSelection: quicWirelessSelection(for: device), shellProvider: route.shellProvider)
+                quicSelection: quicWirelessSelection(for: device), shellProvider: route.shellProvider,
+                remoteAbsenceProof: captureRetirementAbsenceProof(deviceID: device.id, captureSerial: serial))
             scrcpySessions[device.id] = session
             primaryPhonePrivacyLeases[ObjectIdentifier(session)] = UUID()
             var subscriptions = Set<AnyCancellable>()
@@ -2350,7 +2392,8 @@ final class AppModel: ObservableObject {
     func releasePhoneDisplaySession(_ leaseID: UUID) {
         guard let lease = phonePrivacyLeases.removeValue(forKey: leaseID) else { return }
         phoneDisplayPrivacy.releaseLease(deviceID: lease.deviceID, leaseID: leaseID)
-        if !phonePrivacyLeases.values.contains(where: { $0.deviceID == lease.deviceID }) {
+        if captureRouteHandoffTasks[lease.deviceID] == nil,
+           !phonePrivacyLeases.values.contains(where: { $0.deviceID == lease.deviceID }) {
             phonePrivacyManualPower.removeValue(forKey: lease.deviceID)
         }
     }
@@ -2698,6 +2741,16 @@ final class AppModel: ObservableObject {
             }
             self?.recordingFinishes.removeValue(forKey: finishID)
         }
+    }
+
+    func companionIsConnected(deviceID: String) -> Bool {
+        guard let id = companionID(for: deviceID), companionClients[id] != nil else { return false }
+        return companionStates[id] == .connected
+    }
+
+    private func recordCompanionConnectionError(_ message: String, peerID: String?) {
+        if let peerID { companionConnectionErrors["device:" + peerID] = message }
+        else { lastError = message }
     }
 
     func notifications(for deviceID: String) -> [BridgeNotificationRow] {
@@ -3515,6 +3568,7 @@ final class AppModel: ObservableObject {
             connectPairedCompanions(peers: peers, companions: companions)
         }
 #if !GALAXYBRIDGE_APP_STORE
+        reconcileCaptureRouteHandoffs()
         reconcileEnhancedClipboardSessions()
         reconcileEnhancedPrimaryRoutes()
         reconcilePhoneDisplayPrivacyRoutes()
@@ -3524,6 +3578,248 @@ final class AppModel: ObservableObject {
     }
 
 #if !GALAXYBRIDGE_APP_STORE
+    private func capturedRouteSerials(deviceID: String) -> Set<String> {
+        var serials = applicationWindowCoordinator?.captureSerials(deviceID: deviceID) ?? []
+        if let session = scrcpySessions[deviceID] { serials.insert(session.serial) }
+        for (permit, session) in unsettledEnhancedRetirements where enhancedRetirementDeviceIDs[permit] == deviceID {
+            serials.insert(session.serial)
+        }
+        return serials
+    }
+
+    private func handoffHelperID(for device: DeviceRow, serials: Set<String>) -> String? {
+        guard let provider = availableShellProvider(deviceID: device.id), let control = companionControl(for: device.id) else { return nil }
+        if device.adbSerial == nil, serials.contains(where: { !$0.hasPrefix("shell:") }),
+           !control.supportsCaptureRetirementProof || provider.needsRuntimeUpgrade { return nil }
+        return control.peer.deviceID
+    }
+
+    private func captureHandoffPlan(for device: DeviceRow) -> CaptureRouteHandoffPlan? {
+        let serials = capturedRouteSerials(deviceID: device.id)
+        let pendingPrimary = enhancedRetirements.keys.contains { enhancedRetirementDeviceIDs[$0] == device.id }
+            || unsettledEnhancedRetirements.keys.contains { enhancedRetirementDeviceIDs[$0] == device.id }
+        let generationChanged = ADBOwnedRuntime.shared.activeGeneration.map { current in
+            scrcpySessions[device.id]?.capturedADBGeneration.map { $0 != current } == true
+                || unsettledEnhancedRetirements.contains { permit, session in
+                    enhancedRetirementDeviceIDs[permit] == device.id
+                        && session.capturedADBGeneration.map { $0 != current } == true
+                }
+                || applicationWindowCoordinator?.hasStaleADBGeneration(deviceID: device.id, currentGeneration: current) == true
+        } ?? false
+        return CaptureRouteHandoffPlan.resolve(deviceReady: device.isReady, adbSerial: device.adbSerial,
+            helperDeviceID: handoffHelperID(for: device, serials: serials), capturedSerials: serials,
+            retirementsPending: pendingPrimary || applicationWindowCoordinator?.hasRetiringOwners(deviceID: device.id) == true,
+            windowsPending: captureRouteTransitionDevices.contains(device.id) || !(captureRoutePendingWindows[device.id] ?? []).isEmpty,
+            generationChanged: generationChanged)
+    }
+
+    private func validateCaptureHandoff(deviceID: String, ticket: UUID, peerKey: Data) throws {
+        try Task.checkCancellation()
+        guard terminationAdmission.admitsWork, captureRouteHandoffTickets[deviceID] == ticket,
+              let peers = try? PairedPeerStore().peers(),
+              peers.contains(where: { "device:\($0.deviceID)" == deviceID && $0.identityPublicKey == peerKey }) else {
+            throw CancellationError()
+        }
+    }
+
+    private func settlePrimaryCaptureRetirements(deviceID: String) async -> Bool {
+        for (permit, work) in Array(enhancedRetirements) where enhancedRetirementDeviceIDs[permit] == deviceID { await work.value }
+        for (permit, session) in Array(unsettledEnhancedRetirements) where enhancedRetirementDeviceIDs[permit] == deviceID {
+            if let route = verifiedEnhancedRetirementRoute(deviceID: deviceID, captureSerial: session.serial) {
+                session.installVerifiedCleanupRoute(route)
+            } else { session.retryOwnedCleanup() }
+            await session.waitForScheduledCleanup()
+        }
+        releasePhysicallySettledEnhancedRetirements()
+        return !enhancedRetirements.keys.contains { enhancedRetirementDeviceIDs[$0] == deviceID }
+            && !unsettledEnhancedRetirements.keys.contains { enhancedRetirementDeviceIDs[$0] == deviceID }
+    }
+
+    private func scheduleCaptureRouteRetry(deviceID: String) {
+        guard terminationAdmission.admitsWork, captureRouteRetryTasks[deviceID] == nil else { return }
+        var backoff = captureRouteBackoffs[deviceID] ?? ReconnectBackoff()
+        let delay = backoff.nextDelay(); captureRouteBackoffs[deviceID] = backoff
+        let ticket = UUID(); captureRouteRetryTickets[deviceID] = ticket
+        captureRouteRetryTasks[deviceID] = Task { [weak self] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard let self, self.captureRouteRetryTickets[deviceID] == ticket else { return }
+            self.captureRouteRetryTasks.removeValue(forKey: deviceID)
+            self.captureRouteRetryTickets.removeValue(forKey: deviceID)
+            if self.terminationAdmission.admitsWork { self.reconcileCaptureRouteHandoffs() }
+        }
+    }
+
+    private func reconcileCaptureRouteHandoffs() {
+        guard terminationAdmission.admitsWork, let peers = try? PairedPeerStore().peers() else { return }
+        for device in devices where device.isReady {
+            let id = device.id
+            guard let peer = peers.first(where: { "device:\($0.deviceID)" == id }) else { continue }
+            if let oldKey = captureRoutePeerKeys[id], oldKey != peer.identityPublicKey {
+                captureRouteHandoffTasks.removeValue(forKey: id)?.cancel(); captureRouteHandoffTickets.removeValue(forKey: id)
+                captureRouteRetryTasks.removeValue(forKey: id)?.cancel(); captureRouteRetryTickets.removeValue(forKey: id)
+                captureRoutePendingWindows.removeValue(forKey: id); captureRouteTransitionDevices.remove(id)
+                captureRouteBackoffs.removeValue(forKey: id); captureRouteAttemptSignatures.removeValue(forKey: id)
+                captureRoutePeerKeys.removeValue(forKey: id); preparingDirectDevices.remove(id)
+            }
+            guard captureRouteHandoffTasks[id] == nil, nearbyPreparationTasks[id] == nil,
+                  !preparingDirectDevices.contains(id),
+                  !shellReadinessTasks.values.contains(where: { $0.deviceID == id }),
+                  let plan = captureHandoffPlan(for: device) else { continue }
+            let signature = [device.adbSerial ?? "", plan.destinationSerial, shellProviders[id]?.bootGeneration ?? "",
+                companionControl(for: id)?.authenticatedSessionID ?? "", ADBOwnedRuntime.shared.activeGeneration?.uuidString ?? ""].joined(separator: "|")
+            if captureRouteRetryTasks[id] != nil {
+                guard captureRouteAttemptSignatures[id] != signature else { continue }
+                captureRouteRetryTasks.removeValue(forKey: id)?.cancel(); captureRouteRetryTickets.removeValue(forKey: id)
+                captureRouteBackoffs.removeValue(forKey: id)
+            }
+            captureRouteAttemptSignatures[id] = signature; captureRoutePeerKeys[id] = peer.identityPublicKey
+            let transition = plan.requiresMigration || captureRouteTransitionDevices.contains(id)
+                || !(captureRoutePendingWindows[id] ?? []).isEmpty
+            if transition { captureRouteTransitionDevices.insert(id); preparingDirectDevices.insert(id) }
+            let ticket = UUID(); captureRouteHandoffTickets[id] = ticket
+            captureRouteHandoffTasks[id] = Task { [weak self] in
+                guard let self else { return }
+                defer {
+                    if self.captureRouteHandoffTickets[id] == ticket {
+                        self.captureRouteHandoffTasks.removeValue(forKey: id); self.captureRouteHandoffTickets.removeValue(forKey: id)
+                        self.preparingDirectDevices.remove(id)
+                        if !self.primaryScreenDemand.hasDemand(id), (self.captureRoutePendingWindows[id] ?? []).isEmpty,
+                           self.applicationWindowCoordinator?.captureSerials(deviceID: id).isEmpty != false {
+                            self.phonePrivacyManualPower.removeValue(forKey: id)
+                        }
+                        self.objectWillChange.send()
+                        self.reconcileEnhancedClipboardSessions(); self.reconcilePhoneDisplayPrivacyRoutes()
+                    }
+                }
+                do {
+                    try self.validateCaptureHandoff(deviceID: id, ticket: ticket, peerKey: peer.identityPublicKey)
+                    for serial in self.applicationWindowCoordinator?.captureSerials(deviceID: id) ?? [] {
+                        if let route = self.verifiedEnhancedRetirementRoute(deviceID: id, captureSerial: serial) {
+                            self.applicationWindowCoordinator?.installRetirementRoute(route, deviceID: id)
+                        }
+                    }
+                    if transition {
+                        let suspension = await self.applicationWindowCoordinator?.suspendForRouteChange(deviceID: id)
+                        try self.validateCaptureHandoff(deviceID: id, ticket: ticket, peerKey: peer.identityPublicKey)
+                        var saved: [String: ApplicationWindowCoordinator.RouteResume] = [:]
+                        for window in (self.captureRoutePendingWindows[id] ?? []) + (suspension?.windows ?? []) {
+                            saved[window.application.packageName] = window
+                        }
+                        self.captureRoutePendingWindows[id] = saved.values.sorted { $0.application.packageName < $1.application.packageName }
+                        guard suspension?.settled != false else { throw ShellCapabilityBridgeFailure.operationFailed }
+                        self.retireEnhancedScreenSession(deviceID: id)
+                    }
+                    let appsSettled = await self.applicationWindowCoordinator?.retryRetiringOwners(deviceID: id) ?? true
+                    let primarySettled = await self.settlePrimaryCaptureRetirements(deviceID: id)
+                    try self.validateCaptureHandoff(deviceID: id, ticket: ticket, peerKey: peer.identityPublicKey)
+                    guard appsSettled && primarySettled else { throw ShellCapabilityBridgeFailure.operationFailed }
+                    guard let current = self.row(id: id), current.isReady else { throw ShellCapabilityBridgeFailure.unavailable }
+                    if transition {
+                        if let clipboard = self.clipboardSessions.removeValue(forKey: id) { await clipboard.stopAndWait() }
+                        self.clipboardReconnectTasks.removeValue(forKey: id)?.cancel()
+                        self.clipboardReconnectAttempts.removeValue(forKey: id)
+                        try self.validateCaptureHandoff(deviceID: id, ticket: ticket, peerKey: peer.identityPublicKey)
+                        guard let powerDevice = self.row(id: id), powerDevice.isReady else { throw ShellCapabilityBridgeFailure.unavailable }
+                        let serials = self.capturedRouteSerials(deviceID: id)
+                        guard let destination = CaptureRouteHandoffPlan.destination(adbSerial: powerDevice.adbSerial,
+                            helperDeviceID: self.handoffHelperID(for: powerDevice, serials: serials), capturedSerials: serials) else {
+                            throw ShellCapabilityBridgeFailure.unavailable
+                        }
+                        self.phoneDisplayPrivacy.setEnabled(false, deviceID: id, serial: destination)
+                        await self.phoneDisplayPrivacy.waitForSettlement(deviceID: id)
+                        try self.validateCaptureHandoff(deviceID: id, ticket: ticket, peerKey: peer.identityPublicKey)
+                        if case .failed = self.phoneDisplayPrivacy.status(deviceID: id) { throw ShellCapabilityBridgeFailure.operationFailed }
+                        guard let latest = self.row(id: id), latest.isReady else { throw ShellCapabilityBridgeFailure.unavailable }
+                        if latest.adbSerial == nil, let control = self.companionControl(for: id), control.supportsFeatureConfiguration,
+                           self.clientSetup.synchronization(deviceID: id) != .acknowledged { return }
+                        self.captureRouteTransitionDevices.remove(id); self.preparingDirectDevices.remove(id)
+                        self.ensureEnhancedSessionForPrimaryDemand(for: latest)
+                        let windows = self.captureRoutePendingWindows.removeValue(forKey: id) ?? []
+                        self.applicationWindowCoordinator?.resumeAfterRouteChange(windows, device: latest, model: self, activate: false)
+                    } else { self.ensureEnhancedSessionForPrimaryDemand(for: current) }
+                    self.captureRouteBackoffs.removeValue(forKey: id); self.captureRouteAttemptSignatures.removeValue(forKey: id)
+                    self.captureRoutePeerKeys.removeValue(forKey: id)
+                    if self.selectedDeviceID == id, self.lastError == String(localized: "ERROR_MEDIA_CLEANUP") { self.lastError = nil }
+                } catch is CancellationError {
+                    // Revocation/termination owns cancellation and forbids any late resume.
+                } catch {
+                    if self.captureRouteHandoffTickets[id] == ticket {
+                        if self.selectedDeviceID == id { self.lastError = String(localized: "ERROR_MEDIA_CLEANUP") }
+                        self.scheduleCaptureRouteRetry(deviceID: id)
+                    }
+                }
+            }
+            objectWillChange.send()
+        }
+    }
+
+    private func captureRetirementIdentity(deviceID: String, captureSerial: String) -> VerifiedCaptureRetirementPeer? {
+        let store = ADBBindingStore()
+        guard !captureSerial.hasPrefix("shell:"), let binding = try? store.record(for: captureSerial),
+              let peers = try? PairedPeerStore().peers(),
+              let peer = peers.first(where: { "device:\($0.deviceID)" == deviceID }) else { return nil }
+        return VerifiedCaptureRetirementPeer(logicalDeviceID: deviceID, bindingDeviceID: binding.deviceID,
+            publicKeySHA256: binding.identityPublicKeySHA256, bindingVerified: store.isVerified(serial: captureSerial, peer: peer))
+    }
+
+    private func retirementProvider(for identity: VerifiedCaptureRetirementPeer) -> ShellCapabilityBridgeProvider? {
+        guard let provider = shellProviders[identity.logicalDeviceID], provider.available, provider.bootGeneration != nil,
+              let control = companionControl(for: identity.logicalDeviceID), control.supportsShellBridge,
+              identity.accepts(deviceID: control.peer.deviceID,
+                  publicKeySHA256: Data(SHA256.hash(data: control.peer.identityPublicKey)),
+                  authenticated: companionStates[companionID(for: identity.logicalDeviceID) ?? ""] == .connected)
+        else { return nil }
+        return provider
+    }
+
+    private func captureRetirementAuthority(deviceID: String, captureSerial: String) -> CaptureRetirementAuthority {
+        let peer = captureRetirementIdentity(deviceID: deviceID, captureSerial: captureSerial)
+        let generation = ADBOwnedRuntime.shared.activeGeneration
+        if let existing = captureRetirementAuthorities[captureSerial] {
+            if let frozen = existing.peer, let peer, frozen.deviceID == peer.deviceID,
+               frozen.publicKeySHA256 == peer.publicKeySHA256 { return existing }
+            if existing.peer == nil, let generation, existing.captureGeneration == generation { return existing }
+        }
+        let authority = CaptureRetirementAuthority(captureSerial: captureSerial, peer: peer, generation: generation)
+        captureRetirementAuthorities[captureSerial] = authority
+        return authority
+    }
+
+    private func adoptCaptureRetirementIdentity(_ record: ADBBindingRecord) {
+        // Called only after the binder accepted this session's signed nonce.
+        guard adbRows.contains(where: { $0.isReady && $0.adbSerial == record.adbSerial }),
+              let peer = captureRetirementIdentity(deviceID: "device:" + record.deviceID, captureSerial: record.adbSerial),
+              let control = companionControl(for: peer.logicalDeviceID),
+              peer.accepts(deviceID: control.peer.deviceID, publicKeySHA256: Data(SHA256.hash(data: control.peer.identityPublicKey)),
+                authenticated: companionStates[companionID(for: peer.logicalDeviceID) ?? ""] == .connected)
+        else { return }
+        captureRetirementAuthorities[record.adbSerial]?.adopt(peer, currentADBSerial: record.adbSerial, generation: ADBOwnedRuntime.shared.activeGeneration)
+    }
+
+    func captureRetirementAbsenceProof(deviceID: String, captureSerial: String) -> EnhancedCaptureAbsenceProof? {
+        let authority = captureRetirementAuthority(deviceID: deviceID, captureSerial: captureSerial)
+        return { [weak self, authority] scid in
+            guard let identity = authority.peer, let provider = self?.retirementProvider(for: identity) else { throw ShellCapabilityBridgeFailure.sessionChanged }
+            try await provider.confirmADBCaptureAbsent(scid: scid)
+        }
+    }
+
+    private func displayControllerRetirementProof(deviceID: String, captureSerial: String) -> DisplayControllerRetirementProof? {
+        let authority = captureRetirementAuthority(deviceID: deviceID, captureSerial: captureSerial)
+        return { [weak self, authority] process, initial in
+            guard let identity = authority.peer, let provider = self?.retirementProvider(for: identity) else { throw ShellCapabilityBridgeFailure.sessionChanged }
+            try await provider.confirmDisplayControllerRetired(identity: process, initial: initial)
+        }
+    }
+
+    private func displayControllerResourceRelease(deviceID: String, captureSerial: String) -> DisplayControllerResourceRelease? {
+        let authority = captureRetirementAuthority(deviceID: deviceID, captureSerial: captureSerial)
+        return { [weak self, authority] process, resourceID in
+            guard let identity = authority.peer, let provider = self?.retirementProvider(for: identity) else { throw ShellCapabilityBridgeFailure.sessionChanged }
+            try await provider.releaseRetiredControllerResource(identity: process, resourceID: resourceID)
+        }
+    }
+
     private func verifiedEnhancedRetirementRoute(deviceID: String, captureSerial: String) -> VerifiedEnhancedRetirementRoute? {
         guard let device = row(id: deviceID), device.isReady, device.transport != .companionLAN,
               let serial = device.adbSerial,
@@ -3680,6 +3976,7 @@ final class AppModel: ObservableObject {
             })?.adbSerial else { continue }
             let scope = peer.deviceID + ":" + Data(SHA256.hash(data: peer.identityPublicKey)).base64EncodedString()
                 + ":" + String(peer.pairedAt.timeIntervalSince1970)
+                + ":adb:" + (observedADBGeneration?.uuidString ?? "unowned")
             desired["device:" + peer.deviceID] = (scope, serial)
         }
         companionTunnelDesired = desired
@@ -3687,9 +3984,15 @@ final class AppModel: ObservableObject {
         where desired[deviceID]?.scope != lease.peerID || desired[deviceID]?.serial != lease.serial {
             companionTunnelLeases.removeValue(forKey: deviceID)
             retireCompanionTunnelRoute(deviceID: deviceID)
-            Task { [companionTunnels] in
+            let token = UUID()
+            companionTunnelTokens[deviceID] = token
+            companionTunnelTasks[deviceID] = Task { [weak self, companionTunnels] in
                 do { try await companionTunnels.release(lease) }
-                catch { self.fileTransferStatus[deviceID] = String(localized: "FILE_CONNECTION_LOST") }
+                catch { self?.fileTransferStatus[deviceID] = String(localized: "FILE_CONNECTION_LOST") }
+                guard let self, self.companionTunnelTokens[deviceID] == token else { return }
+                self.companionTunnelTasks.removeValue(forKey: deviceID)
+                self.companionTunnelTokens.removeValue(forKey: deviceID)
+                if self.terminationAdmission.admitsWork { self.mergeDevices() }
             }
         }
         for (deviceID, target) in desired
@@ -3701,6 +4004,11 @@ final class AppModel: ObservableObject {
                     if let self, self.companionTunnelTokens[deviceID] == token {
                         self.companionTunnelTasks.removeValue(forKey: deviceID)
                         self.companionTunnelTokens.removeValue(forKey: deviceID)
+                        if self.terminationAdmission.admitsWork, self.companionTunnelLeases[deviceID] == nil,
+                           let latest = self.companionTunnelDesired[deviceID],
+                           latest.scope != target.scope || latest.serial != target.serial {
+                            self.mergeDevices()
+                        }
                     }
                 }
                 do {
@@ -3883,6 +4191,15 @@ final class AppModel: ObservableObject {
             guard let generation = companionRecoverySupervisor.beginSession(companionID: companion.id) else { continue }
             resetFeatureConfigurationForSession(deviceID: deviceID)
             companionLifecycleLogger.info("connection bundle starting")
+            if primaryMediaDiagnosticsEnabled {
+                // Opt-in diagnostics correlate a logical session without
+                // logging phone names, serials, addresses or key material.
+                let peerToken = SHA256.hash(data: peer.identityPublicKey).prefix(8)
+                    .map { String(format: "%02x", $0) }.joined()
+                let route = companion.id.hasPrefix("usb-companion:") ? "usb_forward"
+                    : companion.id.hasPrefix("routed:") ? "routed_lan" : "discovered"
+                companionLifecycleLogger.info("connection target generation=\(generation, privacy: .public) peer_token=\(peerToken, privacy: .public) route=\(route, privacy: .public)")
+            }
 #if !GALAXYBRIDGE_APP_STORE
             if let oldGeneration {
                 adbIdentityBinder.retire(
@@ -4251,7 +4568,7 @@ final class AppModel: ObservableObject {
 #endif
                 companionStates[companionID] = state
                 companionConnectingWatchdog.connectionSettled(companionID: companionID)
-                lastError = nil
+                if let peerID { companionConnectionErrors.removeValue(forKey: "device:" + peerID) }
                 reconnectAttempts[companionID] = 0
                 companionRecoverySupervisor.cancelDelayedRetry(companionID: companionID)
                 reconcileADBBindings(for: companionID)
@@ -4270,9 +4587,9 @@ final class AppModel: ObservableObject {
                     recoveryAccepted = false
                     return
                 }
-                lastError = UserFacingText.formatted(
+                recordCompanionConnectionError(UserFacingText.formatted(
                     "COMPANION_CONNECTION_FAILED", message
-                )
+                ), peerID: peerID)
                 recoveryAccepted = recoverCompanionSession(
                     companionID: companionID,
                     generation: generation
@@ -4290,7 +4607,7 @@ final class AppModel: ObservableObject {
                 companionConnectingWatchdog.connectionSettled(companionID: companionID)
                 companionRecoverySupervisor.cancelDelayedRetry(companionID: companionID)
                 reconnectAttempts[companionID] = 0
-                lastError = message
+                recordCompanionConnectionError(message, peerID: peerID)
                 recoveryAccepted = false
             case .disconnected:
                 if let peerID {
@@ -4707,6 +5024,9 @@ final class AppModel: ObservableObject {
                 sourceRouteID: "control:" + control.authenticatedSessionID)
         case let .featureConfigurationResult(result):
             handleFeatureConfigurationResult(companionID: companionID, deviceID: deviceID, envelope: envelope, result: result)
+#if !GALAXYBRIDGE_APP_STORE
+            reconcileCaptureRouteHandoffs()
+#endif
         case let .capabilityUpdate(update):
             if update.available.contains(.calls) {
                 do { try clientSetup.preserveAvailableOptionalCalls(deviceID: deviceID) }
@@ -4841,17 +5161,20 @@ final class AppModel: ObservableObject {
         case .internetGateway: "CAPABILITY_INTERNET_GATEWAY"
         case .privilegedBridge: "CAPABILITY_PRIVILEGED_BRIDGE"
         case .featureConfiguration: "CAPABILITY_FEATURE_CONFIGURATION"
+        case .captureRetirementProof: "CAPABILITY_CAPTURE_RETIREMENT_PROOF"
         case .UNRECOGNIZED: nil
         }
     }
 
 #if !GALAXYBRIDGE_APP_STORE
     private func adoptVerifiedBinding(_ record: ADBBindingRecord) {
+        adoptCaptureRetirementIdentity(record)
         validatedWirelessSerials.insert(record.adbSerial)
         let oldID = "adb:\(record.adbSerial)"
         let newID = "device:\(record.deviceID)"
         cacheMaintenance.reevaluateClipboardRoutes(deviceID: newID)
         guard oldID != newID else { return }
+        applicationWindowCoordinator?.adoptDeviceIdentity(from: oldID, to: newID)
         migratePhoneDisplayPrivacy(from: oldID, to: newID)
         if let surface = videoSurfaces.removeValue(forKey: oldID), videoSurfaces[newID] == nil { videoSurfaces[newID] = surface }
         if let surface = cameraSurfaces.removeValue(forKey: oldID), cameraSurfaces[newID] == nil { cameraSurfaces[newID] = surface }

@@ -141,6 +141,8 @@ enum Capability {
   CAPABILITY_INTERNET_GATEWAY = 15;
   CAPABILITY_PRIVILEGED_BRIDGE = 16;
   CAPABILITY_FEATURE_CONFIGURATION = 17;
+  // Typed read-only retirement proofs, independent of broker activation.
+  CAPABILITY_CAPTURE_RETIREMENT_PROOF = 18;
 }
 
 // CONTROL only after signed session authentication. An empty enabled list means all off.
@@ -254,6 +256,10 @@ message ShellBridgeRequest {
     START_PANEL = 3;
     STOP = 4;
     LIST_APPLICATIONS = 5;
+    VERIFY_RETIREMENT = 6;
+    // Unlinks only an exact owned privacy-runtime JAR after PID/start absence
+    // proof and a match to this broker's verified runtime bytes.
+    RELEASE_RETIRED_RESOURCE = 7;
   }
   string request_id = 1;
   string lease_id = 2;
@@ -261,6 +267,43 @@ message ShellBridgeRequest {
   Operation operation = 4;
   ShellCaptureOptions options = 5;
   bool power_on = 6;
+  CaptureRetirementQuery retirement = 7;
+}
+
+// CONTROL only after signed authentication. VERIFY_RETIREMENT is read-only.
+// Neither operation launches/kills processes or changes panel power, input,
+// radios or routing. Resource release accepts a UUID, never a file path.
+message CaptureRetirementQuery {
+  enum Kind {
+    PROBE_SUPPORT = 0;
+    SCRCPY_CAPTURE = 1;
+    DISPLAY_POWER_CONTROLLER = 2;
+  }
+  Kind kind = 1;
+  uint32 scid = 2;
+  uint32 pid = 3;
+  uint64 process_start_ticks = 4;
+  string owned_resource_id = 5; // canonical lowercase UUID; resource release only
+  bytes resource_sha256 = 6; // exactly 32 bytes; resource release only
+}
+
+message PhysicalPanelPowerState {
+  string physical_id = 1; // canonical unsigned 64-bit decimal, at most 20 bytes
+  bool on = 2;
+}
+
+message CaptureRetirementProof {
+  CaptureRetirementQuery.Kind kind = 1;
+  uint32 scid = 2;
+  uint32 pid = 3;
+  uint64 process_start_ticks = 4;
+  bool supported = 5;
+  bool absent = 6;
+  // Exact current physical state; at most eight unique panels. A controller
+  // is settled only when its original snapshot matches this observation.
+  repeated PhysicalPanelPowerState panels = 7;
+  string owned_resource_id = 8;
+  bool resource_removed = 9;
 }
 
 message ShellBridgeResult {
@@ -272,6 +315,7 @@ message ShellBridgeResult {
   string error_code = 6;
   repeated string stream_ids = 7;
   bytes application_catalog_json = 8;
+  CaptureRetirementProof retirement_proof = 9;
 }
 
 message OpenChannel {

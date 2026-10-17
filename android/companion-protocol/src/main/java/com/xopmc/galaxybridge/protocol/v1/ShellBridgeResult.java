@@ -23,6 +23,7 @@ public  final class ShellBridgeResult extends
     streamIds_ = emptyProtobufList();
     applicationCatalogJson_ = com.google.protobuf.ByteString.EMPTY;
   }
+  private int bitField0_;
   public static final int REQUEST_ID_FIELD_NUMBER = 1;
   private java.lang.String requestId_;
   /**
@@ -402,6 +403,53 @@ public  final class ShellBridgeResult extends
   private void clearApplicationCatalogJson() {
 
     applicationCatalogJson_ = getDefaultInstance().getApplicationCatalogJson();
+  }
+
+  public static final int RETIREMENT_PROOF_FIELD_NUMBER = 9;
+  private com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof retirementProof_;
+  /**
+   * <code>.galaxybridge.v1.CaptureRetirementProof retirement_proof = 9;</code>
+   */
+  @java.lang.Override
+  public boolean hasRetirementProof() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <code>.galaxybridge.v1.CaptureRetirementProof retirement_proof = 9;</code>
+   */
+  @java.lang.Override
+  public com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof getRetirementProof() {
+    return retirementProof_ == null ? com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof.getDefaultInstance() : retirementProof_;
+  }
+  /**
+   * <code>.galaxybridge.v1.CaptureRetirementProof retirement_proof = 9;</code>
+   */
+  private void setRetirementProof(com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof value) {
+    java.util.Objects.requireNonNull(value);
+    retirementProof_ = value;
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <code>.galaxybridge.v1.CaptureRetirementProof retirement_proof = 9;</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeRetirementProof(com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof value) {
+    java.util.Objects.requireNonNull(value);
+    if (retirementProof_ != null &&
+        retirementProof_ != com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof.getDefaultInstance()) {
+      retirementProof_ =
+        com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof.newBuilder(retirementProof_).mergeFrom(value).buildPartial();
+    } else {
+      retirementProof_ = value;
+    }
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <code>.galaxybridge.v1.CaptureRetirementProof retirement_proof = 9;</code>
+   */
+  private void clearRetirementProof() {
+    retirementProof_ = null;
+    bitField0_ = (bitField0_ & ~0x00000001);
   }
 
   public static com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult parseFrom(
@@ -894,6 +942,53 @@ public  final class ShellBridgeResult extends
       return this;
     }
 
+    /**
+     * <code>.galaxybridge.v1.CaptureRetirementProof retirement_proof = 9;</code>
+     */
+    @java.lang.Override
+    public boolean hasRetirementProof() {
+      return instance.hasRetirementProof();
+    }
+    /**
+     * <code>.galaxybridge.v1.CaptureRetirementProof retirement_proof = 9;</code>
+     */
+    @java.lang.Override
+    public com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof getRetirementProof() {
+      return instance.getRetirementProof();
+    }
+    /**
+     * <code>.galaxybridge.v1.CaptureRetirementProof retirement_proof = 9;</code>
+     */
+    public Builder setRetirementProof(com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof value) {
+      copyOnWrite();
+      instance.setRetirementProof(value);
+      return this;
+      }
+    /**
+     * <code>.galaxybridge.v1.CaptureRetirementProof retirement_proof = 9;</code>
+     */
+    public Builder setRetirementProof(
+        com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof.Builder builderForValue) {
+      copyOnWrite();
+      instance.setRetirementProof(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.CaptureRetirementProof retirement_proof = 9;</code>
+     */
+    public Builder mergeRetirementProof(com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof value) {
+      copyOnWrite();
+      instance.mergeRetirementProof(value);
+      return this;
+    }
+    /**
+     * <code>.galaxybridge.v1.CaptureRetirementProof retirement_proof = 9;</code>
+     */
+    public Builder clearRetirementProof() {  copyOnWrite();
+      instance.clearRetirementProof();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:galaxybridge.v1.ShellBridgeResult)
   }
   @java.lang.Override
@@ -910,6 +1005,7 @@ public  final class ShellBridgeResult extends
       }
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
+            "bitField0_",
             "requestId_",
             "leaseId_",
             "bootGeneration_",
@@ -918,10 +1014,11 @@ public  final class ShellBridgeResult extends
             "errorCode_",
             "streamIds_",
             "applicationCatalogJson_",
+            "retirementProof_",
           };
           java.lang.String info =
-              "\u0000\b\u0000\u0000\u0001\b\b\u0000\u0001\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0007\u0005\u0208\u0006\u0208\u0007\u021a\b\n";
+              "\u0000\t\u0000\u0001\u0001\t\t\u0000\u0001\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\u0007\u0005\u0208\u0006\u0208\u0007\u021a\b\n\t\u1009\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

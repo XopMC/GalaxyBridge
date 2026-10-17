@@ -125,7 +125,7 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
             if (!ShellBridgePolicy.valid(request)) return rejected(request, "shell_request_invalid")
             if (request.bootGeneration.isNotEmpty() && request.bootGeneration != generation) return rejected(request, "shell_boot_generation_changed")
             if (pending.size >= 32 || request.requestId in pending) return rejected(request, "shell_request_busy")
-            if (request.operation != ShellBridgeRequest.Operation.STATUS) {
+            if (ShellBridgePolicy.usesChildLease(request.operation)) {
                 if (request.operation == ShellBridgeRequest.Operation.STOP) {
                     if (!leases.owns(peerID, sessionID, request.leaseId)) return rejected(request, "shell_lease_unknown")
                 } else {
@@ -150,7 +150,7 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
                     // exact peer/session authority so a later STOP can retry.
                     if (leases.confirmsStopped(peerID, sessionID, request.leaseId, response)) removeLeaseLocked(request.leaseId)
                 }
-                else if (request.operation != ShellBridgeRequest.Operation.STATUS) {
+                else if (ShellBridgePolicy.usesChildLease(request.operation)) {
                     if (response.available && response.errorCode.isEmpty()) {
                         check(leases.declare(peerID, sessionID, request.leaseId, response.streamIdsList)) { "shell_invalid_stream_declaration" }
                     } else if (newLease) leases.remove(request.leaseId)
@@ -159,8 +159,12 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
             return response
         } catch (_: Exception) {
             synchronized(lock) { if (newLease) removeLeaseLocked(request.leaseId) }
-            // Outcome is unknown. Retiring the owner makes its real shell process kill every child.
-            synchronized(lock) { if (owner === socket) deactivateLocked() }
+            // Unknown child creation/STOP still retires its lifetime owner.
+            // An unsuccessful read or idempotent exact-resource cleanup owns no
+            // capture and must not tear down unrelated live windows.
+            if (ShellBridgePolicy.usesChildLease(request.operation)) {
+                synchronized(lock) { if (owner === socket) deactivateLocked() }
+            }
             return rejected(request, "shell_request_failed")
         } finally { synchronized(lock) { if (pending[request.requestId] === completion) pending.remove(request.requestId) } }
     }
@@ -239,11 +243,19 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
     }
     private fun requestJSON(request: ShellBridgeRequest, boot: String): JSONObject {
         val o = request.options
-        return JSONObject().put("request_id", request.requestId).put("lease_id", request.leaseId).put("boot_generation", boot)
+        val json = JSONObject().put("request_id", request.requestId).put("lease_id", request.leaseId).put("boot_generation", boot)
             .put("operation", request.operationValue).put("power_on", request.powerOn).put("options", JSONObject()
                 .put("scid", o.scid).put("display_id", o.displayId).put("package_name", o.packageName)
                 .put("max_size", o.maxSize).put("max_fps", o.maxFps).put("video_bit_rate", o.videoBitRate)
                 .put("codec", o.codec).put("width", o.width).put("height", o.height).put("audio", o.audio).put("control", o.control))
+        if (request.hasRetirement()) {
+            val query = request.retirement
+            json.put("retirement", JSONObject().put("kind", query.kindValue).put("scid", query.scid)
+                .put("pid", query.pid).put("process_start_ticks", query.processStartTicks)
+                .put("owned_resource_id", query.ownedResourceId)
+                .put("resource_sha256", query.resourceSha256.toByteArray().joinToString("") { "%02x".format(it.toInt() and 0xff) }))
+        }
+        return json
     }
     private fun result(json: JSONObject): ShellBridgeResult {
         val builder = ShellBridgeResult.newBuilder().setRequestId(json.optString("request_id"))
@@ -251,6 +263,32 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
             .setAvailable(json.getBoolean("available")).setState(json.optString("state"))
             .setErrorCode(json.optString("error_code"))
         json.optJSONArray("stream_ids")?.let { array -> check(array.length() <= 4); repeat(array.length()) { builder.addStreamIds(array.getString(it)) } }
+        json.optJSONObject("retirement_proof")?.let { proof ->
+            val kind = proof.getInt("kind")
+            val scid = proof.getLong("scid")
+            val pid = proof.getLong("pid")
+            val start = proof.getLong("process_start_ticks")
+            check(kind in 0..2 && scid in 0..0x7fffffffL && pid in 0..0x7fffffffL && start >= 0)
+            val typed = com.xopmc.galaxybridge.protocol.v1.CaptureRetirementProof.newBuilder()
+                .setKindValue(kind).setScid(scid.toInt()).setPid(pid.toInt()).setProcessStartTicks(start)
+                .setSupported(proof.getBoolean("supported")).setAbsent(proof.getBoolean("absent"))
+            val resourceID = proof.optString("owned_resource_id")
+            check(resourceID.isEmpty() || ShellBridgePolicy.uuid(resourceID))
+            typed.setOwnedResourceId(resourceID).setResourceRemoved(proof.optBoolean("resource_removed", false))
+            val ids = hashSetOf<String>()
+            proof.optJSONArray("panels")?.let { panels ->
+                check(panels.length() <= 8)
+                repeat(panels.length()) {
+                    val panel = panels.getJSONObject(it)
+                    val id = panel.getString("physical_id")
+                    check(id.matches(Regex("0|[1-9][0-9]{0,19}")) &&
+                        java.lang.Long.toUnsignedString(java.lang.Long.parseUnsignedLong(id)) == id && ids.add(id))
+                    typed.addPanels(com.xopmc.galaxybridge.protocol.v1.PhysicalPanelPowerState.newBuilder()
+                        .setPhysicalId(id).setOn(panel.getBoolean("on")))
+                }
+            }
+            builder.setRetirementProof(typed)
+        }
         return builder.build()
     }
     private fun rejected(request: ShellBridgeRequest, error: String) = ShellBridgeResult.newBuilder()

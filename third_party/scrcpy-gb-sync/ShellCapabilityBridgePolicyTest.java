@@ -58,6 +58,12 @@ public final class ShellCapabilityBridgePolicyTest {
         String[] argv = valid.serverArguments();
         String joined = String.join(" ", argv);
         assert joined.contains("video_bit_rate=6000000") && joined.contains("max_fps=60");
+        assert java.util.Arrays.asList(argv).contains("video_codec_options=i-frame-interval=1,priority=0,latency=0,bitrate-mode=2")
+                : "prepared AVC capture lost the wireless profile's realtime / zero-latency encoder hints";
+        Map<String, Object> hevcOptions = options(); hevcOptions.put("codec", "h265");
+        java.util.List<String> hevcArguments = java.util.Arrays.asList(ShellCapabilityBridge.Policy.parse(1, lease, hevcOptions).serverArguments());
+        assert hevcArguments.contains("video_codec_options=i-frame-interval=1,priority=0,latency=0")
+                : "HEVC needs the same interactive hints without AVC's CBR override";
         assert joined.contains("new_display=1920x1080/420") && joined.contains("cleanup=true");
         assert java.util.Arrays.asList(argv).contains("flex_display=true") && java.util.Arrays.asList(argv).contains("vd_system_decorations=false") : "typed app windows must resize without a competing launcher/taskbar";
         assert java.util.Arrays.asList(argv).contains("display_ime_policy=hide") && !joined.contains("hide_device_ime=");
@@ -85,6 +91,8 @@ public final class ShellCapabilityBridgePolicyTest {
         ShellCapabilityBridge.Policy clipboard = ShellCapabilityBridge.Policy.parse(2, lease, options());
         assert clipboard.streams().size() == 2 && clipboard.streams().contains(lease + "/clipboard");
         assert String.join(" ", clipboard.serverArguments()).contains("video=false");
+        assert !String.join(" ", clipboard.serverArguments()).contains("video_codec_options=")
+                : "capture-free clipboard must not configure a video encoder";
         assert java.util.Arrays.asList(clipboard.serverArguments()).contains("audio=false") && !java.util.Arrays.asList(clipboard.serverArguments()).contains("audio_codec=aac");
         assert !java.util.Arrays.asList(clipboard.serverArguments()).contains("display_ime_policy=hide") : "clipboard-only capture must leave the phone's IME policy unchanged";
         assert ShellCapabilityBridge.Policy.parse(3, lease, options()).streams().isEmpty();

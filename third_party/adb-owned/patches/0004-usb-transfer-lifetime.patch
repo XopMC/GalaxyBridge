@@ -1,0 +1,167 @@
+--- a/vendor/adb/client/usb_libusb_device.cpp
++++ b/vendor/adb/client/usb_libusb_device.cpp
+@@ -67,8 +67,7 @@
+ }
+ 
+ LibUsbDevice::~LibUsbDevice() {
+-    ReleaseInterface();
+-    CloseDeviceHandle();
++    Close();
+     CloseDevice();
+ }
+ 
+@@ -99,6 +98,31 @@
+     if (device_ != nullptr) {
+         libusb_unref_device(device_);
+         device_ = nullptr;
++    }
++}
++
++// A handle remains owned until every admitted synchronous transfer returns.
++// Readers and writers share the handle lock: an idle read never delays input.
++// Only idle/error waits are polled; available bytes are transferred immediately.
++int LibUsbDevice::BulkTransfer(uint8_t endpoint, unsigned char* data, int length,
++                              int* transferred) {
++    *transferred = 0;
++    if (closing_.load(std::memory_order_acquire)) return LIBUSB_ERROR_NO_DEVICE;
++    std::shared_lock<std::shared_mutex> lock(handle_mutex_);
++    if (closing_.load(std::memory_order_acquire) || device_handle_ == nullptr ||
++        !interface_claimed_) return LIBUSB_ERROR_NO_DEVICE;
++    while (true) {
++        if (closing_.load(std::memory_order_acquire)) return LIBUSB_ERROR_NO_DEVICE;
++        int count = 0;
++        int remaining = length - *transferred;
++        int result = libusb_bulk_transfer(device_handle_, endpoint, data + *transferred,
++                                         remaining, &count, 100);
++        if (count < 0 || count > remaining) return LIBUSB_ERROR_OTHER;
++        *transferred += count;
++        if (result != LIBUSB_ERROR_TIMEOUT) return result;
++        // A timed-out transfer may already have delivered bytes. Continue from
++        // its exact offset; replaying a prefix corrupts ADB packet framing.
++        if (length > 0 && *transferred == length) return 0;
+     }
+ }
+ 
+@@ -107,8 +131,8 @@
+               << " payload=" << packet->msg.data_length;
+     int transferred;
+     int data_size = sizeof(packet->msg);
+-    auto r = libusb_bulk_transfer(device_handle_, write_endpoint_, (unsigned char*)&packet->msg,
+-                                  data_size, &transferred, 0);
++    auto r = BulkTransfer(write_endpoint_, (unsigned char*)&packet->msg,
++                                  data_size, &transferred);
+     if ((r != 0) || (transferred != data_size)) {
+         VLOG(USB) << "LibUsbDevice::Write failed at header " << libusb_error_name(r);
+         return false;
+@@ -118,8 +142,8 @@
+     if (data_size == 0) {
+         return true;
+     }
+-    r = libusb_bulk_transfer(device_handle_, write_endpoint_,
+-                             (unsigned char*)packet->payload.data(), data_size, &transferred, 0);
++    r = BulkTransfer(write_endpoint_,
++                             (unsigned char*)packet->payload.data(), data_size, &transferred);
+     if ((r != 0) || (transferred != data_size)) {
+         VLOG(USB) << "LibUsbDevice::Write failed at payload " << libusb_error_name(r);
+         return false;
+@@ -129,8 +153,8 @@
+         VLOG(USB) << "Sending zlp (payload_size=" << data_size
+                   << ", endpoint_size=" << out_endpoint_size_
+                   << ", modulo=" << data_size % out_endpoint_size_ << ")";
+-        libusb_bulk_transfer(device_handle_, write_endpoint_,
+-                             (unsigned char*)packet->payload.data(), 0, &transferred, 0);
++        BulkTransfer(write_endpoint_,
++                             (unsigned char*)packet->payload.data(), 0, &transferred);
+     }
+ 
+     return true;
+@@ -140,8 +164,8 @@
+     VLOG(USB) << "LibUsbDevice Read()";
+     int transferred;
+     int data_size = sizeof(packet->msg);
+-    auto r = libusb_bulk_transfer(device_handle_, read_endpoint_, (unsigned char*)&packet->msg,
+-                                  data_size, &transferred, 0);
++    auto r = BulkTransfer(read_endpoint_, (unsigned char*)&packet->msg,
++                                  data_size, &transferred);
+     if ((r != 0) || (transferred != data_size)) {
+         VLOG(USB) << "LibUsbDevice::READ failed at header " << libusb_error_name(r);
+         return false;
+@@ -155,8 +179,8 @@
+ 
+     packet->payload.resize(packet->msg.data_length);
+     data_size = packet->msg.data_length;
+-    r = libusb_bulk_transfer(device_handle_, read_endpoint_, (unsigned char*)packet->payload.data(),
+-                             data_size, &transferred, 0);
++    r = BulkTransfer(read_endpoint_, (unsigned char*)packet->payload.data(),
++                             data_size, &transferred);
+     if ((r != 0) || (transferred != data_size)) {
+         VLOG(USB) << "LibUsbDevice::READ failed at payload << " << libusb_error_name(r);
+         return false;
+@@ -337,6 +361,9 @@
+ 
+ // Clear halt condition for endpoints
+ void LibUsbDevice::ClearEndpoints() {
++    if (closing_.load(std::memory_order_acquire)) return;
++    std::shared_lock<std::shared_mutex> lock(handle_mutex_);
++    if (closing_.load(std::memory_order_acquire)) return;
+     if (device_handle_ == nullptr) {
+         VLOG(USB) << "cannot clear device endpoints, invalid device handle";
+         return;
+@@ -500,6 +527,8 @@
+ }
+ 
+ bool LibUsbDevice::Open() {
++    std::lock_guard<std::mutex> lifecycle(lifecycle_mutex_);
++    std::unique_lock<std::shared_mutex> lock(handle_mutex_);
+     if (!OpenDeviceHandle()) {
+         VLOG(USB) << "Unable to attach, cannot open device";
+         return false;
+@@ -511,10 +540,14 @@
+     }
+ 
+     VLOG(USB) << "Attached device " << GetSerial();
++    closing_.store(false, std::memory_order_release);
+     return true;
+ }
+ 
+ bool LibUsbDevice::Close() {
++    std::lock_guard<std::mutex> lifecycle(lifecycle_mutex_);
++    closing_.store(true, std::memory_order_release);
++    std::unique_lock<std::shared_mutex> lock(handle_mutex_);
+     ReleaseInterface();
+     CloseDeviceHandle();
+     return true;
+--- a/vendor/adb/client/usb_libusb_device.h
++++ b/vendor/adb/client/usb_libusb_device.h
+@@ -21,7 +21,10 @@
+ #include "types.h"
+ 
+ #include <stdint.h>
++#include <atomic>
++#include <mutex>
+ #include <optional>
++#include <shared_mutex>
+ #include <string>
+ 
+ #ifdef ANDROID_TOOLS_USE_BUNDLED_LIBUSB
+@@ -101,6 +104,8 @@
+ 
+     std::optional<libusb_device_descriptor> GetDeviceDescriptor();
+ 
++    int BulkTransfer(uint8_t endpoint, unsigned char* data, int length, int* transferred);
++
+     bool ClaimInterface();
+     void ReleaseInterface();
+ 
+@@ -113,6 +118,11 @@
+     void RetrieveSpeeds();
+ 
+     bool FindAdbInterface();
++
++    // Open/Close serialize lifecycle changes; transfers share handle lifetime.
++    std::mutex lifecycle_mutex_;
++    std::shared_mutex handle_mutex_;
++    std::atomic<bool> closing_{true};
+ 
+     libusb_device* device_ = nullptr;
+     libusb_device_handle* device_handle_ = nullptr;

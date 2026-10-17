@@ -42,6 +42,21 @@ final class DisplayPowerControllerProcess: @unchecked Sendable {
             }
         }
     }
+
+    /// Called only after independent same-phone PID/start and restoration proof.
+    /// A lost USB shell exit code is then a transport failure, not panel evidence.
+    func retireAfterIndependentProof() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async { [self] in
+                do {
+                    if !inputClosed { try input.close(); inputClosed = true }
+                    ADBProcessRegistry.stopAndReap(process)
+                    if !outputClosed { try output.close(); outputClosed = true }
+                    continuation.resume()
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
     func closeAndWait(timeout: TimeInterval = 8, confirmedRestoredFailure: Bool = false) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             queue.async { [self] in

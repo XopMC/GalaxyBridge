@@ -253,7 +253,7 @@ private enum UserFacingTextSpec {
         let cases = [
             ("NATIVE_NOTIFICATION_SCHEDULING_FAILED", "macOS could not schedule a notification", "macOS не удалось запланировать уведомление"),
             ("PEER_STORE_FAILED", "Could not read paired devices", "Не удалось прочитать привязанные устройства"),
-            ("COMPANION_CONNECTION_FAILED", "Companion connection failed", "Ошибка Companion-подключения"),
+            ("COMPANION_CONNECTION_FAILED", "Couldn’t connect to this phone", "Не удалось подключиться к этому телефону"),
         ]
         for (key, englishTitle, russianTitle) in cases {
             try expect(english.formatted(key, detail), "\(englishTitle): \(detail)", "English \(key)")

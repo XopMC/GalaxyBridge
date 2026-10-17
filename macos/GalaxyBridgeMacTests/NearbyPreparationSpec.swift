@@ -40,6 +40,8 @@ struct ADBClient {}
 }
 @MainActor final class Provider {
     var refreshResults = [false, true]
+    var needsRuntimeUpgrade = false
+    var canUpgradeRuntimeSafely = true
     var bootGeneration: String? = "original-generation"
     var refreshCalls = 0
     var runtimeSerial: String?
@@ -109,6 +111,8 @@ typealias ShellCapabilityBridgeProvider = Provider
     var requestedDirectDevices = Set<String>()
     var shellPreferredDevices = Set<String>()
     var phonePrivacyManualPower: [String: Bool] = [:]
+    var captureRouteHandoffTasks: [String: Task<Void, Never>] = [:]
+    var captureRouteTransitionDevices = Set<String>()
     var enhancedRetirements: [UUID: Task<Void, Never>] = [:]
     var enhancedRetirementDeviceIDs: [UUID: String] = [:]
     var unsettledEnhancedRetirements: [UUID: Bool] = [:]
@@ -143,6 +147,7 @@ typealias ShellCapabilityBridgeProvider = Provider
     func reconcilePhoneDisplayPrivacyRoutes() {}
     func ensureEnhancedSessionForPrimaryDemand(for device: DeviceRow) {}
     func reconcileEnhancedPrimaryRoutes() { reconciliations += 1 }
+    func reconcileCaptureRouteHandoffs() {}
     func loadApplicationCatalog(deviceID: String, force: Bool) {}
     func retireEnhancedScreenSession(deviceID: String) { log.values.append("screen-retire") }
     func begin(automatic: Bool, connect: Bool) {
@@ -179,6 +184,32 @@ private extension String {
         ShellCapabilityBridgeActivation.readySerials = []
     }
     @MainActor static func main() async throws {
+        reset()
+        let legacy = AppModel()
+        legacy.provider?.refreshResults = [true, true]
+        legacy.provider?.needsRuntimeUpgrade = true
+        legacy.probe()
+        await legacy.shellProbeTasks["device:phone"]?.value
+        try expect(ShellCapabilityBridgeActivation.calls == 1 && legacy.reconciliations > 0,
+            "a quiescent legacy broker must upgrade through the already verified USB route")
+        reset()
+        let busyLegacy = AppModel()
+        busyLegacy.provider?.refreshResults = [true]
+        busyLegacy.provider?.needsRuntimeUpgrade = true
+        busyLegacy.provider?.canUpgradeRuntimeSafely = false
+        busyLegacy.probe()
+        await busyLegacy.shellProbeTasks["device:phone"]?.value
+        try expect(ShellCapabilityBridgeActivation.calls == 0 && busyLegacy.reconciliations > 0,
+            "version preparation must preserve a broker that still owns shell captures")
+        reset()
+        let lanLegacy = AppModel()
+        lanLegacy.device.adbSerial = nil
+        lanLegacy.provider?.refreshResults = [true]
+        lanLegacy.provider?.needsRuntimeUpgrade = true
+        lanLegacy.probe()
+        await lanLegacy.shellProbeTasks["device:phone"]?.value
+        try expect(ShellCapabilityBridgeActivation.calls == 0 && lanLegacy.reconciliations > 0,
+            "without ADB a legacy broker remains usable without pretending it was upgraded")
         for mutateOnly in [false, true] {
             reset()
             let automatic = AppModel(), status = PreparationGate()

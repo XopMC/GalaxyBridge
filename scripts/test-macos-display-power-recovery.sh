@@ -9,6 +9,7 @@ swiftc -swift-version 6 -parse-as-library -I "$tmp" -L "$tmp" -lGalaxyBridgeCore
   "$root/macos/GalaxyBridgeMac/Transport/PhonePrivacyServerOwnership.swift" \
   "$root/macos/GalaxyBridgeMac/Transport/DisplayPowerControllerProtocol.swift" \
   "$root/macos/GalaxyBridgeMac/Transport/DisplayPowerControllerProcess.swift" \
+  "$root/macos/GalaxyBridgeMac/Transport/ADBCommandRunner.swift" \
   "$root/macos/GalaxyBridgeMac/Transport/ScrcpyDisplayPowerSession.swift" \
   "$root/macos/GalaxyBridgeMacTests/DisplayPowerOwnerRecoverySpec.swift" -o "$tmp/spec"
 "$tmp/spec"

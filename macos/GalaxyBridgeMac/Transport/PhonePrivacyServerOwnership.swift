@@ -2,9 +2,11 @@
 import Foundation
 
 struct PhonePrivacyServerOwnership {
+    let resourceID: String
     let remoteJarPath: String
     init(identifier: UUID = UUID()) {
-        remoteJarPath = "/data/local/tmp/galaxybridge-privacy-\(identifier.uuidString.lowercased()).jar"
+        resourceID = identifier.uuidString.lowercased()
+        remoteJarPath = "/data/local/tmp/galaxybridge-privacy-\(resourceID).jar"
     }
 
     func serverArguments(replacingSharedClasspath arguments: [String], cleanupEnabled: Bool = true) throws -> [String] {

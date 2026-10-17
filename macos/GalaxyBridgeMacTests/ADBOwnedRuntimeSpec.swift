@@ -63,6 +63,8 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
         let identity = root.appendingPathComponent("identity with spaces")
         let owner = ADBOwnedRuntime(executableURL: executable, identityRoot: identity, runtimeParent: root)
         let client = try ADBClient(ownedRuntime: owner, executableURL: executable)
+        try require(client.acquiredGeneration == nil && !client.acquiredGenerationIsRetired && owner.activeGeneration == nil,
+            "observing an unused client must not acquire a daemon generation")
         try require(!fm.fileExists(atPath: identity.path), "constructing a client must not provision ADB")
 
         let outcomes = Outcomes()
@@ -131,12 +133,14 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
         try require(second.isRunning, "closing one session cannot stop another")
         try require(try client.devices().isEmpty)
         owner.beginShutdown()
+        try require(!client.acquiredGenerationIsRetired, "closing admission claimed a live daemon's forwards disappeared")
         do { _ = try owner.makeClient(); preconditionFailure("new client admitted during shutdown") }
         catch ADBOwnedRuntimeError.stopped {}
         try require(try client.devices().isEmpty, "existing leases must remain valid for cleanup")
         await Task.detached { owner.shutdown() }.value
         try require(!second.isRunning)
         owner.shutdown()
+        try require(client.acquiredGenerationIsRetired, "reaped daemon did not prove its local listeners absent")
         do { _ = try client.devices(); preconditionFailure("old client silently restarted") }
         catch ADBOwnedRuntimeError.stopped {}
         // Every subprocess boundary must observe the same retired generation,
@@ -163,6 +167,60 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
         do { _ = try client.devices(); preconditionFailure("old lease mutated onto replacement generation") }
         catch ADBOwnedRuntimeError.stopped {}
         restarted.shutdown()
+
+        // Kill only this fixture's USB-disabled daemon. A fresh client may
+        // recover the owner; a frozen old lease must never migrate implicitly.
+        let recovering = ADBOwnedRuntime(executableURL: executable, identityRoot: identity, runtimeParent: root)
+        defer { recovering.shutdown() }
+        let crashedClient = try ADBClient(ownedRuntime: recovering, executableURL: executable)
+        try require(try crashedClient.devices().isEmpty)
+        let frozenGeneration = crashedClient.acquiredGeneration
+        try require(frozenGeneration != nil && frozenGeneration == recovering.activeGeneration,
+            "client did not observe its acquired generation")
+        let oldChild = try crashedClient.nativeChildCommand(arguments: ["devices"])
+        let oldEndpointIndex = oldChild.arguments.firstIndex(of: "-L")!
+        let oldEndpoint = oldChild.arguments[oldEndpointIndex + 1]
+        let abandoned = try crashedClient.launch(serial: "fixture-only", arguments: ["track-devices"])
+        let processList = try ADBCommandRunner(executableURL: URL(fileURLWithPath: "/bin/ps"))
+            .run(arguments: ["-axo", "pid=,ppid=,command="])
+        let expected = executable.path + " -L " + oldEndpoint + " nodaemon server"
+        let daemonIDs = String(decoding: processList.stdout, as: UTF8.self).split(separator: "\n").compactMap { line -> Int32? in
+            let fields = line.split(maxSplits: 2, whereSeparator: \.isWhitespace)
+            guard fields.count == 3, Int32(fields[1]) == getpid(), String(fields[2]) == expected else { return nil }
+            return Int32(fields[0])
+        }
+        try require(daemonIDs.count == 1, "fixture daemon identity is ambiguous")
+        try require(kill(daemonIDs[0], SIGKILL) == 0, "fixture daemon kill failed")
+        var retired = false
+        for _ in 0..<100 {
+            do { _ = try crashedClient.devices() }
+            catch ADBOwnedRuntimeError.stopped { retired = true; break }
+            catch { }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try require(retired, "crashed generation was not invalidated")
+        try require(crashedClient.acquiredGenerationIsRetired, "daemon exit did not retire its local listener ownership")
+        try require(recovering.activeGeneration == nil && crashedClient.acquiredGeneration == frozenGeneration,
+            "daemon death must invalidate current observation without erasing the old lease identity")
+        let recoveredClient = try ADBClient(ownedRuntime: recovering, executableURL: executable)
+        try require(try recoveredClient.devices().isEmpty, "a new client could not recover after unexpected daemon exit")
+        try require(!recoveredClient.acquiredGenerationIsRetired && crashedClient.acquiredGenerationIsRetired,
+            "new and retired local listener ownership were confused")
+        let recoveredChild = try recoveredClient.nativeChildCommand(arguments: ["devices"])
+        let newEndpoint = recoveredChild.arguments[recoveredChild.arguments.firstIndex(of: "-L")! + 1]
+        try require(oldEndpoint != newEndpoint, "recovery reused the retired private socket")
+        try require(recoveredClient.acquiredGeneration == recovering.activeGeneration
+            && recoveredClient.acquiredGeneration != frozenGeneration && crashedClient.acquiredGeneration == frozenGeneration,
+            "generation observation migrated an old client or failed to distinguish a fresh one")
+        try require(!abandoned.isRunning, "recovery retained an old generation's subprocess")
+        do { _ = try crashedClient.devices(); preconditionFailure("old client migrated onto recovered daemon") }
+        catch ADBOwnedRuntimeError.stopped {}
+        try require(try Data(contentsOf: key) == originalKey && Data(contentsOf: publicKey) == originalPublic,
+            "daemon recovery changed persistent identity")
+        recovering.beginShutdown()
+        do { _ = try recovering.makeClient(); preconditionFailure("recovery bypassed explicit shutdown admission") }
+        catch ADBOwnedRuntimeError.stopped {}
+        recovering.shutdown()
 
         let interrupted = root.appendingPathComponent("interrupted")
         try fm.createDirectory(at: interrupted.appendingPathComponent("keys-pending"), withIntermediateDirectories: true,
@@ -206,6 +264,6 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
         do { try await attempt.value; preconditionFailure("cancelled pairing succeeded") }
         catch is CancellationError {}
         try require(kill(pid, 0) != 0 && errno == ESRCH, "pair child survived settled cancellation")
-        print("Owned runtime passed: lazy/concurrent startup, real private server, persistent keys, owner lock, leases, long-process observation, drain/restart, unsafe storage, pairing cancellation.")
+        print("Owned runtime passed: lazy/concurrent startup, real private server, persistent keys, owner lock, leases, long-process observation, drain/restart, unexpected daemon recovery with frozen old leases, unsafe storage, pairing cancellation.")
     }
 }

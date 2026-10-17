@@ -3,6 +3,7 @@ package com.xopmc.galaxybridge.transport.shell
 import com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest
 import com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult
 import com.xopmc.galaxybridge.protocol.v1.ShellCaptureOptions
+import com.xopmc.galaxybridge.protocol.v1.CaptureRetirementQuery
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.nio.charset.CharacterCodingException
@@ -12,6 +13,51 @@ import org.junit.Test
 class ShellBridgePolicyTest {
     private val lease = "69830b65-6352-4b3a-8a21-70bcda45787e"
     private val request = "d5e1590c-47fb-4d73-9ac2-45988ba0a876"
+    @Test fun retirementProofIsReadOnlyTypedAndNeverAcquiresAChildLease() {
+        val support = ShellBridgeRequest.newBuilder().setRequestId(request).setBootGeneration(lease)
+            .setOperation(ShellBridgeRequest.Operation.VERIFY_RETIREMENT)
+            .setRetirement(CaptureRetirementQuery.newBuilder().setKind(CaptureRetirementQuery.Kind.PROBE_SUPPORT)).build()
+        assertTrue(ShellBridgePolicy.valid(support))
+        val capture = support.toBuilder().setRetirement(CaptureRetirementQuery.newBuilder()
+            .setKind(CaptureRetirementQuery.Kind.SCRCPY_CAPTURE).setScid(18)).build()
+        assertTrue(ShellBridgePolicy.valid(capture))
+        val panel = support.toBuilder().setRetirement(CaptureRetirementQuery.newBuilder()
+            .setKind(CaptureRetirementQuery.Kind.DISPLAY_POWER_CONTROLLER).setPid(42).setProcessStartTicks(123456)).build()
+        assertTrue(ShellBridgePolicy.valid(panel))
+        for (invalid in listOf(support.toBuilder().setLeaseId(lease).build(),
+            support.toBuilder().setPowerOn(true).build(), support.toBuilder().clearRetirement().build(),
+            support.toBuilder().setOptions(ShellCaptureOptions.getDefaultInstance()).build(),
+            support.toBuilder().setBootGeneration("").build(),
+            capture.toBuilder().setRetirement(capture.retirement.toBuilder().setScid(0)).build(),
+            capture.toBuilder().setRetirement(capture.retirement.toBuilder().setScid(-1)).build(),
+            capture.toBuilder().setRetirement(capture.retirement.toBuilder().setPid(42)).build(),
+            panel.toBuilder().setRetirement(panel.retirement.toBuilder().setProcessStartTicks(0)).build(),
+            panel.toBuilder().setRetirement(panel.retirement.toBuilder().setScid(18)).build(),
+            support.toBuilder().setRetirement(support.retirement.toBuilder().setKindValue(99)).build())) {
+            assertFalse(ShellBridgePolicy.valid(invalid))
+        }
+    }
+
+    @Test fun resourceReleaseRequiresAnExactOwnedRuntimeAndNeverCreatesAChildLease() {
+        val query = CaptureRetirementQuery.newBuilder().setKind(CaptureRetirementQuery.Kind.DISPLAY_POWER_CONTROLLER)
+            .setPid(42).setProcessStartTicks(123456).setOwnedResourceId(lease)
+            .setResourceSha256(com.google.protobuf.ByteString.copyFrom(ByteArray(32) { 1 })).build()
+        val release = ShellBridgeRequest.newBuilder().setRequestId(request).setBootGeneration(lease)
+            .setOperation(ShellBridgeRequest.Operation.RELEASE_RETIRED_RESOURCE).setRetirement(query).build()
+        assertTrue(ShellBridgePolicy.valid(release))
+        assertFalse(ShellBridgePolicy.usesChildLease(release.operation))
+        assertFalse(ShellBridgePolicy.readOnly(release.operation))
+        assertTrue(ShellBridgePolicy.readOnly(ShellBridgeRequest.Operation.VERIFY_RETIREMENT))
+        assertFalse(ShellBridgePolicy.usesChildLease(ShellBridgeRequest.Operation.VERIFY_RETIREMENT))
+        for (invalid in listOf(release.toBuilder().setRetirement(query.toBuilder().setOwnedResourceId("../path")).build(),
+            release.toBuilder().setRetirement(query.toBuilder().clearResourceSha256()).build(),
+            release.toBuilder().setRetirement(query.toBuilder().setPid(0)).build(),
+            release.toBuilder().setRetirement(query.toBuilder().setProcessStartTicks(0)).build(),
+            release.toBuilder().setOperation(ShellBridgeRequest.Operation.VERIFY_RETIREMENT).build())) {
+            assertFalse(ShellBridgePolicy.valid(invalid))
+        }
+    }
+
     @Test fun activationPackageAllowlistNeverAcceptsRemoteOrPlayIdentities() {
         assertTrue(ShellBridgePolicy.allowedDistribution("com.xopmc.galaxybridge", "direct"))
         assertTrue(ShellBridgePolicy.allowedDistribution("com.xopmc.galaxybridge.internal", "internal"))
