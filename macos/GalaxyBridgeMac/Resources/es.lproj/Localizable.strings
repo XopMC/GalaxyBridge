@@ -88,7 +88,7 @@
 "ADB_AUTH_REQUIRED" = "Confirma la conexión en tu teléfono";
 "PHONE_CONNECTION_REQUIRED" = "Se requiere conexión telefónica";
 "COMPANION_CONNECTION_FAILED" = "No se pudo conectar con este teléfono: %@";
-"COMPANION_PAIRING_REQUIRED" = "Galaxy Bridge necesita volver a conectarse de forma segura. Abra Galaxy Bridge en el teléfono y escanee el código de emparejamiento QR una vez.";
+"COMPANION_PAIRING_REQUIRED" = "Abre Helper en el teléfono y vuelve a añadir el dispositivo para restablecer la conexión.";
 "COMPANION_AUTHENTICATION_FAILED" = "Falló la verificación de la conexión segura. Empareje este Galaxy con el Mac nuevamente.";
 "PEER_STORE_FAILED" = "No se pudieron leer los dispositivos emparejados: %@";
 "ADB_BINDING_EXHAUSTED" = "No se pudo verificar la identidad inalámbrica de ADB después de los intentos de %ld. Vuelva a conectar el dispositivo o actualice para volver a intentarlo.";
@@ -112,7 +112,7 @@
 "MINIMIZE" = "Minimizar";
 "ZOOM" = "Zoom";
 "QUIT" = "Salir de GalaxyBridge";
-"PAIR_DEVICE" = "Emparejar un teléfono";
+"PAIR_DEVICE" = "Vincular con código QR";
 "PAIRING_QR" = "Código QR de emparejamiento GalaxyBridge";
 "PAIRING_HINT" = "Abra este código QR en el teléfono Samsung. Caduca después de 120 segundos.";
 "PAIRED_WITH" = "Emparejado con %@";
@@ -314,7 +314,7 @@
 // Direct connectivity and internet sharing.
 "NEARBY_CONNECTION" = "Conexión directa";
 "NEARBY_CONNECT" = "Conectar directamente";
-"NEARBY_PAIR" = "Vincular sin red";
+"NEARBY_PAIR" = "Añadir dispositivo";
 "NEARBY_STOP" = "Desconectar enlace directo";
 "INTERNET_SHARING" = "Internet del teléfono";
 "INTERNET_ENABLE" = "Compartir Internet";
@@ -365,7 +365,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "Teléfonos cercanos";
 
-"DISCOVERY_UNTRUSTED_HINT" = "Escanea el código en Galaxy Bridge Helper para confirmar el teléfono.";
+"DISCOVERY_UNTRUSTED_HINT" = "Confirm the connection in Helper on your phone.";
 
 "DISCOVERY_GENERIC_PHONE" = "Teléfono Android";
 
@@ -391,3 +391,15 @@
 
 "NEARBY_LOCATION_PERMISSION_HINT" = "Para conectar teléfonos cercanos, permite que Galaxy Bridge use la ubicación en Ajustes del Sistema → Privacidad y seguridad → Localización.";
 "NOTIFICATIONS_EMPTY_HINT" = "Las nuevas notificaciones del teléfono aparecerán aquí.";
+
+"CONSENT_DISCOVER_HINT" = "Open Helper on your phone, then choose it below.";
+"CONSENT_SEARCHING" = "Looking for nearby phones…";
+"CONSENT_MANUAL_QR" = "Use a QR code instead";
+"CONSENT_REQUESTING" = "Sending a connection request…";
+"CONSENT_CONFIRM_PHONE" = "Confirm on your phone";
+"CONSENT_COMPARE_HINT" = "Check that the same number appears in Helper, then tap Connect on your phone.";
+"CONSENT_PHONE_UNAVAILABLE" = "Could not reach the phone. Keep Helper open and try again.";
+"CONSENT_EXPIRED" = "The request expired. Choose the phone to try again.";
+"CONSENT_DECLINED" = "The connection request was declined on the phone.";
+"CONSENT_BUSY" = "The phone is handling another request. Try again in a minute.";
+"CONSENT_OPEN_HELPER" = "Open Helper on the phone, then try again.";

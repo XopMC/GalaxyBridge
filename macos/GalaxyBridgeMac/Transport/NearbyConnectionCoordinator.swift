@@ -6,6 +6,10 @@ import Foundation
 import GalaxyBridgeCore
 import GalaxyBridgeProtocol
 
+enum NearbyConsentPresentation: Equatable {
+    case choosing, requesting, comparing(String), failed(String), manualQR
+}
+
 enum NearbyConnectionStatus: Equatable, Sendable {
     case idle, discovering, connecting, authenticating, creatingLink, joiningNetwork, verifying, connected
     case failed(String)
@@ -18,6 +22,7 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
     @preconcurrency CBPeripheralDelegate, @preconcurrency CLLocationManagerDelegate {
     @Published private(set) var statuses: [String: NearbyConnectionStatus] = [:]
     @Published private(set) var nearbyPairingURI: String?
+    @Published private(set) var consentPresentation: NearbyConsentPresentation = .choosing
     @Published private(set) var locationPermissionHintKey: String?
     @Published private(set) var discoverySuggestions: [NearbyDiscoverySuggestion] = []
     private static let service = CBUUID(string: "6e5a0001-6b47-4b8f-8f41-54f4a681e602")
@@ -51,6 +56,7 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
         var joinOwnerDeviceID: String?
         var remoteLeaseExpiresAt: ContinuousClock.Instant?
         var requestID = ""
+        var consentRequest: GBEnvelope?
         var commitTranscript: Data?
         var commitSignature: Data?
         var descriptor: GBDirectLinkDescriptor?
@@ -214,6 +220,41 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
             self.disconnect(deviceID: deviceID); self.statuses[deviceID] = .failed("nearby_timeout")
         }
         startDiscovery(); pump()
+    }
+
+    func showPairingChoices() {
+        cancelOffer(); consentPresentation = .choosing; startDiscovery()
+    }
+
+    func beginConsentPairing(candidateID: UUID) {
+        cancelOffer(); refreshDiscovery()
+        guard discoverySuggestions.contains(where: { $0.id == candidateID }) else {
+            consentPresentation = .failed("CONSENT_PHONE_UNAVAILABLE"); return
+        }
+        do {
+            let key = try identity.privateKey()
+            var created = try NearbyOfflineOffer(hostID: hostID(), identity: key.publicKey.x963Representation)
+            var name = (Host.current().localizedName ?? "Mac").unicodeScalars.filter {
+                !CharacterSet.controlCharacters.contains($0) && $0.properties.generalCategory != .format
+            }.prefix(80).map(String.init).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+            while name.utf8.count > 240 { name.removeLast() }
+            created.consentName = name.isEmpty ? "Mac" : name
+            created.context = NearbyConsentProof.context(token: created.token, identity: created.identity, name: created.consentName!)
+            offer = created; offerCandidateID = candidateID; consentPresentation = .requesting
+            offerRetryBudget = NearbyPairingRetryBudget(); tried["offline"] = []
+            let sessionID = created.sessionID
+            offerExpiry = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                guard let self, self.offer?.sessionID == sessionID else { return }
+                self.cancelOffer(); self.consentPresentation = .failed("CONSENT_EXPIRED")
+            }
+            startDiscovery(); pump()
+        } catch { consentPresentation = .failed("CONSENT_PHONE_UNAVAILABLE") }
+    }
+
+    func beginManualQRPairing() {
+        consentPresentation = .manualQR
+        beginOfflinePairing()
     }
 
     func beginOfflinePairing(candidateID: UUID? = nil) {
@@ -394,6 +435,7 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
                 offerRetry = Task { [weak self] in
                     do { try await Task.sleep(for: .seconds(5)) } catch { return }
                     guard let self, self.offer?.sessionID == sessionID, self.offer?.valid() == true else { return }
+                    guard self.offer?.consentName == nil else { return }
                     self.tried["offline"] = []; self.pump()
                 }
             }
@@ -441,7 +483,10 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
             requested.remove(deviceID); tried.removeValue(forKey: deviceID)
             targetDeadlines.removeValue(forKey: deviceID)?.cancel()
         }
-        update(session, .failed(code)); retire(session, sendRelease: true); pump()
+        let isConsent = session.offer?.consentName != nil && session.peer == nil
+        update(session, .failed(code)); retire(session, sendRelease: true)
+        if isConsent { cancelOffer(); consentPresentation = .failed(code.hasPrefix("CONSENT_") ? code : "CONSENT_PHONE_UNAVAILABLE") }
+        pump()
     }
 
     private func retire(_ session: Session, sendRelease: Bool) {
@@ -633,8 +678,19 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
             } else {
                 guard let offer = session.offer, offer.valid(), self.offer?.sessionID == offer.sessionID,
                       !peers().contains(where: { $0.deviceID == hello.deviceID && $0.identityPublicKey != hello.identity }) else { throw NearbyTransportFailure.authentication }
-                session.crypto = try session.agreement.complete(remote: hello, expectedIdentity: hello.identity, pairingToken: offer.token)
+                session.crypto = try session.agreement.complete(remote: hello, expectedIdentity: hello.identity, pairingToken: offer.consentName == nil ? offer.token : nil)
                 session.deviceID = hello.deviceID
+                if let name = offer.consentName {
+                    var request = GBPairingRequest(); request.oneTimeToken = offer.token
+                    request.identityPublicKey = offer.identity; request.clientNonce = session.hello.nonce
+                    request.displayName = name
+                    request.transcriptSignature = try identity.sign(nonce: PairingTranscript.makeRequest(
+                        token: offer.token, clientNonce: session.hello.nonce, macPublicKey: offer.identity, displayName: Data(name.utf8)))
+                    var envelope = baseEnvelope(session); envelope.pairingRequest = request
+                    session.consentRequest = envelope
+                    consentPresentation = .comparing(NearbyConsentProof.comparison(session.hello.transcript, hello.transcript, offer.token))
+                    try send(envelope, session)
+                }
             }
             return
         }
@@ -783,6 +839,28 @@ final class NearbyConnectionCoordinator: NSObject, ObservableObject, @preconcurr
     private func receivePairing(_ envelope: GBEnvelope, _ session: Session, _ offer: NearbyOfflineOffer) throws {
         guard offer.valid(), self.offer?.sessionID == offer.sessionID else { throw NearbyTransportFailure.invalidOffer }
         if case let .pairingResponse(response)? = envelope.payload {
+            if offer.consentName != nil && !response.accepted {
+                if response.rejectionReason == "consent_pending" {
+                    session.polling?.cancel()
+                    session.polling = Task { [weak self, weak session] in
+                        do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                        guard let self, let session, self.current(session), let request = session.consentRequest,
+                              self.offer?.sessionID == offer.sessionID, session.commitTranscript == nil else { return }
+                        do { try self.send(request, session) } catch { self.fail(session,code: "CONSENT_PHONE_UNAVAILABLE") }
+                    }
+                } else {
+                    let key: String = switch response.rejectionReason {
+                    case "consent_declined": "CONSENT_DECLINED"
+                    case "consent_busy": "CONSENT_BUSY"
+                    case "consent_open_helper": "CONSENT_OPEN_HELPER"
+                    case "consent_expired": "CONSENT_EXPIRED"
+                    default: "CONSENT_PHONE_UNAVAILABLE"
+                    }
+                    fail(session,code:key)
+                }
+                return
+            }
+            session.polling?.cancel(); session.polling = nil
             guard response.accepted, response.deviceID == session.deviceID, response.identityPublicKey.count == 65,
                   response.identityPublicKey == session.remoteHello?.identity,
                   response.tlsCertificateSha256.count == 32, response.serverNonce == session.remoteHello?.nonce else { throw NearbyTransportFailure.authentication }

@@ -1,7 +1,7 @@
 #if !GALAXYBRIDGE_APP_STORE
 import SwiftUI
 
-/// Discovery is a suggestion only. The Add action opens the existing QR trust flow.
+/// Discovery supplies a route only; the phone must explicitly approve first trust.
 struct NearbyDiscoveryView: View {
     let suggestions: [NearbyDiscoverySuggestion]
     let onAdd: (NearbyDiscoverySuggestion) -> Void

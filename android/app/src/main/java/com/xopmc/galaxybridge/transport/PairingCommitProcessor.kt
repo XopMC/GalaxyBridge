@@ -37,6 +37,7 @@ internal data class PairingCommitAcceptance(
 internal class PairingCommitProcessor(
     private val candidate: PairingCommitCandidate,
     private val nowMillis: () -> Long = System::currentTimeMillis,
+    private val isAdmitted: () -> Boolean = { true },
 ) {
     private var acceptedCommit: ByteArray? = null
     private var acceptedResult: PairingCommitAcceptance? = null
@@ -50,7 +51,7 @@ internal class PairingCommitProcessor(
         promote: () -> Boolean,
         signAcknowledgement: (ByteArray) -> ByteArray,
     ): PairingCommitAcceptance? {
-        if (nowMillis() >= candidate.expiresAtMillis) return null
+        if (!isAdmitted() || nowMillis() >= candidate.expiresAtMillis) return null
         if (commit.hostId != candidate.hostId ||
             commit.deviceId != candidate.deviceId ||
             commit.sessionId != candidate.sessionId
@@ -84,7 +85,7 @@ internal class PairingCommitProcessor(
         // The callback must durably replace the pending candidate with the paired identity
         // in one atomic storage transaction. The prebuilt acknowledgement is not returned
         // or emitted if that transaction fails.
-        if (!promote()) return null
+        if (!isAdmitted() || !promote()) return null
         return PairingCommitAcceptance(acknowledgement, acknowledgementTranscript).also {
             acceptedCommit = encodedCommit
             acceptedResult = it

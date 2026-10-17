@@ -32,13 +32,16 @@ class GalaxyBridgeForegroundService : Service() {
     @Volatile private var connectivityOwnerActive = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val pairingWorkerRunning = AtomicBoolean(false)
-    private val pairingPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { preferences, key ->
-        if (key == PENDING_PAIRING) preferences.getString(key, null)?.let(::beginPairing)
-        if (key == "paired_mac_key" || key == "paired_host_id") {
+    private val pairingIdentityChanges = com.xopmc.galaxybridge.transport.PairingIdentityChangeListener(
+        revokeResources = {
             directConnectivity?.internet?.revokeAll()
             directConnectivity?.shell?.deactivate()
-            directConnectivity?.coordinator?.disable()
-        }
+        },
+        identityChanged = { directConnectivity?.coordinator?.pairingIdentityChanged() },
+    )
+    private val pairingPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { preferences, key ->
+        if (key == PENDING_PAIRING) preferences.getString(key, null)?.let(::beginPairing)
+        pairingIdentityChanges.changed(key)
     }
 
     override fun onCreate() {

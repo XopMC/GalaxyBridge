@@ -129,4 +129,9 @@
     <string name="nearby_permission_description">اسمح بالوصول إلى الأجهزة القريبة كي يعثر Mac على هذا الهاتف. قد تطلب الهواتف القديمة إذن الموقع أيضًا.</string>
     <string name="nearby_bluetooth_off">البلوتوث متوقف. شغّله لاكتشاف الأجهزة القريبة.</string>
     <string name="nearby_turn_on_bluetooth">تشغيل البلوتوث</string>
+    <string name="nearby_consent_title">Connect this Mac?</string>
+    <string name="nearby_consent_body">%1$s wants to connect to this phone.</string>
+    <string name="nearby_consent_compare">Check that this number matches the one on your Mac. Connect only if you started the request.</string>
+    <string name="nearby_consent_connect">Connect</string>
+    <string name="nearby_consent_decline">Decline</string>
 </resources>

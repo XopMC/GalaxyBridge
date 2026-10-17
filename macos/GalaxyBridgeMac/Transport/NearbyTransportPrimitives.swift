@@ -166,7 +166,8 @@ struct NearbyOfflineOffer {
     let hostID: String
     let sessionID = UUID().uuidString.lowercased()
     let token = Data((0..<32).map { _ in UInt8.random(in: .min ... .max) })
-    let context = Data((0..<32).map { _ in UInt8.random(in: .min ... .max) })
+    var context = Data((0..<32).map { _ in UInt8.random(in: .min ... .max) })
+    var consentName: String?
     let identity: Data
     let expiresAt: Date
     init(hostID: String, identity: Data, now: Date = Date()) throws {

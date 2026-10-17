@@ -129,4 +129,9 @@
     <string name="nearby_permission_description">Mac がこのスマートフォンを見つけられるように、付近のデバイスへのアクセスを許可してください。古い機種では位置情報の許可も求められる場合があります。</string>
     <string name="nearby_bluetooth_off">Bluetoothがオフです。近くのデバイスを検出するにはオンにしてください。</string>
     <string name="nearby_turn_on_bluetooth">Bluetoothをオンにする</string>
+    <string name="nearby_consent_title">Connect this Mac?</string>
+    <string name="nearby_consent_body">%1$s wants to connect to this phone.</string>
+    <string name="nearby_consent_compare">Check that this number matches the one on your Mac. Connect only if you started the request.</string>
+    <string name="nearby_consent_connect">Connect</string>
+    <string name="nearby_consent_decline">Decline</string>
 </resources>

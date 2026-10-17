@@ -129,4 +129,9 @@
     <string name="nearby_permission_description">允許存取附近的裝置，以便 Mac 找到這部手機。舊版手機可能還會要求位置權限。</string>
     <string name="nearby_bluetooth_off">藍牙已關閉。請開啟藍牙以尋找附近裝置。</string>
     <string name="nearby_turn_on_bluetooth">開啟藍牙</string>
+    <string name="nearby_consent_title">Connect this Mac?</string>
+    <string name="nearby_consent_body">%1$s wants to connect to this phone.</string>
+    <string name="nearby_consent_compare">Check that this number matches the one on your Mac. Connect only if you started the request.</string>
+    <string name="nearby_consent_connect">Connect</string>
+    <string name="nearby_consent_decline">Decline</string>
 </resources>

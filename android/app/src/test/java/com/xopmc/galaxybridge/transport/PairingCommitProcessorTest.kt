@@ -27,7 +27,8 @@ class PairingCommitProcessorTest {
             phoneKey = P256Keys.x963Representation(phone.public),
         )
         var promotions = 0
-        val processor = PairingCommitProcessor(candidate, nowMillis = { 10_000 })
+        var admitted = true
+        val processor = PairingCommitProcessor(candidate, nowMillis = { 10_000 },isAdmitted={admitted})
         assertEquals(0, promotions)
 
         val validCommit = commit(candidate) { transcript ->
@@ -69,6 +70,52 @@ class PairingCommitProcessorTest {
             first.acknowledgement.toByteArray(),
             retry!!.acknowledgement.toByteArray(),
         )
+        admitted = false
+        assertNull(processor.accept(validCommit,{promotions++;true},{error("revoked owner cannot sign")}))
+        assertEquals(1,promotions)
+    }
+
+    @Test fun ownPreferencePromotionPreservesIdenticalAckButExternalRevocationDoesNot() {
+        val keys=KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }
+        val mac=keys.generateKeyPair();val phone=keys.generateKeyPair()
+        val candidate=candidate(P256Keys.x963Representation(mac.public),P256Keys.x963Representation(phone.public))
+        val gate=PairingPromotionGate();var storedHost:String?=null;var storedKey:ByteArray?=null
+        var admitted=true;var promotions=0;var retiredPriorResources=0
+        val listener=PairingIdentityChangeListener({retiredPriorResources++},{
+            if (!gate.preserve(storedHost,storedKey)) admitted=false
+        })
+        val processor=PairingCommitProcessor(candidate,nowMillis={10_000},isAdmitted={admitted})
+        val signed=commit(candidate) { bytes -> Signature.getInstance("SHA256withECDSA").run {
+            initSign(mac.private);update(bytes);sign()
+        } }
+        val first=processor.accept(signed,{
+            gate.during(candidate.hostId,candidate.macPublicKey) {
+                storedHost=candidate.hostId;storedKey=candidate.macPublicKey
+                listener.changed("paired_host_id");listener.changed("paired_mac_key")
+                promotions++;true
+            }
+        },{ bytes -> Signature.getInstance("SHA256withECDSA").run {initSign(phone.private);update(bytes);sign()} })
+        assertNotNull(first);assertTrue(admitted);assertEquals(2,retiredPriorResources)
+        val retry=processor.accept(signed,{error("ACK retry cannot promote twice")},{error("cached ACK must be reused")})
+        assertArrayEquals(first!!.acknowledgement.toByteArray(),retry!!.acknowledgement.toByteArray())
+        assertEquals(1,promotions)
+        storedHost=null;storedKey=null;listener.changed("paired_host_id")
+        assertFalse(admitted)
+        assertNull(processor.accept(signed,{error("revoked")},{error("revoked")}))
+    }
+
+    @Test fun approvedConsentRevokedBeforeCommitCannotRecreateTrust() {
+        val keys=KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }
+        val mac=keys.generateKeyPair();val phone=keys.generateKeyPair()
+        val candidate=candidate(P256Keys.x963Representation(mac.public),P256Keys.x963Representation(phone.public))
+        var admitted=true;var promotions=0
+        val processor=PairingCommitProcessor(candidate,nowMillis={10_000},isAdmitted={admitted})
+        val signed=commit(candidate) { bytes -> Signature.getInstance("SHA256withECDSA").run {
+            initSign(mac.private);update(bytes);sign()
+        } }
+        admitted=false
+        assertNull(processor.accept(signed,{promotions++;true},{error("revoked authority cannot sign")}))
+        assertEquals(0,promotions)
     }
 
     @Test

@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.util.Base64
 import com.google.protobuf.ByteString
 import com.xopmc.galaxybridge.core.PairingTranscript
+import com.xopmc.galaxybridge.core.NearbyConsent
 import com.xopmc.galaxybridge.nearby.NearbyGattSession
 import com.xopmc.galaxybridge.nearby.NearbyGroupLeasePolicy
 import com.xopmc.galaxybridge.nearby.NearbyLinkKind
@@ -44,6 +45,18 @@ class NearbyBootstrapCoordinator(private val context: Context, private val isFor
     private var pendingQR: NearbyPairingOffer? = null
     private var pendingQRConnection: String? = null
     private var closed = false
+    private var admissionEpoch = 0L
+    private val consentOwners = mutableSetOf<String>()
+    private val promotionGate = PairingPromotionGate()
+    fun pairingIdentityChanged() = synchronized(lock) {
+        ++admissionEpoch
+        // Retain only the exact synchronous committing session. Every sibling
+        // owner is retired, and the service always revokes old identity resources.
+        promotionGate.preserve(preferences.getString("paired_host_id",null),
+            preferences.getString("paired_mac_key",null)?.let { runCatching { Base64.decode(it,Base64.DEFAULT) }.getOrNull() })
+        consentOwners.forEach(NearbyConsentBus::retire); consentOwners.clear()
+        stopGroupLocked(); cancelOfflineOffer()
+    }
     private val network = NearbyNetworkController(context, isForegroundOwner, { offer -> synchronized(lock) {
         expireGroupLocked()
         if (!closed && groupLease.isNotEmpty()) { currentOffer = offer; error = "" }
@@ -149,9 +162,16 @@ class NearbyBootstrapCoordinator(private val context: Context, private val isFor
         groupLifetime.clear(groupLease)
         currentOffer = null; groupOwnerID = ""; error = ""
     }
-    fun disable() = synchronized(lock) { stopGroupLocked(); cancelOfflineOffer() }
+    fun disable() = synchronized(lock) {
+        ++admissionEpoch
+        consentOwners.forEach(NearbyConsentBus::retire); consentOwners.clear()
+        stopGroupLocked(); cancelOfflineOffer()
+    }
 
     fun newSession(connectionID: String): NearbyGattSession = object : NearbyGattSession {
+        private var admittedEpoch = synchronized(lock) { admissionEpoch }
+        private fun admitted() = admittedEpoch == admissionEpoch && !closed && !sessionClosed && isForegroundOwner() &&
+            (!consentMode || trusted || SystemClock.elapsedRealtime() < consentDeadline)
         private var session: NearbyBootstrapCrypto.Session? = null
         private var peerID = ""
         private var trusted = false
@@ -160,16 +180,35 @@ class NearbyBootstrapCoordinator(private val context: Context, private val isFor
         private var candidate: PairingCommitCandidate? = null
         private var sessionClosed = false
         private var encryptedPeerVerified = false
-        override val isAuthenticated: Boolean get() = !sessionClosed && trusted && encryptedPeerVerified
+        private var consentMode = false
+        private var consentHello: NearbyBootstrapCrypto.Hello? = null
+        private var localHello: NearbyBootstrapCrypto.Hello? = null
+        private var consentRequest: ByteArray? = null
+        private var consentDeadline = 0L
+        private val consentID = "consent:" + connectionID
+        private fun checkConsentIdentity() {
+            val paired = preferences.getString("paired_host_id",null)
+            check(paired == null || (paired == peerID && preferences.getString("paired_mac_key",null)?.let {
+                MessageDigest.isEqual(Base64.decode(it,Base64.DEFAULT),authenticatedKey)
+            } == true)) { "nearby_already_paired" }
+        }
+        override val isAuthenticated: Boolean get() = synchronized(lock) { admitted() && trusted && encryptedPeerVerified }
         override fun receive(frame: ByteArray): List<ByteArray> = synchronized(lock) {
-            check(!closed && !sessionClosed && isForegroundOwner())
+            check(admitted() && preferences.getBoolean("nearby_enabled",true))
             if (session == null) {
                 val remote = NearbyBootstrapCrypto.Hello.decode(frame)
                 require(remote.role == 0)
                 val qr = pendingQR?.takeIf { it.expiresAtMillis > System.currentTimeMillis() && it.hostID == remote.deviceID }
                 val storedKey = if (preferences.getString("paired_host_id", null) == remote.deviceID)
                     preferences.getString("paired_mac_key", null)?.let { Base64.decode(it, Base64.DEFAULT) } else null
-                val expected = qr?.identity ?: storedKey ?: error("nearby_unpaired_host")
+                consentMode = qr == null && NearbyConsent.isContext(remote.context)
+                if (consentMode) {
+                    // First trust only. Never silently replace another host or an existing host key.
+                    check(preferences.getString("paired_host_id", null) == null ||
+                        (preferences.getString("paired_host_id", null) == remote.deviceID && storedKey != null && MessageDigest.isEqual(storedKey,remote.identity))) { "nearby_already_paired" }
+                    require(UUID.fromString(remote.deviceID).toString() == remote.deviceID)
+                }
+                val expected = qr?.identity ?: storedKey ?: if (consentMode) remote.identity else error("nearby_unpaired_host")
                 if (qr != null) {
                     check(pendingQRConnection == null || pendingQRConnection == connectionID)
                     require(MessageDigest.isEqual(qr.context, remote.context))
@@ -180,12 +219,18 @@ class NearbyBootstrapCoordinator(private val context: Context, private val isFor
                 session = agreement.complete(remote, expected, qr?.token)
                 peerID = remote.deviceID
                 authenticatedKey = remote.identity.clone()
-                trusted = qr == null
+                trusted = qr == null && !consentMode
+                if (consentMode) {
+                    consentOwners.add(consentID)
+                    consentHello = remote; localHello = hello
+                    consentDeadline = SystemClock.elapsedRealtime() + 60_000
+                    return@synchronized listOf(hello.encode())
+                }
                 if (qr == null) return@synchronized listOf(hello.encode())
                 pendingQRConnection = connectionID
                 val pairing = PairingCommitCandidate(qr.token, remote.nonce, hello.nonce, qr.identity,
                     hello.identity, qr.hostID, deviceID, qr.sessionID, qr.expiresAtMillis)
-                candidate = pairing; processor = PairingCommitProcessor(pairing)
+                candidate = pairing; processor = PairingCommitProcessor(pairing,isAdmitted=::admitted)
                 val response = PairingResponse.newBuilder().setAccepted(true).setIdentityPublicKey(ByteString.copyFrom(hello.identity))
                     .setServerNonce(ByteString.copyFrom(hello.nonce)).setTlsCertificateSha256(ByteString.copyFrom(identity.certificateSha256()))
                     .setDisplayName(Build.MODEL).setDeviceId(deviceID)
@@ -196,15 +241,69 @@ class NearbyBootstrapCoordinator(private val context: Context, private val isFor
             val request = Envelope.parseFrom(crypto.open(frame))
             encryptedPeerVerified = true
             require(request.protocolMajor == 1 && request.deviceId == peerID && request.sessionId.length in 1..128)
+            if (consentMode && !trusted) {
+                check(SystemClock.elapsedRealtime() < consentDeadline) { "nearby_consent_expired" }
+                if (request.hasPairingRequest()) {
+                    checkConsentIdentity()
+                    val remote = requireNotNull(consentHello)
+                    val hello = requireNotNull(localHello)
+                    val offer = request.pairingRequest
+                    val token = offer.oneTimeToken.toByteArray()
+                    require(UUID.fromString(request.sessionId).toString() == request.sessionId)
+                    require(token.size == 32 && offer.identityPublicKey.toByteArray().contentEquals(authenticatedKey) &&
+                        offer.clientNonce.toByteArray().contentEquals(remote.nonce) &&
+                        offer.displayName.toByteArray().size in 1..240 && offer.displayName == NearbyConsent.cleanName(offer.displayName))
+                    require(MessageDigest.isEqual(remote.context, NearbyConsent.context(token, authenticatedKey, offer.displayName)))
+                    require(PairingTranscript.verify(offer.transcriptSignature.toByteArray(),
+                        PairingTranscript.makeRequest(token, remote.nonce, authenticatedKey, offer.displayName.toByteArray()), authenticatedKey))
+                    val exact = request.toByteArray()
+                    require(consentRequest == null || MessageDigest.isEqual(consentRequest, exact))
+                    consentRequest = exact
+                    val comparison = NearbyConsent.comparison(remote.transcript(), hello.transcript(), token)
+                    val decision = NearbyConsentBus.request(consentID, offer.displayName, comparison)
+                    if (decision != NearbyConsent.Decision.APPROVED) {
+                        val reason = when (decision) {
+                            NearbyConsent.Decision.PENDING -> "consent_pending"
+                            NearbyConsent.Decision.UNAVAILABLE -> "consent_open_helper"
+                            NearbyConsent.Decision.BUSY -> "consent_busy"
+                            NearbyConsent.Decision.EXPIRED -> "consent_expired"
+                            else -> "consent_declined"
+                        }
+                        return@synchronized listOf(crypto.seal(base().setSessionId(request.sessionId).setPairingResponse(
+                            PairingResponse.newBuilder().setAccepted(false).setRejectionReason(reason)).build().toByteArray()))
+                    }
+                    val pairing = PairingCommitCandidate(token,remote.nonce,hello.nonce,authenticatedKey,hello.identity,
+                        peerID,deviceID,request.sessionId,System.currentTimeMillis() +
+                            (consentDeadline-SystemClock.elapsedRealtime()).coerceAtLeast(0))
+                    candidate = pairing; processor = PairingCommitProcessor(pairing,isAdmitted=::admitted)
+                    val response = PairingResponse.newBuilder().setAccepted(true).setIdentityPublicKey(ByteString.copyFrom(hello.identity))
+                        .setServerNonce(ByteString.copyFrom(hello.nonce)).setTlsCertificateSha256(ByteString.copyFrom(identity.certificateSha256()))
+                        .setDisplayName(Build.MODEL).setDeviceId(deviceID)
+                        .setTranscriptSignature(ByteString.copyFrom(identity.signNonce(PairingTranscript.make(token,remote.nonce,hello.nonce,authenticatedKey,hello.identity))))
+                    return@synchronized listOf(crypto.seal(base().setSessionId(request.sessionId).setPairingResponse(response).build().toByteArray()))
+                }
+            }
             val response = if (!trusted) {
                 val pairing = requireNotNull(candidate)
                 require(request.hasPairingCommit() && request.sessionId == pairing.sessionId)
-                check(pendingQR?.sessionID == pairing.sessionId && pendingQRConnection == connectionID)
+                if (consentMode) {
+                    check(SystemClock.elapsedRealtime() < consentDeadline)
+                    checkConsentIdentity()
+                    val original = Envelope.parseFrom(requireNotNull(consentRequest)).pairingRequest
+                    check(NearbyConsentBus.request(consentID, original.displayName,
+                        NearbyConsent.comparison(requireNotNull(consentHello).transcript(),requireNotNull(localHello).transcript(),pairing.token)) == NearbyConsent.Decision.APPROVED)
+                } else check(pendingQR?.sessionID == pairing.sessionId && pendingQRConnection == connectionID)
                 val accepted = requireNotNull(processor).accept(request.pairingCommit, promote = {
-                    val result = preferences.edit().putString("paired_host_id", pairing.hostId)
-                        .putString("paired_mac_key", Base64.encodeToString(pairing.macPublicKey, Base64.NO_WRAP))
-                        .putLong("paired_at", System.currentTimeMillis()).remove("pending_pairing").commit()
-                    if (result) { pendingQR = null; pendingQRConnection = null; PairingStateBus.publishSuccess() }
+                    val result = promotionGate.during(pairing.hostId,pairing.macPublicKey,retain={admittedEpoch=admissionEpoch}) {
+                        preferences.edit().putString("paired_host_id", pairing.hostId)
+                            .putString("paired_mac_key", Base64.encodeToString(pairing.macPublicKey, Base64.NO_WRAP))
+                            .putLong("paired_at", System.currentTimeMillis()).remove("pending_pairing").commit()
+                    }
+                    if (result) {
+                        if (consentMode) NearbyConsentBus.retire(consentID)
+                        else { pendingQR = null; pendingQRConnection = null }
+                        PairingStateBus.publishSuccess()
+                    }
                     result
                 }, signAcknowledgement = identity::signNonce) ?: error("nearby_pairing_commit_rejected")
                 trusted = true
@@ -227,6 +326,7 @@ class NearbyBootstrapCoordinator(private val context: Context, private val isFor
         }
         override fun close() = synchronized(lock) {
             sessionClosed = true; session = null
+            NearbyConsentBus.retire(consentID); consentOwners.remove(consentID)
             groupLifetime.bootstrapClosed(connectionID)
             expireGroupLocked()
             if (pendingQRConnection == connectionID) pendingQRConnection = null

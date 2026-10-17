@@ -87,7 +87,7 @@
 "ADB_AUTH_REQUIRED" = "Verbindung auf dem Smartphone bestätigen";
 "PHONE_CONNECTION_REQUIRED" = "Smartphone-Verbindung erforderlich";
 "COMPANION_CONNECTION_FAILED" = "Verbindung mit diesem Smartphone fehlgeschlagen: %@";
-"COMPANION_PAIRING_REQUIRED" = "Galaxy Bridge muss erneut eine sichere Verbindung herstellen. Öffnen Sie Galaxy Bridge auf dem Smartphone und scannen Sie den Kopplungs-QR-Code einmal.";
+"COMPANION_PAIRING_REQUIRED" = "Öffne Helper auf deinem Telefon und füge das Gerät erneut hinzu, um die Verbindung wiederherzustellen.";
 "COMPANION_AUTHENTICATION_FAILED" = "Die sichere Verbindung konnte nicht überprüft werden. Koppeln Sie dieses Galaxy erneut mit dem Mac.";
 "PEER_STORE_FAILED" = "Gekoppelte Geräte konnten nicht gelesen werden: %@";
 "ADB_BINDING_EXHAUSTED" = "Die Identität für Wireless ADB konnte nach %ld Versuchen nicht bestätigt werden. Verbinden Sie das Gerät erneut oder aktualisieren Sie die Liste, um es erneut zu versuchen.";
@@ -111,7 +111,7 @@
 "MINIMIZE" = "Minimieren";
 "ZOOM" = "Zoomen";
 "QUIT" = "GalaxyBridge beenden";
-"PAIR_DEVICE" = "Smartphone koppeln";
+"PAIR_DEVICE" = "Mit QR-Code koppeln";
 "PAIRING_QR" = "QR-Code zur GalaxyBridge-Kopplung";
 "PAIRING_HINT" = "Öffnen Sie diesen QR-Code auf dem Samsung-Smartphone. Er läuft nach 120 Sekunden ab.";
 "PAIRED_WITH" = "Gekoppelt mit %@";
@@ -313,7 +313,7 @@
 // Direct connectivity and internet sharing.
 "NEARBY_CONNECTION" = "Direktverbindung";
 "NEARBY_CONNECT" = "Direkt verbinden";
-"NEARBY_PAIR" = "Ohne Netzwerk koppeln";
+"NEARBY_PAIR" = "Gerät hinzufügen";
 "NEARBY_STOP" = "Direktverbindung trennen";
 "INTERNET_SHARING" = "Internet vom Telefon";
 "INTERNET_ENABLE" = "Internet teilen";
@@ -364,7 +364,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "Telefone in der Nähe";
 
-"DISCOVERY_UNTRUSTED_HINT" = "Scanne den Code in Galaxy Bridge Helper, um das Telefon zu bestätigen.";
+"DISCOVERY_UNTRUSTED_HINT" = "Confirm the connection in Helper on your phone.";
 
 "DISCOVERY_GENERIC_PHONE" = "Android-Telefon";
 
@@ -390,3 +390,15 @@
 
 "NEARBY_LOCATION_PERMISSION_HINT" = "Erlaube Galaxy Bridge den Standortzugriff unter Systemeinstellungen → Datenschutz & Sicherheit → Ortungsdienste, um Telefone in der Nähe zu verbinden.";
 "NOTIFICATIONS_EMPTY_HINT" = "Neue Benachrichtigungen deines Smartphones werden hier angezeigt.";
+
+"CONSENT_DISCOVER_HINT" = "Open Helper on your phone, then choose it below.";
+"CONSENT_SEARCHING" = "Looking for nearby phones…";
+"CONSENT_MANUAL_QR" = "Use a QR code instead";
+"CONSENT_REQUESTING" = "Sending a connection request…";
+"CONSENT_CONFIRM_PHONE" = "Confirm on your phone";
+"CONSENT_COMPARE_HINT" = "Check that the same number appears in Helper, then tap Connect on your phone.";
+"CONSENT_PHONE_UNAVAILABLE" = "Could not reach the phone. Keep Helper open and try again.";
+"CONSENT_EXPIRED" = "The request expired. Choose the phone to try again.";
+"CONSENT_DECLINED" = "The connection request was declined on the phone.";
+"CONSENT_BUSY" = "The phone is handling another request. Try again in a minute.";
+"CONSENT_OPEN_HELPER" = "Open Helper on the phone, then try again.";

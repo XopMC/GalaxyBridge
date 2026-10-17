@@ -60,7 +60,7 @@
     <string name="calls_permissions_title">Разрешения звонков</string>
     <string name="calls_permissions_description">Подтвердите доступ к звонкам, которыми Galaxy Bridge уже управляет на этом телефоне.</string>
     <string name="identity_title">Подключение к Mac</string>
-    <string name="pairing_scan_hint">Отсканируйте QR-код, показанный в Galaxy Bridge на Mac. Сканер откроется прямо в этом приложении.</string>
+    <string name="pairing_scan_hint">Оставьте Helper открытым. На Mac выберите этот телефон и подтвердите запрос здесь.</string>
     <string name="pairing_paired_hint">Galaxy будет автоматически подключаться к этому Mac, когда оба устройства находятся рядом.</string>
     <string name="qr_scanner_title">Сканирование QR</string>
     <string name="qr_scanner_hint">Наведите камеру на QR-код привязки в GalaxyBridge на Mac.</string>
@@ -128,4 +128,9 @@
     <string name="nearby_permission_description">Разрешите доступ к устройствам поблизости, чтобы Mac мог найти телефон. На старых телефонах Android также может запросить геолокацию.</string>
     <string name="nearby_bluetooth_off">Bluetooth выключен. Включите его для обнаружения устройств поблизости.</string>
     <string name="nearby_turn_on_bluetooth">Включить Bluetooth</string>
+    <string name="nearby_consent_title">Подключить этот Mac?</string>
+    <string name="nearby_consent_body">%1$s хочет подключиться к этому телефону.</string>
+    <string name="nearby_consent_compare">Сверьте номер с экраном Mac. Подключайтесь, только если вы сами отправили запрос.</string>
+    <string name="nearby_consent_connect">Подключить</string>
+    <string name="nearby_consent_decline">Отклонить</string>
 </resources>

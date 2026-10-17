@@ -87,7 +87,7 @@
 "ADB_AUTH_REQUIRED" = "Подтвердите подключение на телефоне";
 "PHONE_CONNECTION_REQUIRED" = "Требуется подключение телефона";
 "COMPANION_CONNECTION_FAILED" = "Не удалось подключиться к этому телефону: %@";
-"COMPANION_PAIRING_REQUIRED" = "Galaxy Bridge нужно восстановить защищённое подключение. Откройте Galaxy Bridge на телефоне и один раз отсканируйте QR-код привязки.";
+"COMPANION_PAIRING_REQUIRED" = "Чтобы восстановить подключение, откройте Helper на телефоне и добавьте устройство заново.";
 "COMPANION_AUTHENTICATION_FAILED" = "Не удалось проверить защищённое подключение. Повторно привяжите этот Galaxy к Mac.";
 "PEER_STORE_FAILED" = "Не удалось прочитать привязанные устройства: %@";
 "ADB_BINDING_EXHAUSTED" = "Не удалось подтвердить Wireless ADB после %ld попыток. Переподключите устройство или обновите список, чтобы повторить.";
@@ -111,7 +111,7 @@
 "MINIMIZE" = "Свернуть";
 "ZOOM" = "Изменить размер";
 "QUIT" = "Завершить GalaxyBridge";
-"PAIR_DEVICE" = "Привязать телефон";
+"PAIR_DEVICE" = "Привязать по QR-коду";
 "PAIRING_QR" = "QR-код привязки GalaxyBridge";
 "PAIRING_HINT" = "Откройте этот QR-код на Samsung. Он действует 120 секунд.";
 "PAIRED_WITH" = "Привязан %@";
@@ -312,7 +312,7 @@
 // Direct connectivity and internet sharing.
 "NEARBY_CONNECTION" = "Прямое подключение";
 "NEARBY_CONNECT" = "Подключить напрямую";
-"NEARBY_PAIR" = "Привязать без сети";
+"NEARBY_PAIR" = "Добавить устройство";
 "NEARBY_STOP" = "Отключить прямую связь";
 "INTERNET_SHARING" = "Интернет с телефона";
 "INTERNET_ENABLE" = "Раздавать интернет";
@@ -363,7 +363,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "Телефоны поблизости";
 
-"DISCOVERY_UNTRUSTED_HINT" = "Отсканируйте код в Galaxy Bridge Helper, чтобы подтвердить телефон.";
+"DISCOVERY_UNTRUSTED_HINT" = "Подтвердите подключение в Helper на телефоне.";
 
 "DISCOVERY_GENERIC_PHONE" = "Телефон Android";
 
@@ -389,3 +389,15 @@
 
 "NEARBY_LOCATION_PERMISSION_HINT" = "Чтобы подключать телефоны поблизости, разрешите Galaxy Bridge доступ к геопозиции: Системные настройки → Конфиденциальность и безопасность → Службы геолокации.";
 "NOTIFICATIONS_EMPTY_HINT" = "Новые уведомления телефона появятся здесь.";
+
+"CONSENT_DISCOVER_HINT" = "Откройте Helper на телефоне и выберите его ниже.";
+"CONSENT_SEARCHING" = "Ищем телефоны рядом…";
+"CONSENT_MANUAL_QR" = "Привязать по QR-коду";
+"CONSENT_REQUESTING" = "Отправляем запрос на телефон…";
+"CONSENT_CONFIRM_PHONE" = "Подтвердите на телефоне";
+"CONSENT_COMPARE_HINT" = "Убедитесь, что в Helper такой же номер, и нажмите «Подключить» на телефоне.";
+"CONSENT_PHONE_UNAVAILABLE" = "Не удалось связаться с телефоном. Оставьте Helper открытым и повторите попытку.";
+"CONSENT_EXPIRED" = "Время запроса истекло. Выберите телефон ещё раз.";
+"CONSENT_DECLINED" = "На телефоне отклонили запрос подключения.";
+"CONSENT_BUSY" = "Телефон обрабатывает другой запрос. Повторите через минуту.";
+"CONSENT_OPEN_HELPER" = "Откройте Helper на телефоне и повторите попытку.";

@@ -60,7 +60,7 @@
     <string name="calls_permissions_title">Call permissions</string>
     <string name="calls_permissions_description">Confirm access to calls already managed by Galaxy Bridge on this phone.</string>
     <string name="identity_title">Connect your Mac</string>
-    <string name="pairing_scan_hint">Scan the QR code shown in Galaxy Bridge on your Mac. The scanner opens directly in this app.</string>
+    <string name="pairing_scan_hint">Keep Helper open. Choose this phone on your Mac, then confirm the request here.</string>
     <string name="pairing_paired_hint">Your Galaxy can reconnect to this Mac automatically when both devices are nearby.</string>
     <string name="qr_scanner_title">Scan pairing QR</string>
     <string name="qr_scanner_hint">Point the camera at the pairing QR from GalaxyBridge on your Mac.</string>
@@ -128,4 +128,9 @@
     <string name="nearby_permission_description">Allow nearby device access so your Mac can find this phone. Older phones may also ask for location access.</string>
     <string name="nearby_bluetooth_off">Bluetooth is off. Turn it on to enable nearby discovery.</string>
     <string name="nearby_turn_on_bluetooth">Turn on Bluetooth</string>
+    <string name="nearby_consent_title">Connect this Mac?</string>
+    <string name="nearby_consent_body">%1$s wants to connect to this phone.</string>
+    <string name="nearby_consent_compare">Check that this number matches the one on your Mac. Connect only if you started the request.</string>
+    <string name="nearby_consent_connect">Connect</string>
+    <string name="nearby_consent_decline">Decline</string>
 </resources>

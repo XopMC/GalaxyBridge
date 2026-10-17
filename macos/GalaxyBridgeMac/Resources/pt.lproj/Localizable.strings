@@ -88,7 +88,7 @@
 "ADB_AUTH_REQUIRED" = "Confirme a conexão no seu telefone";
 "PHONE_CONNECTION_REQUIRED" = "Conexão telefônica necessária";
 "COMPANION_CONNECTION_FAILED" = "Não foi possível ligar a este telefone: %@";
-"COMPANION_PAIRING_REQUIRED" = "Galaxy Bridge precisa se reconectar com segurança. Abra Galaxy Bridge no telefone e leia o código de emparelhamento QR uma vez.";
+"COMPANION_PAIRING_REQUIRED" = "Abra o Helper no telefone e adicione o dispositivo novamente para restabelecer a ligação.";
 "COMPANION_AUTHENTICATION_FAILED" = "Falha na verificação da conexão segura. Emparelhe este Galaxy com o Mac novamente.";
 "PEER_STORE_FAILED" = "Não foi possível ler dispositivos emparelhados: %@";
 "ADB_BINDING_EXHAUSTED" = "A identidade sem fio ADB não pôde ser verificada após tentativas de %ld. Reconecte o dispositivo ou atualize para tentar novamente.";
@@ -112,7 +112,7 @@
 "MINIMIZE" = "Minimizar";
 "ZOOM" = "Zoom";
 "QUIT" = "Sair do GalaxyBridge";
-"PAIR_DEVICE" = "Emparelhar um telefone";
+"PAIR_DEVICE" = "Emparelhar por código QR";
 "PAIRING_QR" = "Código QR de emparelhamento GalaxyBridge";
 "PAIRING_HINT" = "Abra este código QR no telefone Samsung. Ele expira após 120 segundos.";
 "PAIRED_WITH" = "Emparelhado com %@";
@@ -314,7 +314,7 @@
 // Direct connectivity and internet sharing.
 "NEARBY_CONNECTION" = "Conexão direta";
 "NEARBY_CONNECT" = "Ligar diretamente";
-"NEARBY_PAIR" = "Emparelhar sem rede";
+"NEARBY_PAIR" = "Adicionar dispositivo";
 "NEARBY_STOP" = "Desligar conexão direta";
 "INTERNET_SHARING" = "Internet do telefone";
 "INTERNET_ENABLE" = "Partilhar Internet";
@@ -365,7 +365,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "Telefones próximos";
 
-"DISCOVERY_UNTRUSTED_HINT" = "Leia o código no Galaxy Bridge Helper para confirmar o telefone.";
+"DISCOVERY_UNTRUSTED_HINT" = "Confirm the connection in Helper on your phone.";
 
 "DISCOVERY_GENERIC_PHONE" = "Telefone Android";
 
@@ -391,3 +391,15 @@
 
 "NEARBY_LOCATION_PERMISSION_HINT" = "Para conectar telefones próximos, permita que o Galaxy Bridge use a localização em Ajustes do Sistema → Privacidade e Segurança → Serviços de Localização.";
 "NOTIFICATIONS_EMPTY_HINT" = "As novas notificações do telefone aparecerão aqui.";
+
+"CONSENT_DISCOVER_HINT" = "Open Helper on your phone, then choose it below.";
+"CONSENT_SEARCHING" = "Looking for nearby phones…";
+"CONSENT_MANUAL_QR" = "Use a QR code instead";
+"CONSENT_REQUESTING" = "Sending a connection request…";
+"CONSENT_CONFIRM_PHONE" = "Confirm on your phone";
+"CONSENT_COMPARE_HINT" = "Check that the same number appears in Helper, then tap Connect on your phone.";
+"CONSENT_PHONE_UNAVAILABLE" = "Could not reach the phone. Keep Helper open and try again.";
+"CONSENT_EXPIRED" = "The request expired. Choose the phone to try again.";
+"CONSENT_DECLINED" = "The connection request was declined on the phone.";
+"CONSENT_BUSY" = "The phone is handling another request. Try again in a minute.";
+"CONSENT_OPEN_HELPER" = "Open Helper on the phone, then try again.";

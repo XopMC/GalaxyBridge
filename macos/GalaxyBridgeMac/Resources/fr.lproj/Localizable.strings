@@ -87,7 +87,7 @@
 "ADB_AUTH_REQUIRED" = "Confirmez la connexion sur votre téléphone";
 "PHONE_CONNECTION_REQUIRED" = "Connexion au téléphone requise";
 "COMPANION_CONNECTION_FAILED" = "Connexion à ce téléphone impossible : %@";
-"COMPANION_PAIRING_REQUIRED" = "Galaxy Bridge doit rétablir une connexion sécurisée. Ouvrez Galaxy Bridge sur le téléphone et scannez une fois le code QR d’association.";
+"COMPANION_PAIRING_REQUIRED" = "Ouvrez Helper sur votre téléphone et ajoutez à nouveau l’appareil pour rétablir la connexion.";
 "COMPANION_AUTHENTICATION_FAILED" = "La vérification de la connexion sécurisée a échoué. Associez à nouveau ce Galaxy au Mac.";
 "PEER_STORE_FAILED" = "Impossible de lire les appareils associés : %@";
 "ADB_BINDING_EXHAUSTED" = "L’identité Wireless ADB n’a pas pu être vérifiée après %ld tentatives. Reconnectez l’appareil ou actualisez la liste pour réessayer.";
@@ -111,7 +111,7 @@
 "MINIMIZE" = "Réduire";
 "ZOOM" = "Agrandir";
 "QUIT" = "Quitter GalaxyBridge";
-"PAIR_DEVICE" = "Associer un téléphone";
+"PAIR_DEVICE" = "Associer par code QR";
 "PAIRING_QR" = "Code QR d’association GalaxyBridge";
 "PAIRING_HINT" = "Ouvrez ce code QR sur le téléphone Samsung. Il expire après 120 secondes.";
 "PAIRED_WITH" = "Associé à %@";
@@ -313,7 +313,7 @@
 // Direct connectivity and internet sharing.
 "NEARBY_CONNECTION" = "Connexion directe";
 "NEARBY_CONNECT" = "Connecter directement";
-"NEARBY_PAIR" = "Associer sans réseau";
+"NEARBY_PAIR" = "Ajouter un appareil";
 "NEARBY_STOP" = "Déconnecter la liaison directe";
 "INTERNET_SHARING" = "Internet du téléphone";
 "INTERNET_ENABLE" = "Partager Internet";
@@ -364,7 +364,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "Téléphones à proximité";
 
-"DISCOVERY_UNTRUSTED_HINT" = "Scannez le code dans Galaxy Bridge Helper pour confirmer le téléphone.";
+"DISCOVERY_UNTRUSTED_HINT" = "Confirm the connection in Helper on your phone.";
 
 "DISCOVERY_GENERIC_PHONE" = "Téléphone Android";
 
@@ -390,3 +390,15 @@
 
 "NEARBY_LOCATION_PERMISSION_HINT" = "Pour connecter les téléphones à proximité, autorisez Galaxy Bridge à utiliser la localisation dans Réglages Système → Confidentialité et sécurité → Service de localisation.";
 "NOTIFICATIONS_EMPTY_HINT" = "Les nouvelles notifications de votre téléphone apparaîtront ici.";
+
+"CONSENT_DISCOVER_HINT" = "Open Helper on your phone, then choose it below.";
+"CONSENT_SEARCHING" = "Looking for nearby phones…";
+"CONSENT_MANUAL_QR" = "Use a QR code instead";
+"CONSENT_REQUESTING" = "Sending a connection request…";
+"CONSENT_CONFIRM_PHONE" = "Confirm on your phone";
+"CONSENT_COMPARE_HINT" = "Check that the same number appears in Helper, then tap Connect on your phone.";
+"CONSENT_PHONE_UNAVAILABLE" = "Could not reach the phone. Keep Helper open and try again.";
+"CONSENT_EXPIRED" = "The request expired. Choose the phone to try again.";
+"CONSENT_DECLINED" = "The connection request was declined on the phone.";
+"CONSENT_BUSY" = "The phone is handling another request. Try again in a minute.";
+"CONSENT_OPEN_HELPER" = "Open Helper on the phone, then try again.";

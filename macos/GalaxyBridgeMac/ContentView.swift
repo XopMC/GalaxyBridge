@@ -281,7 +281,7 @@ struct ContentView: View {
                         Label("WIFI_SETUP_TITLE", systemImage: "wifi")
                     }
                     Button(action: model.beginNearbyPairing) {
-                        Label("NEARBY_PAIR", systemImage: "antenna.radiowaves.left.and.right")
+                        Label("NEARBY_PAIR", systemImage: "plus.circle")
                     }
 #endif
                     Button {

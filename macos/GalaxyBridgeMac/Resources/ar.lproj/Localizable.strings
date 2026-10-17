@@ -88,7 +88,7 @@
 "ADB_AUTH_REQUIRED" = "قم بتأكيد الاتصال على هاتفك";
 "PHONE_CONNECTION_REQUIRED" = "يلزم الاتصال بالهاتف";
 "COMPANION_CONNECTION_FAILED" = "تعذّر الاتصال بهذا الهاتف: %@";
-"COMPANION_PAIRING_REQUIRED" = "يحتاج Galaxy Bridge إلى إعادة الاتصال بشكل آمن. افتح Galaxy Bridge على الهاتف وقم بمسح رمز الاقتران QR مرة واحدة.";
+"COMPANION_PAIRING_REQUIRED" = "افتح Helper على هاتفك وأضف الجهاز مرة أخرى لاستعادة الاتصال.";
 "COMPANION_AUTHENTICATION_FAILED" = "فشل التحقق من الاتصال الآمن. قم بإقران Galaxy مع Mac مرة أخرى.";
 "PEER_STORE_FAILED" = "لا يمكن قراءة الأجهزة المقترنة: %@";
 "ADB_BINDING_EXHAUSTED" = "تعذر التحقق من هوية ADB اللاسلكية بعد محاولات %ld. أعد توصيل الجهاز أو قم بالتحديث لإعادة المحاولة.";
@@ -112,7 +112,7 @@
 "MINIMIZE" = "تصغير";
 "ZOOM" = "التكبير";
 "QUIT" = "قم بإنهاء GalaxyBridge";
-"PAIR_DEVICE" = "إقران الهاتف";
+"PAIR_DEVICE" = "الاقتران برمز QR";
 "PAIRING_QR" = "كود GalaxyBridge لإقران QR";
 "PAIRING_HINT" = "قم بفتح كود QR هذا على هاتف سامسونج. تنتهي صلاحيته بعد 120 ثانية.";
 "PAIRED_WITH" = "مقترنًا بـ %@";
@@ -315,7 +315,7 @@
 // Direct connectivity and internet sharing.
 "NEARBY_CONNECTION" = "اتصال مباشر";
 "NEARBY_CONNECT" = "الاتصال مباشرة";
-"NEARBY_PAIR" = "اقتران دون شبكة";
+"NEARBY_PAIR" = "إضافة جهاز";
 "NEARBY_STOP" = "قطع الاتصال المباشر";
 "INTERNET_SHARING" = "إنترنت الهاتف";
 "INTERNET_ENABLE" = "مشاركة الإنترنت";
@@ -366,7 +366,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "الهواتف القريبة";
 
-"DISCOVERY_UNTRUSTED_HINT" = "امسح الرمز في Galaxy Bridge Helper لتأكيد الهاتف.";
+"DISCOVERY_UNTRUSTED_HINT" = "Confirm the connection in Helper on your phone.";
 
 "DISCOVERY_GENERIC_PHONE" = "هاتف Android";
 
@@ -392,3 +392,15 @@
 
 "NEARBY_LOCATION_PERMISSION_HINT" = "للاتصال بالهواتف القريبة، اسمح لـ Galaxy Bridge باستخدام الموقع في إعدادات النظام ← الخصوصية والأمان ← خدمات الموقع.";
 "NOTIFICATIONS_EMPTY_HINT" = "ستظهر الإشعارات الجديدة من هاتفك هنا.";
+
+"CONSENT_DISCOVER_HINT" = "Open Helper on your phone, then choose it below.";
+"CONSENT_SEARCHING" = "Looking for nearby phones…";
+"CONSENT_MANUAL_QR" = "Use a QR code instead";
+"CONSENT_REQUESTING" = "Sending a connection request…";
+"CONSENT_CONFIRM_PHONE" = "Confirm on your phone";
+"CONSENT_COMPARE_HINT" = "Check that the same number appears in Helper, then tap Connect on your phone.";
+"CONSENT_PHONE_UNAVAILABLE" = "Could not reach the phone. Keep Helper open and try again.";
+"CONSENT_EXPIRED" = "The request expired. Choose the phone to try again.";
+"CONSENT_DECLINED" = "The connection request was declined on the phone.";
+"CONSENT_BUSY" = "The phone is handling another request. Try again in a minute.";
+"CONSENT_OPEN_HELPER" = "Open Helper on the phone, then try again.";

@@ -75,7 +75,7 @@ for script in ['test-clipboard-agent-protocol.sh', 'test-clipboard-primary-read-
                'test-macos-native-close-all-command.sh', 'test-macos-mirror-window-cycle.sh',
                'test-macos-prepared-shell-selection.sh']:
     run(['sh', ROOT / 'scripts' / script])
-for script in ['test-nearby-connectivity-policy.sh', 'test-nearby-bootstrap-crypto.sh',
+for script in ['test-nearby-connectivity-policy.sh', 'test-nearby-bootstrap-crypto.sh', 'test-nearby-consent.sh',
                'test-nearby-transport.sh', 'test-nearby-discovery.sh', 'test-raw-channel-upgrade.sh',
                'test-shell-capability-bridge.sh', 'test-display-power-controller.sh', 'test-display-state-snapshot.sh',
                'test-display-state-ownership.sh', 'test-display-state-power-calls.sh', 'test-display-state-runtime.sh', 'test-display-state-controller.sh', 'test-network-helper.sh',

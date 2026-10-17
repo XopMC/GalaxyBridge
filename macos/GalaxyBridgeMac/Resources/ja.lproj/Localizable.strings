@@ -88,7 +88,7 @@
 "ADB_AUTH_REQUIRED" = "携帯電話で接続を確認する";
 "PHONE_CONNECTION_REQUIRED" = "電話接続が必要です";
 "COMPANION_CONNECTION_FAILED" = "このスマートフォンに接続できませんでした: %@";
-"COMPANION_PAIRING_REQUIRED" = "Galaxy Bridge は安全に再接続する必要があります。電話機で Galaxy Bridge を開き、ペアリングする QR コードを 1 回スキャンします。";
+"COMPANION_PAIRING_REQUIRED" = "接続を復元するには、スマートフォンで Helper を開き、デバイスを追加し直してください。";
 "COMPANION_AUTHENTICATION_FAILED" = "安全な接続の検証に失敗しました。この Galaxy を Mac と再度ペアリングします。";
 "PEER_STORE_FAILED" = "ペアリングされたデバイスを読み取れませんでした: %@";
 "ADB_BINDING_EXHAUSTED" = "%ld の試行後、ワイヤレス ADB ID を検証できませんでした。デバイスを再接続するか、更新して再試行してください。";
@@ -112,7 +112,7 @@
 "MINIMIZE" = "最小化する";
 "ZOOM" = "ズーム";
 "QUIT" = "GalaxyBridgeを終了する";
-"PAIR_DEVICE" = "電話をペアリングする";
+"PAIR_DEVICE" = "QR コードでペアリング";
 "PAIRING_QR" = "GalaxyBridge ペアリング QR コード";
 "PAIRING_HINT" = "Samsung 携帯電話でこの QR コードを開きます。 120 秒後に期限切れになります。";
 "PAIRED_WITH" = "%@とペアリング";
@@ -315,7 +315,7 @@
 // Direct connectivity and internet sharing.
 "NEARBY_CONNECTION" = "直接接続";
 "NEARBY_CONNECT" = "直接接続";
-"NEARBY_PAIR" = "ネットワークなしでペアリング";
+"NEARBY_PAIR" = "デバイスを追加";
 "NEARBY_STOP" = "直接接続を切断";
 "INTERNET_SHARING" = "電話のインターネット";
 "INTERNET_ENABLE" = "インターネットを共有";
@@ -366,7 +366,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "近くのスマートフォン";
 
-"DISCOVERY_UNTRUSTED_HINT" = "Galaxy Bridge Helper でコードをスキャンして、この端末を確認してください。";
+"DISCOVERY_UNTRUSTED_HINT" = "Confirm the connection in Helper on your phone.";
 
 "DISCOVERY_GENERIC_PHONE" = "Android スマートフォン";
 
@@ -392,3 +392,15 @@
 
 "NEARBY_LOCATION_PERMISSION_HINT" = "近くのスマートフォンに接続するには、「システム設定 → プライバシーとセキュリティ → 位置情報サービス」で Galaxy Bridge の位置情報へのアクセスを許可してください。";
 "NOTIFICATIONS_EMPTY_HINT" = "スマートフォンの新しい通知がここに表示されます。";
+
+"CONSENT_DISCOVER_HINT" = "Open Helper on your phone, then choose it below.";
+"CONSENT_SEARCHING" = "Looking for nearby phones…";
+"CONSENT_MANUAL_QR" = "Use a QR code instead";
+"CONSENT_REQUESTING" = "Sending a connection request…";
+"CONSENT_CONFIRM_PHONE" = "Confirm on your phone";
+"CONSENT_COMPARE_HINT" = "Check that the same number appears in Helper, then tap Connect on your phone.";
+"CONSENT_PHONE_UNAVAILABLE" = "Could not reach the phone. Keep Helper open and try again.";
+"CONSENT_EXPIRED" = "The request expired. Choose the phone to try again.";
+"CONSENT_DECLINED" = "The connection request was declined on the phone.";
+"CONSENT_BUSY" = "The phone is handling another request. Try again in a minute.";
+"CONSENT_OPEN_HELPER" = "Open Helper on the phone, then try again.";

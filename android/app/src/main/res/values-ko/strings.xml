@@ -129,4 +129,9 @@
     <string name="nearby_permission_description">Mac이 이 휴대전화를 찾도록 근처 기기 접근을 허용하세요. 이전 휴대전화에서는 위치 권한도 요청할 수 있습니다.</string>
     <string name="nearby_bluetooth_off">블루투스가 꺼져 있습니다. 주변 기기를 검색하려면 켜세요.</string>
     <string name="nearby_turn_on_bluetooth">블루투스 켜기</string>
+    <string name="nearby_consent_title">Connect this Mac?</string>
+    <string name="nearby_consent_body">%1$s wants to connect to this phone.</string>
+    <string name="nearby_consent_compare">Check that this number matches the one on your Mac. Connect only if you started the request.</string>
+    <string name="nearby_consent_connect">Connect</string>
+    <string name="nearby_consent_decline">Decline</string>
 </resources>

@@ -139,3 +139,20 @@ private enum NearbyBootstrapEncoding {
         var v = value.bigEndian; return withUnsafeBytes(of: &v) { Data($0) }
     }
 }
+
+/// Commit the initiator's random secret before the responder chooses its nonce.
+/// The visual comparison never includes malleable ECDSA signature bytes.
+public enum NearbyConsentProof {
+    public static func context(token: Data, identity: Data, name: String) -> Data {
+        Data("GBCons01".utf8) + Data(SHA256.hash(data: NearbyBootstrapEncoding.fields([
+            Data("GalaxyBridge/Nearby/ConsentContext/v1".utf8), token, identity, Data(name.utf8)
+        ]))).prefix(24)
+    }
+    public static func comparison(_ initiator: Data, _ responder: Data, _ token: Data) -> String {
+        let hash = SHA256.hash(data: NearbyBootstrapEncoding.fields([
+            Data("GalaxyBridge/Nearby/ConsentComparison/v1".utf8), initiator, responder, token
+        ]))
+        let number = hash.prefix(4).reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+        return String(format: "%06llu", number % 1_000_000)
+    }
+}

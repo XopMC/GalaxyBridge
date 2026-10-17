@@ -7,24 +7,48 @@ struct NearbyPairingSheet: View {
     @ObservedObject var coordinator: NearbyConnectionCoordinator
     let dismiss: () -> Void
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 20) {
             Text("NEARBY_PAIR").font(.title2.bold())
-            if let uri = coordinator.nearbyPairingURI, let image = qr(uri) {
-                Image(nsImage: image).interpolation(.none).resizable().scaledToFit()
-                    .frame(width: 300, height: 300).accessibilityLabel("PAIRING_QR")
-            } else { Image(systemName: "qrcode.viewfinder").font(.system(size: 64)).frame(width: 300, height: 300) }
-            Text(LocalizedStringKey(coordinator.nearbyPairingURI == nil ? "NEARBY_PAIR_EXPIRED" : "NEARBY_PAIR_HINT"))
-                .foregroundStyle(.secondary).multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            if let key = coordinator.locationPermissionHintKey {
-                Text(LocalizedStringKey(key)).font(.caption).foregroundStyle(.orange)
-                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            switch coordinator.consentPresentation {
+            case .manualQR:
+                if let uri = coordinator.nearbyPairingURI, let image = qr(uri) {
+                    Image(nsImage: image).interpolation(.none).resizable().scaledToFit()
+                        .frame(width: 260, height: 260).accessibilityLabel("PAIRING_QR")
+                }
+                Text(LocalizedStringKey(coordinator.nearbyPairingURI == nil ? "NEARBY_PAIR_EXPIRED" : "NEARBY_PAIR_HINT"))
+                    .foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Button("NEARBY_NEW_CODE") { coordinator.beginManualQRPairing() }
+            case .choosing:
+                Image(systemName: "iphone.and.arrow.forward").font(.system(size: 48)).foregroundStyle(.blue)
+                Text("CONSENT_DISCOVER_HINT").foregroundStyle(.secondary).multilineTextAlignment(.center)
+                if coordinator.discoverySuggestions.isEmpty {
+                    ProgressView().controlSize(.small)
+                    Text("CONSENT_SEARCHING").font(.callout).foregroundStyle(.secondary)
+                } else {
+                    NearbyDiscoveryView(suggestions: coordinator.discoverySuggestions) {
+                        coordinator.beginConsentPairing(candidateID: $0.id)
+                    }.background(.quaternary.opacity(0.4),in:RoundedRectangle(cornerRadius:20))
+                }
+                Button("CONSENT_MANUAL_QR") { coordinator.beginManualQRPairing() }.buttonStyle(.link)
+            case .requesting:
+                ProgressView().controlSize(.large).frame(height:64)
+                Text("CONSENT_REQUESTING").font(.headline)
+                Text("CONSENT_DISCOVER_HINT").foregroundStyle(.secondary).multilineTextAlignment(.center)
+            case let .comparing(number):
+                Image(systemName:"laptopcomputer.and.iphone").font(.system(size:48)).foregroundStyle(.blue)
+                Text("CONSENT_CONFIRM_PHONE").font(.headline)
+                Text(verbatim:number).font(.system(size:38,weight:.semibold,design:.rounded)).monospacedDigit()
+                    .tracking(6).padding(.horizontal,24).padding(.vertical,18)
+                    .background(.quaternary,in:RoundedRectangle(cornerRadius:20))
+                Text("CONSENT_COMPARE_HINT").foregroundStyle(.secondary).multilineTextAlignment(.center)
+                ProgressView().controlSize(.small)
+            case let .failed(key):
+                Image(systemName:"iphone.slash").font(.system(size:48)).foregroundStyle(.secondary)
+                Text(LocalizedStringKey(key)).multilineTextAlignment(.center).fixedSize(horizontal:false,vertical:true)
+                Button("RETRY") { coordinator.showPairingChoices() }.buttonStyle(.borderedProminent)
             }
-            HStack {
-                Button("NEARBY_NEW_CODE") { coordinator.beginOfflinePairing() }
-                Button("CLOSE", action: dismiss).keyboardShortcut(.cancelAction)
-            }
-        }.padding(24).frame(width: 440)
+            Button("CLOSE", action:dismiss).keyboardShortcut(.cancelAction)
+        }.padding(28).frame(width:440)
     }
     private func qr(_ text: String) -> NSImage? {
         guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }

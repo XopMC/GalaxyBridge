@@ -216,12 +216,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onPostResume() {
         super.onPostResume()
+        com.xopmc.galaxybridge.transport.NearbyConsentBus.setVisible(true)
         resumedForSetup = true
         advanceAutomaticSetup()
     }
 
     override fun onPause() {
         resumedForSetup = false
+        com.xopmc.galaxybridge.transport.NearbyConsentBus.setVisible(false)
         super.onPause()
     }
 
@@ -321,6 +323,7 @@ class MainActivity : ComponentActivity() {
         var showRevokeConfirmation by remember { mutableStateOf(false) }
         var qrStatus by remember { mutableStateOf<String?>(null) }
         val nearbyStatus by NearbyDiscoveryStatusBus.status.collectAsState()
+        val nearbyConsent by com.xopmc.galaxybridge.transport.NearbyConsentBus.prompt.collectAsState()
 
         LaunchedEffect(Unit) {
             PairingStateBus.revision.collect { refreshToken++ }
@@ -452,7 +455,37 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        if (showNotificationAccessGuide) {
+        nearbyConsent?.let { request ->
+            AlertDialog(
+                onDismissRequest = { com.xopmc.galaxybridge.transport.NearbyConsentBus.answer(request.id,false) },
+                shape = RoundedCornerShape(28.dp),
+                title = { Text(stringResource(R.string.nearby_consent_title)) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                        Text(stringResource(R.string.nearby_consent_body,request.name))
+                        Surface(shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.surfaceContainerHigh) {
+                            Text(request.comparison,modifier=Modifier.fillMaxWidth().padding(vertical=20.dp),
+                                style=MaterialTheme.typography.headlineLarge,
+                                textAlign=androidx.compose.ui.text.style.TextAlign.Center,
+                                fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace)
+                        }
+                        Text(stringResource(R.string.nearby_consent_compare),style=MaterialTheme.typography.bodyMedium)
+                    }
+                },
+                confirmButton = {
+                    Button(onClick={ com.xopmc.galaxybridge.transport.NearbyConsentBus.answer(request.id,true) }) {
+                        Text(stringResource(R.string.nearby_consent_connect))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick={ com.xopmc.galaxybridge.transport.NearbyConsentBus.answer(request.id,false) }) {
+                        Text(stringResource(R.string.nearby_consent_decline))
+                    }
+                },
+            )
+        }
+
+        if (showNotificationAccessGuide && nearbyConsent == null) {
             AlertDialog(
                 onDismissRequest = {
                     showNotificationAccessGuide = false
@@ -1147,7 +1180,7 @@ private fun IdentityPanel(
         )
         Spacer(Modifier.height(14.dp))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OneUiPrimaryButton(onClick = onScanPairing) {
+            OneUiOutlinedButton(onClick = onScanPairing) {
                 Text(stringResource(if (paired) R.string.action_scan_another else R.string.action_scan_qr))
             }
             if (paired) {

@@ -88,7 +88,7 @@
 "ADB_AUTH_REQUIRED" = "確認手機連接";
 "PHONE_CONNECTION_REQUIRED" = "需要電話連接";
 "COMPANION_CONNECTION_FAILED" = "無法連線至此手機：%@";
-"COMPANION_PAIRING_REQUIRED" = "Galaxy Bridge 需要安全地重新連線。在手機上開啟Galaxy Bridge，掃描一次配對的QR碼。";
+"COMPANION_PAIRING_REQUIRED" = "請在手機上開啟 Helper 並重新加入裝置，以恢復連線。";
 "COMPANION_AUTHENTICATION_FAILED" = "安全連線驗證失敗。再次將此 Galaxy 與 Mac 配對。";
 "PEER_STORE_FAILED" = "無法讀取配對裝置：%@";
 "ADB_BINDING_EXHAUSTED" = "嘗試 %ld 後無法驗證無線 ADB 身分。重新連接裝置或刷新重試。";
@@ -112,7 +112,7 @@
 "MINIMIZE" = "最小化";
 "ZOOM" = "縮放";
 "QUIT" = "退出GalaxyBridge";
-"PAIR_DEVICE" = "配對手機";
+"PAIR_DEVICE" = "透過 QR 碼配對";
 "PAIRING_QR" = "GalaxyBridge 配對 QR 代碼";
 "PAIRING_HINT" = "在三星手機上開啟此 QR 代碼。它會在 120 秒後過期。";
 "PAIRED_WITH" = "與 %@ 配對";
@@ -315,7 +315,7 @@
 // Direct connectivity and internet sharing.
 "NEARBY_CONNECTION" = "直接連線";
 "NEARBY_CONNECT" = "直接連線";
-"NEARBY_PAIR" = "無網路配對";
+"NEARBY_PAIR" = "加入裝置";
 "NEARBY_STOP" = "中斷直接連線";
 "INTERNET_SHARING" = "手機網際網路";
 "INTERNET_ENABLE" = "共享網際網路";
@@ -366,7 +366,7 @@
 
 "DISCOVERY_NEARBY_TITLE" = "附近的手機";
 
-"DISCOVERY_UNTRUSTED_HINT" = "在 Galaxy Bridge Helper 中掃描 QR 碼以確認手機。";
+"DISCOVERY_UNTRUSTED_HINT" = "Confirm the connection in Helper on your phone.";
 
 "DISCOVERY_GENERIC_PHONE" = "Android 手機";
 
@@ -392,3 +392,15 @@
 
 "NEARBY_LOCATION_PERMISSION_HINT" = "若要連接附近的手機，請前往「系統設定 → 隱私權與安全性 → 定位服務」，允許 Galaxy Bridge 使用定位資訊。";
 "NOTIFICATIONS_EMPTY_HINT" = "手機的新通知會顯示在這裡。";
+
+"CONSENT_DISCOVER_HINT" = "Open Helper on your phone, then choose it below.";
+"CONSENT_SEARCHING" = "Looking for nearby phones…";
+"CONSENT_MANUAL_QR" = "Use a QR code instead";
+"CONSENT_REQUESTING" = "Sending a connection request…";
+"CONSENT_CONFIRM_PHONE" = "Confirm on your phone";
+"CONSENT_COMPARE_HINT" = "Check that the same number appears in Helper, then tap Connect on your phone.";
+"CONSENT_PHONE_UNAVAILABLE" = "Could not reach the phone. Keep Helper open and try again.";
+"CONSENT_EXPIRED" = "The request expired. Choose the phone to try again.";
+"CONSENT_DECLINED" = "The connection request was declined on the phone.";
+"CONSENT_BUSY" = "The phone is handling another request. Try again in a minute.";
+"CONSENT_OPEN_HELPER" = "Open Helper on the phone, then try again.";

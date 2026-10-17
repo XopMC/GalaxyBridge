@@ -448,8 +448,9 @@ final class AppModel: ObservableObject {
         beginNearbyPairing(candidateID: nil)
     }
     func beginNearbyPairing(candidateID: UUID?) {
-        nearbyConnection.beginOfflinePairing(candidateID: candidateID)
-        isNearbyPairingPresented = nearbyConnection.nearbyPairingURI != nil
+        if let candidateID { nearbyConnection.beginConsentPairing(candidateID: candidateID) }
+        else { nearbyConnection.showPairingChoices() }
+        isNearbyPairingPresented = true
     }
     func connectNearby(deviceID: String) {
         prepareNearbyConnection(deviceID: deviceID, automatic: false)
