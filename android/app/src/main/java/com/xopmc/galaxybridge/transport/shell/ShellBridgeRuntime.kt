@@ -137,10 +137,14 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
             if (!isAvailable) return rejected(request, "shell_bridge_not_activated")
             if (!ShellBridgePolicy.valid(request)) return rejected(request, "shell_request_invalid")
             if (request.bootGeneration.isNotEmpty() && request.bootGeneration != generation) return rejected(request, "shell_boot_generation_changed")
-            if (pending.size >= 32 || request.requestId in pending) return rejected(request, "shell_request_busy")
+            if (request.requestId in pending) return rejected(request, "shell_request_busy")
             leases.cachedCompositeStop(peerID, sessionID, request)?.let { return it }
+            if (pending.size >= 32) return rejected(request, "shell_request_busy")
             if (ShellBridgePolicy.usesChildLease(request.operation)) {
                 if (request.operation == ShellBridgeRequest.Operation.STOP) {
+                    if (request.displayStateStop && !leases.admitCompositeStop(peerID, sessionID, request)) {
+                        return rejected(request, "shell_lease_kind_or_owner")
+                    }
                     if (!leases.owns(peerID, sessionID, request.leaseId)) return rejected(request, "shell_lease_unknown")
                     compositeLease = leases.isComposite(peerID, sessionID, request.leaseId)
                     if (compositeLease) check(leases.markCompositeStopping(peerID, sessionID, request.leaseId))

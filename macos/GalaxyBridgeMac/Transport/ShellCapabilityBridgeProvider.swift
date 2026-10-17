@@ -608,6 +608,7 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
             pending[id] = Pending(context: context, lease: lease, generation: generation, operation: operation, continuation: continuation, timeout: timeout)
             var request = GBShellBridgeRequest(); request.requestID = id; request.leaseID = lease; request.bootGeneration = generation
             request.operation = operation; request.powerOn = powerOn
+            request.displayStateStop = operation == .stop && leases[lease]?.displayState != nil
             if let options { request.options = options }
             if let retirement { request.retirement = retirement }
             if let displayState { request.displayState = displayState }

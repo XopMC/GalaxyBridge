@@ -12,9 +12,13 @@ private class ActualShellStopRuntime {
     val leases = ShellStreamLeaseRegistry()
     var removals = 0
     fun complete(peerID: String, sessionID: String, request: ShellBridgeRequest, response: ShellBridgeResult,
-        boot: String, socket: Any? = owner, newLease: Boolean = false) {
+        boot: String, socket: Any? = owner, newLease: Boolean = false,
+        compositeLease: Boolean = leases.isComposite(peerID, sessionID, request.leaseId)): ShellBridgeResult {
         // ACTUAL_STOP_COMPLETION
+        return response
     }
+    private fun rejected(request: ShellBridgeRequest, reason: String): ShellBridgeResult = ShellBridgeResult.newBuilder()
+        .setRequestId(request.requestId).setAvailable(false).setErrorCode(reason).build()
     private fun removeLeaseLocked(lease: String) { leases.remove(lease); removals++ }
 }
 
@@ -30,6 +34,20 @@ class ShellStopOwnershipSpec {
     private fun runtime() = ActualShellStopRuntime().also {
         assertTrue(it.leases.admit("peer", "session", lease))
         assertTrue(it.leases.declare("peer", "session", lease, listOf("$lease/video", "$lease/control")))
+    }
+    @Test fun typedUnknownStopCachesNativeReceiptBeforeRemovalAndPreservesSiblings() {
+        val runtime = runtime()
+        val stop = request().toBuilder().setLeaseId(boot).setDisplayStateStop(true).build()
+        assertTrue(runtime.leases.admitCompositeStop("peer", "session", stop))
+        val noStart = response("display_state_not_started").toBuilder().setLeaseId(boot).build()
+        runtime.complete("peer", "session", stop, noStart, boot)
+        assertFalse(runtime.leases.owns("peer", "session", boot))
+        assertTrue(runtime.leases.allows("peer", "session", "$lease/control"))
+        val retry = stop.toBuilder().setRequestId(java.util.UUID.randomUUID().toString()).build()
+        val cached = requireNotNull(runtime.leases.cachedCompositeStop("peer", "session", retry))
+        assertEquals(retry.requestId, cached.requestId)
+        assertEquals(noStart.toBuilder().setRequestId(retry.requestId).build(), cached)
+        assertNull(runtime.leases.cachedCompositeStop("other", "session", retry))
     }
 
     @Test fun failedOrUnknownStopRetainsOwnerForLaterConfirmedRetry() {

@@ -533,6 +533,47 @@ public  final class ShellBridgeRequest extends
     bitField0_ = (bitField0_ & ~0x00000004);
   }
 
+  public static final int DISPLAY_STATE_STOP_FIELD_NUMBER = 9;
+  private boolean displayStateStop_;
+  /**
+   * <pre>
+   * Typed STOP can seal a possibly queued SNAPSHOT before Helper admission.
+   * It carries no media/power payload and never grants mutation authority.
+   * </pre>
+   *
+   * <code>bool display_state_stop = 9;</code>
+   * @return The displayStateStop.
+   */
+  @java.lang.Override
+  public boolean getDisplayStateStop() {
+    return displayStateStop_;
+  }
+  /**
+   * <pre>
+   * Typed STOP can seal a possibly queued SNAPSHOT before Helper admission.
+   * It carries no media/power payload and never grants mutation authority.
+   * </pre>
+   *
+   * <code>bool display_state_stop = 9;</code>
+   * @param value The displayStateStop to set.
+   */
+  private void setDisplayStateStop(boolean value) {
+
+    displayStateStop_ = value;
+  }
+  /**
+   * <pre>
+   * Typed STOP can seal a possibly queued SNAPSHOT before Helper admission.
+   * It carries no media/power payload and never grants mutation authority.
+   * </pre>
+   *
+   * <code>bool display_state_stop = 9;</code>
+   */
+  private void clearDisplayStateStop() {
+
+    displayStateStop_ = false;
+  }
+
   public static com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -993,6 +1034,49 @@ public  final class ShellBridgeRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Typed STOP can seal a possibly queued SNAPSHOT before Helper admission.
+     * It carries no media/power payload and never grants mutation authority.
+     * </pre>
+     *
+     * <code>bool display_state_stop = 9;</code>
+     * @return The displayStateStop.
+     */
+    @java.lang.Override
+    public boolean getDisplayStateStop() {
+      return instance.getDisplayStateStop();
+    }
+    /**
+     * <pre>
+     * Typed STOP can seal a possibly queued SNAPSHOT before Helper admission.
+     * It carries no media/power payload and never grants mutation authority.
+     * </pre>
+     *
+     * <code>bool display_state_stop = 9;</code>
+     * @param value The displayStateStop to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDisplayStateStop(boolean value) {
+      copyOnWrite();
+      instance.setDisplayStateStop(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Typed STOP can seal a possibly queued SNAPSHOT before Helper admission.
+     * It carries no media/power payload and never grants mutation authority.
+     * </pre>
+     *
+     * <code>bool display_state_stop = 9;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearDisplayStateStop() {
+      copyOnWrite();
+      instance.clearDisplayStateStop();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:galaxybridge.v1.ShellBridgeRequest)
   }
   @java.lang.Override
@@ -1018,10 +1102,11 @@ public  final class ShellBridgeRequest extends
             "powerOn_",
             "retirement_",
             "displayState_",
+            "displayStateStop_",
           };
           java.lang.String info =
-              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\f\u0005\u1009\u0000\u0006\u0007\u0007\u1009\u0001\b\u1009\u0002";
+              "\u0000\t\u0000\u0001\u0001\t\t\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\f\u0005\u1009\u0000\u0006\u0007\u0007\u1009\u0001\b\u1009\u0002\t\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

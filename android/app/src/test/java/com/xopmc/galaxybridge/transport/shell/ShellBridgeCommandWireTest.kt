@@ -11,6 +11,13 @@ class ShellBridgeCommandWireTest {
     private val lease = "d5e1590c-47fb-4d73-9ac2-45988ba0a876"
     private fun request(operation: ShellBridgeRequest.Operation) = ShellBridgeRequest.newBuilder()
         .setRequestId(boot).setLeaseId(lease).setBootGeneration(boot).setOperation(operation)
+    @Test fun explicitCompositeStopSurvivesUnknownHelperLeaseWithoutAnyMediaPayload() {
+        val stop = request(ShellBridgeRequest.Operation.STOP).setDisplayStateStop(true).build()
+        val fields = ShellBridgeCommandWire.fields(stop, boot)
+        assertEquals(setOf("request_id", "lease_id", "boot_generation", "operation", "display_state_stop"), fields.keys)
+        assertEquals(true, fields["display_state_stop"])
+        assertEquals(4, fields["operation"])
+    }
     @Test fun compositeCommandsReachNativeWithoutAnyMediaOptionsOrLegacyPowerBit() {
         val snapshot = request(ShellBridgeRequest.Operation.START_DISPLAY_STATE)
             .setDisplayState(DisplayStateCommand.getDefaultInstance()).build()

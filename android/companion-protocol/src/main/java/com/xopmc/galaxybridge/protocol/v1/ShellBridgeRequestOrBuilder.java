@@ -95,4 +95,15 @@ public interface ShellBridgeRequestOrBuilder extends
    * @return The displayState.
    */
   com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand getDisplayState();
+
+  /**
+   * <pre>
+   * Typed STOP can seal a possibly queued SNAPSHOT before Helper admission.
+   * It carries no media/power payload and never grants mutation authority.
+   * </pre>
+   *
+   * <code>bool display_state_stop = 9;</code>
+   * @return The displayStateStop.
+   */
+  boolean getDisplayStateStop();
 }

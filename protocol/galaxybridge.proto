@@ -286,6 +286,9 @@ message ShellBridgeRequest {
   bool power_on = 6;
   CaptureRetirementQuery retirement = 7;
   DisplayStateCommand display_state = 8;
+  // Typed STOP can seal a possibly queued SNAPSHOT before Helper admission.
+  // It carries no media/power payload and never grants mutation authority.
+  bool display_state_stop = 9;
 }
 
 // CONTROL only after signed authentication. VERIFY_RETIREMENT is read-only.

@@ -39,11 +39,19 @@ start = source.index('            synchronized(lock) {', source.index('         
 end = source.index('            return response', start)
 completion = source[start:end]
 assert 'request.operation == ShellBridgeRequest.Operation.STOP' in completion
-failure_start = source.index('        } catch (_: Exception) {', source.index('fun executeAuthenticated')) + len('        } catch (_: Exception) {')
-failure_end = source.index('        } finally {', failure_start)
+execute = source[source.index('fun executeAuthenticated'):source.index('    fun retireAuthenticated')]
+failure_marker = '        } catch (failure: Exception) {'
+failure_start = execute.index(failure_marker) + len(failure_marker)
+failure_end = execute.index('        } finally {', failure_start)
 failure_fixture = (root / 'scripts/fixtures/ShellReadOnlyFailureIsolationSpec.kt').read_text().replace(
-    '        // ACTUAL_EXECUTE_FAILURE', source[failure_start:failure_end])
+    '        // ACTUAL_EXECUTE_FAILURE', execute[failure_start:failure_end])
 fixture = (root / 'scripts/fixtures/ShellStopOwnershipSpec.kt').read_text().replace('        // ACTUAL_STOP_COMPLETION', completion)
+admission_start = execute.index('            if (ShellBridgePolicy.usesChildLease(request.operation))')
+admission_end = execute.index('            socket = requireNotNull(owner); boot = generation', admission_start)
+cached_start = execute.index('\n', execute.index('            if (request.bootGeneration.isNotEmpty()')) + 1
+admission_fixture = (root / 'scripts/fixtures/ShellCompositeStopAdmissionSpec.kt').read_text().replace(
+    '        // ACTUAL_CHILD_ADMISSION', execute[admission_start:admission_end]).replace(
+    '        // ACTUAL_CACHED_ADMISSION', execute[cached_start:admission_start])
 server = Path(os.environ.get('GB_SHELL_STOP_SERVER_SOURCE', root / 'android/app/src/main/java/com/xopmc/galaxybridge/transport/CompanionLanServer.kt')).read_text()
 lease_start = server.index('    private data class FeatureShellLease(')
 lease_end = server.index('    private val featureShellLeases', lease_start)
@@ -83,6 +91,8 @@ with tempfile.TemporaryDirectory(prefix='gb-android-shell-stop-') as temporary:
     actual.write_text(fixture)
     actual_failure = tmp / 'ActualShellFailure.kt'
     actual_failure.write_text(failure_fixture)
+    actual_admission = tmp / 'ActualCompositeAdmission.kt'
+    actual_admission.write_text(admission_fixture)
     actual_upgrade = tmp / 'ActualRuntimeUpgrade.kt'
     actual_upgrade.write_text(upgrade_fixture)
     actual_feature = tmp / 'ActualFeatureShellStop.kt'
@@ -93,11 +103,12 @@ with tempfile.TemporaryDirectory(prefix='gb-android-shell-stop-') as temporary:
          base / 'ShellBridgePolicy.kt', base / 'ShellBridgeWire.kt',
          tests / 'ShellBridgePolicyTest.kt', base / 'ShellActivationTicketPolicy.kt',
          base / 'ShellRuntimeIdentity.kt', tests / 'ShellRuntimeIdentityTest.kt',
-         actual, actual_feature, actual_failure, actual_upgrade])
+         actual, actual_feature, actual_failure, actual_upgrade, actual_admission])
     run([java, '-cp', classpath, 'org.junit.runner.JUnitCore',
          'com.xopmc.galaxybridge.transport.shell.ShellBridgePolicyTest',
          'com.xopmc.galaxybridge.transport.shell.ShellStopOwnershipSpec',
          'com.xopmc.galaxybridge.transport.shell.FeatureShellStopOwnershipSpec',
          'com.xopmc.galaxybridge.transport.shell.ShellReadOnlyFailureIsolationSpec',
+         'com.xopmc.galaxybridge.transport.shell.ShellCompositeStopAdmissionSpec',
          'com.xopmc.galaxybridge.transport.shell.ShellRuntimeIdentityTest',
          'com.xopmc.galaxybridge.transport.shell.ShellRuntimeUpgradeAdmissionSpec'])

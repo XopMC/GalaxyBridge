@@ -14,6 +14,65 @@ import org.junit.Test
 class ShellBridgePolicyTest {
     private val lease = "69830b65-6352-4b3a-8a21-70bcda45787e"
     private val request = "d5e1590c-47fb-4d73-9ac2-45988ba0a876"
+    @Test fun explicitCompositeStopSealsUnknownStartupWithoutConsumingProducerCapacity() {
+        val registry = ShellStreamLeaseRegistry()
+        val producers = (0..7).map { java.util.UUID.randomUUID().toString() }
+        producers.forEach { assertTrue(registry.admit("peer", "session", it)) }
+        val stop = ShellBridgeRequest.newBuilder().setRequestId(request).setLeaseId(lease).setBootGeneration(request)
+            .setOperation(ShellBridgeRequest.Operation.STOP).setDisplayStateStop(true).build()
+        assertTrue(ShellBridgePolicy.valid(stop))
+        assertTrue(registry.admitCompositeStop("peer", "session", stop))
+        assertTrue(registry.owns("peer", "session", lease))
+        assertTrue(registry.isComposite("peer", "session", lease))
+        assertTrue(registry.markCompositeStopping("peer", "session", lease))
+        assertTrue(registry.admitCompositeStop("peer", "session", stop.toBuilder().setRequestId(lease).build()))
+        assertFalse(registry.admitCompositeStop("other", "session", stop))
+        assertFalse(registry.admitCompositeStop("peer", "new-session", stop))
+        assertFalse(registry.admitCompositeStop("peer", "session", stop.toBuilder().setLeaseId(producers[0]).build()))
+        val snapshot = stop.toBuilder().clearDisplayStateStop().setOperation(ShellBridgeRequest.Operation.START_DISPLAY_STATE)
+            .setDisplayState(DisplayStateCommand.getDefaultInstance()).build()
+        assertFalse(registry.admitComposite("peer", "session", snapshot))
+        assertFalse(registry.canWriteComposite("peer", "session", snapshot))
+        assertFalse(registry.admit("peer", "session", lease))
+        assertFalse(registry.allows("peer", "session", "$lease/control"))
+        val unknownLegacy = stop.toBuilder().clearDisplayStateStop().build()
+        assertFalse(registry.admitCompositeStop("peer", "session", unknownLegacy))
+        val receipt = ShellBridgeResult.newBuilder().setRequestId(request).setLeaseId(lease).setBootGeneration(request)
+            .setAvailable(true).setState("display_state_not_started").build()
+        assertTrue(registry.retainCompositeRetirement("peer", "session", lease, receipt))
+        registry.remove(lease)
+        assertNotNull(registry.cachedCompositeStop("peer", "session", stop.toBuilder().setRequestId(lease).build()))
+        assertFalse(registry.admitComposite("peer", "session", snapshot))
+        producers.forEach { assertTrue(registry.owns("peer", "session", it)) }
+    }
+    @Test fun compositeStopFlagCannotAuthorizeMediaCommandsOrCarryLegacyPolicy() {
+        val stop = ShellBridgeRequest.newBuilder().setRequestId(request).setLeaseId(lease).setBootGeneration(request)
+            .setOperation(ShellBridgeRequest.Operation.STOP).setDisplayStateStop(true).build()
+        assertTrue(ShellBridgePolicy.valid(stop))
+        for (invalid in listOf(stop.toBuilder().setOperation(ShellBridgeRequest.Operation.STATUS).build(),
+            stop.toBuilder().setOperation(ShellBridgeRequest.Operation.START_PANEL).build(),
+            stop.toBuilder().setOptions(ShellCaptureOptions.getDefaultInstance()).build(),
+            stop.toBuilder().setPowerOn(true).build(), stop.toBuilder().clearBootGeneration().build())) {
+            assertFalse(ShellBridgePolicy.valid(invalid))
+        }
+    }
+    @Test fun cleanupPoolIsBoundedButRetainedRetriesDoNotRequireANewSlot() {
+        val registry = ShellStreamLeaseRegistry()
+        fun stop(id: String) = ShellBridgeRequest.newBuilder().setRequestId(request).setLeaseId(id).setBootGeneration(request)
+            .setOperation(ShellBridgeRequest.Operation.STOP).setDisplayStateStop(true).build()
+        val ids = (0..31).map { java.util.UUID.randomUUID().toString() }
+        ids.forEach { assertTrue(registry.admitCompositeStop("peer", "session", stop(it))) }
+        assertFalse(registry.admitCompositeStop("peer", "session", stop(lease)))
+        assertTrue(registry.admitCompositeStop("peer", "session", stop(ids[0])))
+        assertFalse(registry.admitCompositeStop("peer", "session", stop(ids[0]).toBuilder().setBootGeneration(lease).build()))
+        val receipt = ShellBridgeResult.newBuilder().setRequestId(request).setLeaseId(ids[0]).setBootGeneration(request)
+            .setAvailable(true).setState("display_state_not_started").build()
+        assertFalse(registry.retainCompositeRetirement("peer", "session", ids[0], receipt.toBuilder().setBootGeneration(lease).build()))
+        assertTrue(registry.retainCompositeRetirement("peer", "session", ids[0], receipt))
+        registry.remove(ids[0])
+        assertNotNull(registry.cachedCompositeStop("peer", "session", stop(ids[0])))
+        assertTrue(registry.admitCompositeStop("peer", "session", stop(lease)))
+    }
     @Test fun authenticatedRetirementStopsProducersBeforeTheirSharedDisplayOwner() {
         val registry = ShellStreamLeaseRegistry()
         val snapshot = ShellBridgeRequest.newBuilder().setRequestId(request).setLeaseId(lease).setBootGeneration(request)

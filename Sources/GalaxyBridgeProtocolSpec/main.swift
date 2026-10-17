@@ -105,6 +105,12 @@ do {
     precondition(decodedIdentity.runtimeSha256 == runtimeIdentity.runtimeSha256)
     precondition(GBCapability.shellRuntimeIdentity.rawValue == 20)
     precondition(GBCapability.compositeDisplayState.rawValue == 19)
+    var typedDisplayStop = GBShellBridgeRequest()
+    typedDisplayStop.operation = .stop; typedDisplayStop.displayStateStop = true
+    let typedStopWire: [UInt8] = try typedDisplayStop.serializedBytes()
+    precondition(typedStopWire == [0x20, 0x04, 0x48, 0x01], "typed STOP is append-only field9 with no media payload")
+    let decodedTypedStop = try GBShellBridgeRequest(serializedBytes: typedStopWire)
+    precondition(decodedTypedStop == typedDisplayStop)
     precondition(GBShellBridgeRequest.Operation.startDisplayState.rawValue == 8)
     var displayCommand = GBDisplayStateCommand()
     displayCommand.action = .apply; displayCommand.interactive = true; displayCommand.panelPolicy = .hide; displayCommand.revision = 17
