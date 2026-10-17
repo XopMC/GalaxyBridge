@@ -38,7 +38,7 @@ class SessionAuthenticationValidatorTest {
         )
         assertEquals(
             SessionAuthenticationFailure.PUBLIC_KEY,
-            SessionAuthenticationValidator.failure(valid, hostId, publicKey.copyOf().also { it[1] = 0 }, now),
+            SessionAuthenticationValidator.failure(valid, hostId, publicKey.copyOf().also { it[1] = (it[1].toInt() xor 1).toByte() }, now),
         )
         assertEquals(
             SessionAuthenticationFailure.TIMESTAMP,
