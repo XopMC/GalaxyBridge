@@ -87,7 +87,7 @@ for script in ['test-macos-connectivity-presentation.sh', 'test-macos-nearby-sta
                'test-macos-app-window-frame-publication.sh',
                'test-macos-clipboard-conversion.sh',
                'test-macos-clipboard-conversion-integration.sh',
-               'test-macos-notification-cache-maintenance.sh', 'test-macos-notification-ordering.sh']:
+               'test-macos-notification-cache-maintenance.sh', 'test-macos-notification-ordering.sh', 'test-macos-input-marker.sh']:
     run(['bash', ROOT / 'scripts' / script])
 for script in ['test-nearby-bootstrap-interop.py', 'test-network-test-guardian.py']:
     run([sys.executable, ROOT / 'scripts' / script])

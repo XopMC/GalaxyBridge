@@ -43,6 +43,55 @@ struct PrimaryInputPacketCandidate: Equatable, Sendable {
     let bytes: Int
 }
 
+// Opt-in, click-only semantic probe for the synthetic GBM1 fixture. No image,
+// nonce, clipboard content or device identity is emitted by this decoder.
+enum PrimaryInputMarkerConfiguration: Equatable, Sendable {
+    case disabled, invalid, enabled(UInt32)
+
+    static func parse(_ arguments: [String]) -> Self {
+        let prefix = "--primary-input-marker-nonce"
+        let values = arguments.filter { $0.hasPrefix(prefix) }
+        guard !values.isEmpty else { return .disabled }
+        guard values.count == 1, values[0].hasPrefix(prefix + "=") else { return .invalid }
+        let value = values[0].dropFirst(prefix.count + 1)
+        guard !value.isEmpty, value.utf8.allSatisfy({ (48...57).contains($0) }),
+              let nonce = UInt32(value), nonce != 0 else { return .invalid }
+        return .enabled(nonce)
+    }
+}
+
+struct PrimaryInputMarker: Sendable {
+    let counter: UInt16
+
+    static func decode(_ signature: PrimaryFrameSignature, nonce: UInt32) -> Self? {
+        guard signature.luma.count == 24 * 24, nonce != 0 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: 12)
+        for bit in 0..<96 {
+            if signature.luma[(17 + bit / 16) * 24 + 4 + bit % 16] >= 128 {
+                bytes[bit / 8] |= UInt8(1) << (7 - bit % 8)
+            }
+        }
+        guard Array(bytes.prefix(4)) == [0x47, 0x42, 0x4d, 0x31],
+              bytes[4..<8].reduce(UInt32(0), { ($0 << 8) | UInt32($1) }) == nonce else { return nil }
+        var crc: UInt16 = 0xffff
+        for byte in bytes.prefix(10) {
+            crc ^= UInt16(byte) << 8
+            for _ in 0..<8 { crc = (crc << 1) ^ (crc & 0x8000 == 0 ? 0 : 0x1021) }
+        }
+        guard crc == UInt16(bytes[10]) << 8 | UInt16(bytes[11]) else { return nil }
+        return Self(counter: UInt16(bytes[8]) << 8 | UInt16(bytes[9]))
+    }
+
+    static func isClickStart(_ data: Data) -> Bool {
+        guard data.count == 32 else { return false }
+        let header = Array(data.prefix(10))
+        guard header[0] == 2, header[1] == 0 else { return false }
+        // scrcpy's generic virtual finger. Other pointers/gestures do not
+        // advance this click-only fixture's expected ordinal.
+        return header[2..<10].reduce(UInt64(0), { ($0 << 8) | UInt64($1) }) == UInt64.max - 1
+    }
+}
+
 struct PrimaryInputFrameSample: Equatable, Sendable {
     let inputSequence: UInt64
     let frameSequence: UInt64
@@ -55,14 +104,16 @@ struct PrimaryInputFrameSample: Equatable, Sendable {
     let frameReceivedUptime: Double
     let firstSocketUptime: Double?
     let firstPacket: PrimaryInputPacketCandidate?
+    var markerCounter: UInt16? = nil
 
     var logField: String {
+        let matching = markerCounter.map { ",matching:marker-v1,marker_counter:\($0)" } ?? ""
         let relativeArrival = relativeVideoArrivalMS.map { String($0) } ?? "none"
         let socket = firstSocketUptime.map { String($0) } ?? "none"
         let packet = firstPacket.map {
             "first_frame:\($0.sequence),first_pts_us:\($0.pts),first_frame_uptime_s:\($0.receivedAt),first_frame_bytes:\($0.bytes)"
         } ?? "first_frame:none,first_pts_us:none,first_frame_uptime_s:none,first_frame_bytes:none"
-        return "inputFrameSample=input:\(inputSequence),frame:\(frameSequence),pts_us:\(videoPTSUs),dispatch_epoch_ms:\(inputDispatchEpochMS),relative_video_arrival_ms:\(relativeArrival),to_frame_ms:\(inputToFrameMS),to_visible_ms:\(frameToVisibleMS)"
+        return "inputFrameSample=input:\(inputSequence),frame:\(frameSequence),pts_us:\(videoPTSUs),dispatch_epoch_ms:\(inputDispatchEpochMS),relative_video_arrival_ms:\(relativeArrival),to_frame_ms:\(inputToFrameMS),to_visible_ms:\(frameToVisibleMS)\(matching)"
             + " inputFrameTiming=input:\(inputSequence),dispatch_uptime_s:\(inputDispatchUptime),received_uptime_s:\(frameReceivedUptime),first_byte_uptime_s:\(socket)," + packet
     }
 }
@@ -139,6 +190,7 @@ struct PrimaryMediaHistogram: Sendable {
 struct PrimaryMediaSummary: Sendable {
     let generation: UInt64
     let terminal: Bool
+    let inputMarkerState: String
     let elapsedSeconds: Double
     let retainedSlots: Int
     let counters: [PrimaryMediaCounter: UInt64]
@@ -174,10 +226,11 @@ struct PrimaryMediaSummary: Sendable {
                       "parser_high_bytes=\(parserHighWaterBytes)",
                       "stream_order=video,audio,control", "stream_bytes=\(streamBytes)", "stream_packets=\(streamPackets)",
                       "control_completion=contentProcessed_not_device_injection",
-                      "input_metric=next_changed_frame_requires_static_response_fixture",
+                      "input_metric=\(inputMarkerState == "disabled" ? "next_changed_frame_requires_static_response_fixture" : "validated_click_marker_v1")",
                       "presentation_interval=distinct_frames_requires_continuous_motion_fixture",
                       "oldest_age=tracked_only_if_correlation_lost", "hist_upper_ms=0,1,5,10,20,50,80,100,150,250,500,1000,inf",
                       "first_presented_ms=\(firstPresented)"]
+        if inputMarkerState != "disabled" { fields.append("input_marker_state=\(inputMarkerState)") }
         for key in PrimaryMediaCounter.allCases { fields.append("\(key.rawValue)=\(counters[key, default: 0])") }
         for key in PrimaryMediaQueue.allCases {
             fields.append("\(key.rawValue)_pending=\(pending[key, default: 0])")
@@ -271,6 +324,7 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
         let sequence: UInt64
         let dispatchedAt: Double
         let dispatchEpochMS: Double
+        let expectedMarkerCounter: UInt16?
         var firstSocketUptime: Double?
         var firstPacket: PrimaryInputPacketCandidate?
     }
@@ -312,6 +366,11 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
     private var inputProbes: [InputProbe] = []
     private var inputFrameSamples: [PrimaryInputFrameSample] = []
     private var lastPresentedSignature: PrimaryFrameSignature?
+    private let markerConfiguration: PrimaryInputMarkerConfiguration
+    private var markerInvalidated = false
+    private var lastMarkerCounter: UInt16?
+    private var nextMarkerCounter: UInt16?
+    private var lastMarkerFrameSequence: UInt64?
     private var firstPresentedAt: Double?
     private var lastPresentedFrame: PrimaryGapEndpoint?
     // Whole-run top eight in each of three boundaries: video receipt, audio
@@ -335,8 +394,11 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
 
     init(generation: UInt64, now: @escaping @Sendable () -> Double = { ProcessInfo.processInfo.systemUptime },
          startedAt explicitStart: Double? = nil,
+         markerConfiguration: PrimaryInputMarkerConfiguration = .disabled,
          sink: @escaping Sink) {
         self.generation = generation
+        self.markerConfiguration = markerConfiguration
+        markerInvalidated = markerConfiguration == .invalid || markerConfiguration == .enabled(0)
         self.now = now
         self.sink = sink
         let current = now()
@@ -348,7 +410,9 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
 
     static func logging(generation: UInt64, bundleID: String, startedAt: Double? = nil) -> PrimaryMediaDiagnostics {
         let logger = Logger(subsystem: bundleID, category: "PrimaryMediaDiagnostics")
-        return PrimaryMediaDiagnostics(generation: generation, startedAt: startedAt) { summary in
+        let marker = isEnabled(arguments: ProcessInfo.processInfo.arguments, bundleID: bundleID)
+            ? PrimaryInputMarkerConfiguration.parse(ProcessInfo.processInfo.arguments) : .disabled
+        return PrimaryMediaDiagnostics(generation: generation, startedAt: startedAt, markerConfiguration: marker) { summary in
             for line in summary.logLines { logger.info("\(line, privacy: .public)") }
         }
     }
@@ -537,10 +601,19 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
     func inputDispatched(
         trace: PrimaryMediaTrace,
         at time: Double,
-        epochMS: Double = Date().timeIntervalSince1970 * 1_000
+        epochMS: Double = Date().timeIntervalSince1970 * 1_000,
+        markerGestureStart: Bool = true
     ) {
         lock.withLock {
             guard accepts(trace), time.isFinite, time >= 0, epochMS.isFinite, epochMS >= 0 else { return }
+            var expectedMarkerCounter: UInt16?
+            if markerConfiguration != .disabled {
+                guard markerGestureStart, !markerInvalidated else { return }
+                guard let previous = nextMarkerCounter else { invalidateInputMarker(); return }
+                guard previous < .max else { invalidateInputMarker(); return }
+                expectedMarkerCounter = previous + 1
+                nextMarkerCounter = expectedMarkerCounter
+            }
             let expirationThreshold = time - Self.inputProbeMaximumAge
             let expired = inputProbes.reduce(into: UInt64(0)) { count, probe in
                 if probe.dispatchedAt < expirationThreshold { count = primarySaturatingAdd(count, 1) }
@@ -551,12 +624,19 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
                 inputProbes.removeFirst()
                 bump(.inputProbeExpired)
             }
-            inputProbes.append(InputProbe(sequence: trace.sequence, dispatchedAt: time, dispatchEpochMS: epochMS))
+            inputProbes.append(InputProbe(sequence: trace.sequence, dispatchedAt: time, dispatchEpochMS: epochMS, expectedMarkerCounter: expectedMarkerCounter))
         }
     }
 
     func cancelInputProbe(trace: PrimaryMediaTrace) {
-        lock.withLock { inputProbes.removeAll { $0.sequence == trace.sequence } }
+        lock.withLock {
+            guard accepts(trace) else { return }
+            // A late failure may arrive after its visual probe was consumed or expired.
+            // Keep the entire opt-in trial unqualified, including failed UP controls.
+            if markerConfiguration != .disabled, trace.stream == .control {
+                invalidateInputMarker()
+            } else { inputProbes.removeAll { $0.sequence == trace.sequence } }
+        }
     }
 
     func drawablePresented(
@@ -592,17 +672,38 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
             }
             guard let signature else { return }
             defer { lastPresentedSignature = signature }
-            guard let previous = lastPresentedSignature,
-                  signature.isVisiblyDifferent(from: previous),
-                  let frameEntry = entry(trace),
-                  let receivedAt = frameEntry.times[PrimaryMediaStage.received.rawValue]
-            else { return }
+            guard let frameEntry = entry(trace),
+                  let receivedAt = frameEntry.times[PrimaryMediaStage.received.rawValue] else { return }
+            var markerCounter: UInt16?
+            if markerConfiguration != .disabled {
+                guard !markerInvalidated, case let .enabled(nonce) = markerConfiguration,
+                      let marker = PrimaryInputMarker.decode(signature, nonce: nonce) else { return }
+                if let last = lastMarkerFrameSequence, trace.sequence <= last { return }
+                lastMarkerFrameSequence = trace.sequence
+                guard let previous = lastMarkerCounter, let admitted = nextMarkerCounter else {
+                    guard marker.counter == 0 else { invalidateInputMarker(); return }
+                    lastMarkerCounter = marker.counter; nextMarkerCounter = marker.counter; return
+                }
+                guard marker.counter >= previous, marker.counter <= admitted else { invalidateInputMarker(); return }
+                guard marker.counter != previous else { return }
+                lastMarkerCounter = marker.counter
+                markerCounter = marker.counter
+            } else {
+                guard let previous = lastPresentedSignature, signature.isVisiblyDifferent(from: previous) else { return }
+            }
             var retained: [InputProbe] = []
             retained.reserveCapacity(inputProbes.count)
             var latestEligible: InputProbe?
             for probe in inputProbes {
                 if presentedAt - probe.dispatchedAt > Self.inputProbeMaximumAge {
                     bump(.inputProbeExpired)
+                } else if let markerCounter {
+                    guard let expected = probe.expectedMarkerCounter else { continue }
+                    if expected == markerCounter {
+                        guard probe.dispatchedAt <= receivedAt else { invalidateInputMarker(); return }
+                        latestEligible = probe
+                    } else if expected > markerCounter { retained.append(probe) }
+                    else { bump(.inputProbeExpired) } // Coalesced; this picture cannot prove an earlier ordinal.
                 } else if probe.dispatchedAt <= receivedAt {
                     // A frame can prove only one input-to-visible sample. A
                     // drag produces many coalescible move events before the
@@ -638,7 +739,8 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
                         inputDispatchUptime: latestEligible.dispatchedAt,
                         frameReceivedUptime: receivedAt,
                         firstSocketUptime: latestEligible.firstSocketUptime,
-                        firstPacket: latestEligible.firstPacket
+                        firstPacket: latestEligible.firstPacket,
+                        markerCounter: markerCounter
                     ))
                 }
             }
@@ -712,6 +814,18 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
         if let value { sink(value) }
     }
 
+    private func invalidateInputMarker() {
+        markerInvalidated = true
+        bump(.inputProbeExpired, by: UInt64(inputProbes.count))
+        inputProbes.removeAll()
+    }
+
+    private var inputMarkerState: String {
+        if markerConfiguration == .disabled { return "disabled" }
+        if markerInvalidated { return "invalidated" }
+        return lastMarkerCounter == nil ? "awaiting_baseline" : "ready"
+    }
+
     private func accepts(_ trace: PrimaryMediaTrace) -> Bool { !terminal && trace.collector === self }
     private func slot(_ trace: PrimaryMediaTrace) -> Int { Int(trace.sequence % UInt64(Self.capacity)) }
     private func entry(_ trace: PrimaryMediaTrace) -> Entry? {
@@ -754,7 +868,7 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
                 }
             }
         }
-        return PrimaryMediaSummary(generation: generation, terminal: terminal,
+        return PrimaryMediaSummary(generation: generation, terminal: terminal, inputMarkerState: inputMarkerState,
             elapsedSeconds: time.isFinite ? max(0, time - started) : 0, retainedSlots: retained,
             counters: counters, histograms: histograms, pending: pending, pendingHighWater: high,
             oldestTrackedAgeMS: oldest, parserHighWaterBytes: parserHigh, streamBytes: streamBytes,
