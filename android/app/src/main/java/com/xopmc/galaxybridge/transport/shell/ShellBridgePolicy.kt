@@ -103,7 +103,7 @@ internal class ShellStreamLeaseRegistry {
     fun admit(peer: String, session: String, lease: String): Boolean {
         if (!ShellBridgePolicy.uuid(lease) || lease in retiredComposite || lease in retiredProducers || lease in compositeStops) return false
         leases[lease]?.let { return it.peer == peer && it.session == session && !it.composite && !it.draining }
-        if (leases.size >= 8 || compositeIdentityCount() >= 4096) return false
+        if (leases.values.count { !it.composite } >= 8 || compositeIdentityCount() >= 4096) return false
         leases[lease] = Lease(peer, session)
         return true
     }
@@ -113,7 +113,7 @@ internal class ShellStreamLeaseRegistry {
         val old = leases[request.leaseId]
         if (request.displayState.action == DisplayStateCommand.Action.SNAPSHOT) {
             if (old != null) return old.peer == peer && old.session == session && old.composite && !old.draining && !old.policyAttempted
-            if (leases.size >= 8 || compositeIdentityCount() >= 4096) return false
+            if (leases.values.any { it.composite } || compositeIdentityCount() >= 4096) return false
             leases[request.leaseId] = Lease(peer, session, composite = true)
             return true
         }

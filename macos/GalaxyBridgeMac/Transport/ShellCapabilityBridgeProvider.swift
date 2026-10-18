@@ -95,6 +95,7 @@ final class ShellCapabilityBridgeProvider: ObservableObject, ShellCapturePrepari
     }
     private var runtimeUpgradeInProgress = false
     private var pendingLeaseAdmissions = 0
+    private var pendingDisplayStateAdmissions = 0
     var runtimeUpgradeRequested: (() -> Void)?
     /// A new modern broker may bootstrap exact absence proofs for an unavailable
     /// predecessor. Old handles remain retained; only atomic Helper admission
@@ -120,14 +121,18 @@ final class ShellCapabilityBridgeProvider: ObservableObject, ShellCapturePrepari
               pending.values.allSatisfy({ $0.operation == .status || $0.operation == .listApplications || $0.operation == .verifyRetirement }) else { return }
         runtimeUpgradeRequested?()
     }
-    private func reserveLeaseAdmission() throws {
+    private func reserveLeaseAdmission(displayState: Bool = false) throws {
         if control()?.supportsShellRuntimeIdentity == true && needsRuntimeUpgrade {
             notifyRuntimeUpgradeIfIdle()
             throw ShellCapabilityBridgeFailure.runtimeInUse
         }
         guard !runtimeUpgradeInProgress else { throw ShellCapabilityBridgeFailure.runtimeInUse }
-        guard leases.count + pendingLeaseAdmissions < 8 else { throw ShellCapabilityBridgeFailure.capacity }
+        let displayOwners = leases.values.filter { $0.displayState != nil }.count + pendingDisplayStateAdmissions
+        let producers = leases.values.filter { $0.displayState == nil }.count
+            + pendingLeaseAdmissions - pendingDisplayStateAdmissions
+        guard displayState ? displayOwners < 1 : producers < 8 else { throw ShellCapabilityBridgeFailure.capacity }
         pendingLeaseAdmissions += 1
+        if displayState { pendingDisplayStateAdmissions += 1 }
     }
     private func refreshAdmittedRuntime(context expected: ShellCapabilityBridgeContext) async throws -> String {
         if !available || bootGeneration == nil {
@@ -443,13 +448,18 @@ final class ShellCapabilityBridgeProvider: ObservableObject, ShellCapturePrepari
         } catch { relays.forEach { $0.cancel() }; log?.cancel(); outputObserver?.cancel(); throw error }
     }
 
-    func beginPanelOwnership() async throws -> ShellCapabilityBridgeLease {
+    func beginPanelOwnership(displayState: Bool = false) async throws -> ShellCapabilityBridgeLease {
         let context = try context()
-        try reserveLeaseAdmission()
-        defer { pendingLeaseAdmissions -= 1; notifyRuntimeUpgradeIfIdle() }
+        try reserveLeaseAdmission(displayState: displayState)
+        defer {
+            pendingLeaseAdmissions -= 1
+            if displayState { pendingDisplayStateAdmissions -= 1 }
+            notifyRuntimeUpgradeIfIdle()
+        }
         let generation = try await refreshAdmittedRuntime(context: context)
         let owner = ShellCapabilityBridgeLease(id: UUID().uuidString.lowercased(), generation: generation, context: context,
             relays: [], port: nil, clipboardPort: nil, log: nil, observer: nil)
+        if displayState { owner.displayState = DisplayStateLeaseState() }
         // Reserve before sending a mutating request. Unknown outcomes retain an
         // exact retirement handle instead of losing an unacknowledged child.
         leases[owner.id] = owner
@@ -514,8 +524,7 @@ final class ShellCapabilityBridgeProvider: ObservableObject, ShellCapturePrepari
     /// Reserve a locally retained handle before the first remote SNAPSHOT.
     func beginDisplayStateOwnership() async throws -> ShellCapabilityBridgeLease {
         guard control()?.supportsCompositeDisplayState == true else { throw ShellCapabilityBridgeFailure.unavailable }
-        let lease = try await beginPanelOwnership()
-        lease.displayState = DisplayStateLeaseState()
+        let lease = try await beginPanelOwnership(displayState: true)
         do { try validateDisplayStateAdmission(lease) }
         catch {
             // No remote command has been sent; this local reservation owns no

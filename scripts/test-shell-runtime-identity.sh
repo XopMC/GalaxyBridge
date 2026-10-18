@@ -26,7 +26,7 @@ for marker, signature in [('VERIFIED_RUNTIME', 'var currentRuntimeVerified:'),
                           ('BEGIN_UPGRADE', 'func beginRuntimeUpgrade()'),
                           ('END_UPGRADE', 'func endRuntimeUpgrade()'),
                           ('NOTIFY_IDLE', 'private func notifyRuntimeUpgradeIfIdle()'),
-                          ('RESERVE_ADMISSION', 'private func reserveLeaseAdmission()'),
+                          ('RESERVE_ADMISSION', 'private func reserveLeaseAdmission('),
                           ('RESULT_ADMISSION', 'func receive(_ result:'),
                           ('DISCONNECT', 'func disconnected(authenticatedSessionID:')]:
     fixture = fixture.replace('// ACTUAL_' + marker, member(signature))
@@ -35,7 +35,7 @@ def prefix(signature, before):
     opening = source.index('{', start)
     return source[opening + 1:source.index(before, opening)]
 fixture = fixture.replace('// ACTUAL_COLD_CAPTURE', prefix('func prepare(configuration:', '        var committed = false'))
-fixture = fixture.replace('// ACTUAL_COLD_PANEL', prefix('func beginPanelOwnership()', '        let owner = ShellCapabilityBridgeLease'))
+fixture = fixture.replace('// ACTUAL_COLD_PANEL', prefix('func beginPanelOwnership(', '        let owner = ShellCapabilityBridgeLease'))
 fixture = fixture.replace('// ACTUAL_ADMITTED_REFRESH', member('private func refreshAdmittedRuntime(') if 'private func refreshAdmittedRuntime(' in source else '')
 (out / 'ActualIdentity.swift').write_text(fixture)
 PY

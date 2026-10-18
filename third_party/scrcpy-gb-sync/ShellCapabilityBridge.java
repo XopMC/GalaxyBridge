@@ -32,6 +32,22 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * when this broker is SIGKILLed. Each child owns a separate copy of the JAR.
  */
 public final class ShellCapabilityBridge implements AutoCloseable {
+    static boolean childCapacity(Collection<Integer> operations, int operation) {
+        if (operation != 1 && operation != 2 && operation != 3 && operation != 8) return false;
+        int producers = 0, displays = 0;
+        for (int current : operations) {
+            if (current == 8) displays++;
+            else if (current >= 1 && current <= 3) producers++;
+            else return false;
+        }
+        if (producers > 8 || displays > 1) return false;
+        return operation == 8 ? displays == 0 : producers < 8;
+    }
+    private boolean hasChildCapacity(int operation) {
+        List<Integer> operations = new ArrayList<>();
+        for (Lease lease : leases.values()) operations.add(lease.policy.operation);
+        return childCapacity(operations, operation);
+    }
     interface VerifiedStartup { void run() throws Exception; }
     static void withVerifiedSource(File source, VerifiedStartup startup) throws Exception {
         try { startup.run(); } finally { source.delete(); }
@@ -681,7 +697,7 @@ public final class ShellCapabilityBridge implements AutoCloseable {
                 Policy policy = Policy.parse(operation, leaseID, options);
                 Lease lease = leases.get(leaseID);
                 if (lease == null) {
-                    if (leases.size() >= 8) throw new IOException("capacity");
+                    if (!hasChildCapacity(operation)) throw new IOException("capacity");
                     if (compositeAdmission.isRetired(leaseID)) throw new IOException("display_owner_retired");
                     if (operation == 3) for (Lease existing : leases.values())
                         if (existing.policy.operation == 3 || existing.policy.operation == 8) throw new IOException("panel_owner_busy");
@@ -735,7 +751,7 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             boolean reserved = compositeAdmission.reserveSnapshot(leaseID);
             if (reserved) {
                 try {
-                    if (leases.size() >= 8) throw new IOException("capacity");
+                    if (!hasChildCapacity(8)) throw new IOException("capacity");
                     for (Lease existing : leases.values()) if (existing.policy.operation == 3 || existing.policy.operation == 8)
                         throw new IOException("display_owner_busy");
                     lease = new Lease(Policy.parse(8, leaseID, Collections.emptyMap())); leases.put(leaseID, lease);

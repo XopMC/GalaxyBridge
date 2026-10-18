@@ -14,6 +14,20 @@ import org.junit.Test
 class ShellBridgePolicyTest {
     private val lease = "69830b65-6352-4b3a-8a21-70bcda45787e"
     private val request = "d5e1590c-47fb-4d73-9ac2-45988ba0a876"
+    @Test fun sharedDisplayOwnerDoesNotConsumeAnyOfTheEightProducerSlots() {
+        for (ownerFirst in listOf(false, true)) {
+            val registry = ShellStreamLeaseRegistry()
+            val control = ShellBridgeRequest.newBuilder().setRequestId(request).setLeaseId(lease).setBootGeneration(request)
+                .setOperation(ShellBridgeRequest.Operation.START_DISPLAY_STATE).setDisplayState(DisplayStateCommand.getDefaultInstance()).build()
+            if (ownerFirst) assertTrue(registry.admitComposite("peer", "session", control))
+            repeat(8) { assertTrue(registry.admit("peer", "session", java.util.UUID.randomUUID().toString())) }
+            if (!ownerFirst) assertTrue(registry.admitComposite("peer", "session", control))
+            assertFalse(registry.admit("peer", "session", java.util.UUID.randomUUID().toString()))
+            assertFalse(registry.admitComposite("peer", "session", control.toBuilder()
+                .setLeaseId(java.util.UUID.randomUUID().toString()).build()))
+            assertTrue(registry.admitComposite("peer", "session", control))
+        }
+    }
     @Test fun legacyRetirementReceiptsReserveBoundedIdentityCapacityAndSurviveFullAdmission() {
         val registry = ShellStreamLeaseRegistry()
         val ids = (0 until 4096).map { java.util.UUID.randomUUID().toString() }

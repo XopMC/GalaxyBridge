@@ -42,9 +42,9 @@ struct GBShellBridgeResult {
  var result = GBShellBridgeResult(); var operations: [GBShellBridgeRequest.Operation] = []
  var queries: [GBCaptureRetirementQuery] = []
  func control() -> Control? { currentControl }
- func beginPanelOwnership() async throws -> ShellCapabilityBridgeLease {
+ func beginPanelOwnership(displayState: Bool = false) async throws -> ShellCapabilityBridgeLease {
   let lease = ShellCapabilityBridgeLease(UUID().uuidString.lowercased(), context: .init(sessionID: currentSession, control: currentControl))
-  lease.displayState = nil; leases[lease.id] = lease; return lease
+  lease.displayState = displayState ? .init() : nil; leases[lease.id] = lease; return lease
  }
  func perform(operation: GBShellBridgeRequest.Operation, lease: String, generation: String, context: Context, displayState: GBDisplayStateCommand? = nil,
               beforeDispatch: (() throws -> Void)? = nil, didDispatch: (() -> Void)? = nil) async throws -> GBShellBridgeResult {

@@ -30,6 +30,7 @@ private struct ShellCapabilityBridgeContext {
     let id = UUID().uuidString
     let context = Context()
     var clipboardPort: UInt16?
+    var displayState: Bool?
     func cancelLocal() {}
 }
 @MainActor private final class Harness {
@@ -56,7 +57,7 @@ private struct ShellCapabilityBridgeContext {
         // ACTUAL_COLD_CAPTURE
         childWrites += 1
     }
-    func coldPanelPath() async throws {
+    func coldPanelPath(displayState: Bool = false) async throws {
         // ACTUAL_COLD_PANEL
         panelReservations += 1
     }
@@ -68,6 +69,7 @@ private struct ShellCapabilityBridgeContext {
     var runtimeSHA256Hex: String?
     var runtimeUpgradeInProgress = false
     var pendingLeaseAdmissions = 0
+    var pendingDisplayStateAdmissions = 0
     var runtimeUpgradeRequested: (() -> Void)?
     var pending: [String: Pending] = [:]
     var leases: [String: Lease] = [:]
@@ -81,6 +83,7 @@ private struct ShellCapabilityBridgeContext {
     // ACTUAL_NOTIFY_IDLE
     // ACTUAL_RESERVE_ADMISSION
     func admit() throws { try reserveLeaseAdmission() }
+    func admitDisplay() throws { try reserveLeaseAdmission(displayState: true) }
     // ACTUAL_RESULT_ADMISSION
     // ACTUAL_DISCONNECT
     func status(_ bytes: Data) {
@@ -91,6 +94,23 @@ private struct ShellCapabilityBridgeContext {
 }
 @main enum ShellRuntimeIdentitySpec {
     @MainActor static func main() async {
+        do {
+            let h = Harness(); h.status(Data(repeating: 0x11, count: 32))
+            let display = Lease(); display.displayState = true; h.leases[display.id] = display
+            for _ in 0..<8 { try! h.admit() }
+            do { try h.admit(); preconditionFailure("Ninth producer was admitted") }
+            catch ShellCapabilityBridgeFailure.capacity {}
+            catch { preconditionFailure("Wrong producer capacity rejection") }
+            precondition(!h.canUpgradeRuntimeSafely)
+            h.pendingLeaseAdmissions = 0; h.leases.removeAll()
+            for _ in 0..<8 { let producer = Lease(); h.leases[producer.id] = producer }
+            try! h.admitDisplay()
+            precondition(h.pendingLeaseAdmissions == 1 && h.pendingDisplayStateAdmissions == 1)
+            do { try h.admitDisplay(); preconditionFailure("Second display owner was admitted") }
+            catch ShellCapabilityBridgeFailure.capacity {}
+            catch { preconditionFailure("Wrong display capacity rejection") }
+            print("PASS separate shared display admission preserves all eight producer slots in both orders")
+        }
         let current = Data(repeating: 0x11, count: 32)
         let older = Data(repeating: 0x22, count: 32)
         do {

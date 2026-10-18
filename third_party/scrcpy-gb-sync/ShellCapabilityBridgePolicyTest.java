@@ -2,9 +2,26 @@ package com.genymobile.scrcpy;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
 
 /** Host execution of the actual server's typed policy; no Android APIs invoked. */
 public final class ShellCapabilityBridgePolicyTest {
+    private static void testChildCapacity() {
+        List<Integer> capacity = new ArrayList<>();
+        capacity.add(8);
+        for (int i = 0; i < 8; i++) {
+            assert ShellCapabilityBridge.childCapacity(capacity, 1) : "display owner consumed a producer slot";
+            capacity.add(1);
+        }
+        assert !ShellCapabilityBridge.childCapacity(capacity, 1);
+        assert !ShellCapabilityBridge.childCapacity(capacity, 8);
+        capacity.remove(Integer.valueOf(8));
+        assert ShellCapabilityBridge.childCapacity(capacity, 8) : "full producer capacity rejected a zero-media display owner";
+        capacity.add(1);
+        assert !ShellCapabilityBridge.childCapacity(capacity, 8) : "invalid over-capacity inventory was accepted";
+        System.out.println("PASS native separate capacity: eight producers plus one zero-media display owner");
+    }
     private static void testCompositeRetirementStore() {
         String lease = "69830b65-6352-4b3a-8a21-70bcda45787e";
         ShellCapabilityBridge.CompositeRetirementStore store = new ShellCapabilityBridge.CompositeRetirementStore();
@@ -188,6 +205,7 @@ public final class ShellCapabilityBridgePolicyTest {
         testCompositeProofInitializationQuarantine();
         testCompositeProofReaderQuarantine();
         testCompositeRetirementStore();
+        testChildCapacity();
         testCompositeReceipts();
         testCompositeCommands();
         testCompositeAdmission();
