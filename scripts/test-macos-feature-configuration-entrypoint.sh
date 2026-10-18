@@ -9,7 +9,7 @@ import os, sys
 root, out = map(Path, sys.argv[1:])
 source = Path(os.environ.get('GB_FEATURE_APP_MODEL_SOURCE', root / 'macos/GalaxyBridgeMac/AppModel.swift')).read_text()
 methods=[]
-for name in ['featureEnabled','setFeatureSelection','reconcileFeatureConfiguration','resetFeatureConfigurationForSession','startConfiguredCompanionMedia','handleFeatureConfigurationResult','handleFeatureMediaState','requestRemoteClipboard','sendEnhancedClipboardCommandViaCompanion']:
+for name in ['featureEnabled','setFeatureSelection','reconcileFeatureConfiguration','resetFeatureConfigurationForSession','startConfiguredCompanionMedia','handleFeatureConfigurationResult','handleFeatureMediaState','cancelFeatureMediaRecovery','recoverFeatureMediaChannel','requestRemoteClipboard','sendEnhancedClipboardCommandViaCompanion']:
     start=source.find('    func '+name+'(')
     if start < 0: start=source.find('    private func '+name+'(')
     if start < 0: continue

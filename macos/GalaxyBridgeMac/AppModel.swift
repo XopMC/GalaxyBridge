@@ -241,6 +241,9 @@ final class AppModel: ObservableObject {
     private var featureStartedMediaFeatures: [String: Set<ClientSetupFeature>] = [:]
     private var featureClosedMediaChannels: [String: Set<ClientSetupFeature>] = [:]
     private var featureMediaChannelTokens: [String: [ClientSetupFeature: UUID]] = [:]
+    private var featureMediaRetryTasks: [String: [ClientSetupFeature: Task<Void, Never>]] = [:]
+    private var featureMediaRetryTokens: [String: [ClientSetupFeature: UUID]] = [:]
+    private var featureMediaRetryAttempts: [String: [ClientSetupFeature: Int]] = [:]
     private var featureIncomingTransferIDs: [String: Set<String>] = [:]
     private var primaryScreenDemand = PrimaryScreenDemandRegistry()
     private enum AudioVerificationBinding: Equatable, Sendable {
@@ -1169,6 +1172,7 @@ final class AppModel: ObservableObject {
         for id in Array(audioVerificationRequests.keys) { cancelAudioVerification(deviceID: id) }
         clientSetup.invalidateAll()
         for task in featureConfigurationTimeouts.values { task.cancel() }; featureConfigurationTimeouts.removeAll()
+        for deviceID in Array(featureMediaRetryTasks.keys) { cancelFeatureMediaRecovery(deviceID: deviceID) }
         for task in fileChunkTasks.values { task.cancel() }
         primaryScreenDemand.removeAllDemand()
         let preparingFiles = Array(filePreparationTasks.values)
@@ -1486,6 +1490,7 @@ final class AppModel: ObservableObject {
 #endif
         if let id = companionID(for: deviceID), let connections = companionClients[id] {
             for feature in disabled.intersection([.screen, .audio, .camera, .files]) {
+                cancelFeatureMediaRecovery(deviceID: deviceID, feature: feature)
                 featureClosedMediaChannels[deviceID, default: []].insert(feature)
                 featureStartedMediaFeatures[deviceID]?.remove(feature)
                 featureMediaChannelTokens[deviceID]?.removeValue(forKey: feature)
@@ -1536,6 +1541,7 @@ final class AppModel: ObservableObject {
     }
 
     private func resetFeatureConfigurationForSession(deviceID: String) {
+        cancelFeatureMediaRecovery(deviceID: deviceID)
         featureConfigurationTimeouts.removeValue(forKey: deviceID)?.cancel()
         featureConfigurationRequestIDs.removeValue(forKey: deviceID)
         featureStartedMediaSessions.removeValue(forKey: deviceID)
@@ -1545,8 +1551,10 @@ final class AppModel: ObservableObject {
         clientSetup.disconnectConfiguration(deviceID: deviceID)
     }
 
-    private func startConfiguredCompanionMedia(deviceID: String) {
-        guard let id = companionID(for: deviceID), var connections = companionClients[id],
+    private func startConfiguredCompanionMedia(deviceID: String, only: Set<ClientSetupFeature>? = nil) {
+        guard terminationAdmission.admitsWork,
+              [.acknowledged, .localOnly].contains(clientSetup.synchronization(deviceID: deviceID)),
+              let id = companionID(for: deviceID), var connections = companionClients[id],
               companionStates[id] == .connected else { return }
         let sessionID = connections.control.authenticatedSessionID
         if featureStartedMediaSessions[deviceID] != sessionID {
@@ -1554,7 +1562,8 @@ final class AppModel: ObservableObject {
             featureStartedMediaFeatures[deviceID] = []
         }
         for feature: ClientSetupFeature in [.screen, .audio, .camera, .files]
-        where featureEnabled(feature, deviceID: deviceID) && featureStartedMediaFeatures[deviceID]?.contains(feature) != true {
+        where (only?.contains(feature) ?? true) && featureMediaRetryTasks[deviceID]?[feature] == nil
+            && featureEnabled(feature, deviceID: deviceID) && featureStartedMediaFeatures[deviceID]?.contains(feature) != true {
             if featureClosedMediaChannels[deviceID]?.contains(feature) == true {
                 guard let factory = connections.mediaFactories[feature] else { continue }
                 let replacement = factory()
@@ -1579,7 +1588,9 @@ final class AppModel: ObservableObject {
             }
         }
 #if !GALAXYBRIDGE_APP_STORE
-        if let device = row(id: deviceID) { ensureEnhancedSessionForPrimaryDemand(for: device) }
+        if only?.contains(.screen) ?? true, let device = row(id: deviceID) {
+            ensureEnhancedSessionForPrimaryDemand(for: device)
+        }
 #endif
     }
 
@@ -4688,8 +4699,8 @@ final class AppModel: ObservableObject {
             )
             }
             let camera = makeCamera()
-            let fileIngress = CompanionFileIngressGate()
             let makeFiles: @MainActor () -> CompanionTLSClient = { [weak self] in
+                let fileIngress = CompanionFileIngressGate()
                 let channelToken = UUID()
                 self?.featureMediaChannelTokens[deviceID, default: [:]][.files] = channelToken
                 return CompanionTLSClient(
@@ -4761,7 +4772,74 @@ final class AppModel: ObservableObject {
         channel: GBChannelKind, state: CompanionConnectionState) {
         guard featureMediaChannelTokens[deviceID]?[feature] == channelToken,
               companionRecoverySupervisor.currentGeneration(companionID: companionID) == generation else { return }
+        if case .transportInterrupted = state {
+            recoverFeatureMediaChannel(deviceID: deviceID, feature: feature,
+                companionID: companionID, generation: generation)
+            return
+        }
         handleCompanionState(companionID: companionID, generation: generation, channel: channel, state: state)
+    }
+
+    private func cancelFeatureMediaRecovery(deviceID: String, feature: ClientSetupFeature? = nil) {
+        if let feature {
+            featureMediaRetryTokens[deviceID]?.removeValue(forKey: feature)
+            featureMediaRetryTasks[deviceID]?.removeValue(forKey: feature)?.cancel()
+            featureMediaRetryAttempts[deviceID]?.removeValue(forKey: feature)
+        } else {
+            featureMediaRetryTokens.removeValue(forKey: deviceID)
+            let tasks = featureMediaRetryTasks.removeValue(forKey: deviceID) ?? [:]
+            for task in tasks.values { task.cancel() }
+            featureMediaRetryAttempts.removeValue(forKey: deviceID)
+        }
+    }
+
+    /// Recover a network interruption after authenticated Hello without retiring
+    /// the control session, its shell leases, camera request or sibling channels.
+    /// Authentication and protocol failures still follow full-session recovery.
+    private func recoverFeatureMediaChannel(deviceID: String, feature: ClientSetupFeature,
+        companionID: String, generation: CompanionLogicalSessionRecoverySupervisor.Generation) {
+        guard terminationAdmission.admitsWork, companionStates[companionID] == .connected,
+              featureEnabled(feature, deviceID: deviceID),
+              let connections = companionClients[companionID], connections.mediaFactories[feature] != nil else { return }
+        // Fence callbacks before cancellation, including a queued EOF/cancel event.
+        featureMediaChannelTokens[deviceID]?.removeValue(forKey: feature)
+        featureStartedMediaFeatures[deviceID]?.remove(feature)
+        featureClosedMediaChannels[deviceID, default: []].insert(feature)
+        switch feature {
+        case .screen: connections.video.cancel()
+        case .audio: connections.audio.cancel()
+        case .camera: connections.camera.cancel()
+        case .files:
+            connections.files.cancel()
+            for transfer in pendingTransfers.values where transfer.deviceID == deviceID {
+                fileChunkTokens.removeValue(forKey: transfer.id)
+                fileChunkTasks.removeValue(forKey: transfer.id)?.cancel()
+            }
+        default: return
+        }
+        guard featureMediaRetryTasks[deviceID]?[feature] == nil else { return }
+        let control = connections.control
+        let ticket = UUID()
+        let attempt = min(featureMediaRetryAttempts[deviceID]?[feature] ?? 0, 3)
+        featureMediaRetryAttempts[deviceID, default: [:]][feature] = attempt + 1
+        featureMediaRetryTokens[deviceID, default: [:]][feature] = ticket
+        featureMediaRetryTasks[deviceID, default: [:]][feature] = Task { [weak self] in
+            defer {
+                if self?.featureMediaRetryTokens[deviceID]?[feature] == ticket {
+                    self?.featureMediaRetryTasks[deviceID]?.removeValue(forKey: feature)
+                    self?.featureMediaRetryTokens[deviceID]?.removeValue(forKey: feature)
+                }
+            }
+            do { try await Task.sleep(for: .seconds(1 << attempt)) } catch { return }
+            guard !Task.isCancelled, let self, self.terminationAdmission.admitsWork,
+                  self.featureMediaRetryTokens[deviceID]?[feature] == ticket,
+                  self.companionRecoverySupervisor.currentGeneration(companionID: companionID) == generation,
+                  self.companionClients[companionID]?.control === control,
+                  self.companionStates[companionID] == .connected else { return }
+            self.featureMediaRetryTasks[deviceID]?.removeValue(forKey: feature)
+            self.featureMediaRetryTokens[deviceID]?.removeValue(forKey: feature)
+            self.startConfiguredCompanionMedia(deviceID: deviceID, only: [feature])
+        }
     }
 
     private func handleCompanionState(
@@ -4786,7 +4864,7 @@ final class AppModel: ObservableObject {
         case .connecting: callbackState = .connecting
         case .connected: callbackState = .connected
         case .disconnected: callbackState = .disconnected
-        case .failed, .authenticationRejected: callbackState = .failed
+        case .failed, .transportInterrupted, .authenticationRejected: callbackState = .failed
         }
         var recoveryAccepted: Bool?
         let wasCurrentGeneration = companionRecoverySupervisor.ifCurrentSession(
@@ -4795,7 +4873,7 @@ final class AppModel: ObservableObject {
         ) {
             if channel == .control {
                 switch state {
-                case .failed, .authenticationRejected, .disconnected:
+                case .failed, .transportInterrupted, .authenticationRejected, .disconnected:
                     retireNotificationActions(companionID: companionID, generation: generation)
                 default: break
                 }
@@ -4824,8 +4902,9 @@ final class AppModel: ObservableObject {
                 companionRecoverySupervisor.cancelDelayedRetry(companionID: companionID)
                 reconcileADBBindings(for: companionID)
                 mergeDevices()
-            case let .failed(message):
+            case let .failed(message), let .transportInterrupted(message):
                 if let peerID {
+                    cancelFeatureMediaRecovery(deviceID: "device:" + peerID)
                     notificationSnapshotReconciliation.abort(deviceID: "device:" + peerID)
                     cancelAudioVerification(deviceID: "device:" + peerID)
                     clientSetup.invalidate(deviceID: "device:" + peerID)
@@ -4847,6 +4926,7 @@ final class AppModel: ObservableObject {
                 )
             case let .authenticationRejected(message):
                 if let peerID {
+                    cancelFeatureMediaRecovery(deviceID: "device:" + peerID)
                     notificationSnapshotReconciliation.abort(deviceID: "device:" + peerID)
                     cancelAudioVerification(deviceID: "device:" + peerID)
                     clientSetup.invalidate(deviceID: "device:" + peerID)
@@ -4862,6 +4942,7 @@ final class AppModel: ObservableObject {
                 recoveryAccepted = false
             case .disconnected:
                 if let peerID {
+                    cancelFeatureMediaRecovery(deviceID: "device:" + peerID)
                     notificationSnapshotReconciliation.abort(deviceID: "device:" + peerID)
                     cancelAudioVerification(deviceID: "device:" + peerID)
                     clientSetup.invalidate(deviceID: "device:" + peerID)

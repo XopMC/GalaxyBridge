@@ -20,7 +20,7 @@ struct CompanionConnections {
     let mediaFactories: [ClientSetupFeature: @MainActor () -> CompanionTLSClient] = [.screen: { CompanionTLSClient() }, .audio: { CompanionTLSClient() }, .camera: { CompanionTLSClient() }, .files: { CompanionTLSClient() }]
 }
 struct DeviceRow { var id: String }
-enum CompanionConnectionState { case connected, disconnected }
+enum CompanionConnectionState: Equatable { case connected, disconnected, connecting, failed(String), authenticationRejected(String), transportInterrupted(String) }
 enum GBChannelKind { case video, audio, camera, files }
 @MainActor final class Supervisor { typealias Generation = UInt64; func currentGeneration(companionID: String) -> UInt64? { 1 } }
 enum CompanionLogicalSessionRecoverySupervisor { typealias Generation = UInt64 }
@@ -31,7 +31,7 @@ struct Recording { let id: UUID; let deviceID: String }
 struct IncomingFileOwner { let deviceID: String; let fingerprint: Data }
 struct Receipt { }
 @MainActor struct Store { func requestCancellation(owner: IncomingFileOwner, id: String) {} ; func cancel(owner: IncomingFileOwner, id: String) async -> Receipt { .init() } }
-struct Transfer { let deviceID: String }
+struct Transfer { let deviceID: String; var id = "transfer" }
 @MainActor final class Windows { var closed: [String] = []; func closeForFeaturePolicy(deviceID: String) { closed.append(deviceID) } }
 @MainActor final class Demand { var viewers: Set<String> = []; func hasViewer(_ id: String) -> Bool { viewers.contains(id) } }
 @MainActor final class Surface { func clearFrame() {} }
@@ -67,6 +67,11 @@ enum EnhancedClipboardRequest { case readCurrent, atomicCopy, atomicCut }
     var featureStartedMediaFeatures: [String: Set<ClientSetupFeature>] = [:]
     var featureClosedMediaChannels: [String: Set<ClientSetupFeature>] = [:]
     var featureMediaChannelTokens: [String: [ClientSetupFeature: UUID]] = [:]
+    var featureMediaRetryTasks: [String: [ClientSetupFeature: Task<Void, Never>]] = [:]
+    var featureMediaRetryTokens: [String: [ClientSetupFeature: UUID]] = [:]
+    var featureMediaRetryAttempts: [String: [ClientSetupFeature: Int]] = [:]
+    var fileChunkTasks: [String: Task<Void, Never>] = [:]
+    var fileChunkTokens: [String: UUID] = [:]
     var featureIncomingTransferIDs: [String: Set<String>] = [:]
     var companionClients: [String: CompanionConnections] = ["route": .init()]
     var companionStates: [String: CompanionConnectionState] = ["route": .connected]
@@ -149,6 +154,99 @@ enum EnhancedClipboardRequest { case readCurrent, atomicCopy, atomicCut }
         precondition(model.mediaStateCallbacks == 0, "An obsolete channel/generation callback retired the replacement")
         model.handleFeatureMediaState(deviceID: phone, feature: .audio, channelToken: currentChannel, companionID: "route", generation: 1, channel: .audio, state: .connected)
         precondition(model.mediaStateCallbacks == 1, "The exact current channel callback was lost")
+        // A socket timeout after authenticated Hello must not enter parent-session recovery.
+        let isolated = AppModel(root.appendingPathComponent("isolated.json"))
+        try isolated.clientSetup.saveSelection(deviceID: phone, features: [.screen, .audio, .files, .camera])
+        isolated.clientSetup.markLegacy(deviceID: phone)
+        isolated.startConfiguredCompanionMedia(deviceID: phone)
+        let before = isolated.companionClients["route"]!
+        let failedToken = UUID()
+        isolated.featureMediaChannelTokens[phone, default: [:]][.audio] = failedToken
+        isolated.handleFeatureMediaState(deviceID: phone, feature: .audio, channelToken: failedToken,
+            companionID: "route", generation: 1, channel: .audio, state: .transportInterrupted("socket timeout"))
+        precondition(isolated.mediaStateCallbacks == 0 && isolated.recoveryCount == 0,
+            "An authenticated auxiliary network timeout entered whole-session recovery")
+        precondition(isolated.companionStates["route"] == .connected && before.audio.cancellations == 1,
+            "Auxiliary interruption did not retire only its own socket")
+        precondition(before.control.cancellations == 0 && before.events.cancellations == 0
+            && before.video.cancellations == 0 && before.camera.cancellations == 0 && before.files.cancellations == 0,
+            "Auxiliary interruption cancelled healthy siblings")
+        isolated.handleFeatureMediaState(deviceID: phone, feature: .audio, channelToken: failedToken,
+            companionID: "route", generation: 1, channel: .audio, state: .disconnected)
+        precondition(isolated.mediaStateCallbacks == 0, "Old socket cancellation escaped its channel fence")
+        for _ in 0..<100 {
+            if isolated.companionClients["route"]!.audio !== before.audio { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        precondition(isolated.companionClients["route"]!.audio !== before.audio
+            && isolated.companionClients["route"]!.audio.starts == 1,
+            "Auxiliary channel was not replaced after bounded backoff")
+        precondition(isolated.companionClients["route"]!.control === before.control
+            && isolated.companionClients["route"]!.video === before.video
+            && isolated.companionClients["route"]!.camera === before.camera
+            && isolated.companionClients["route"]!.files === before.files,
+            "Channel retry replaced healthy siblings")
+        // Files retry retires transient readers but keeps resumable transfer state.
+        let filesToken = UUID(), chunkToken = UUID()
+        isolated.featureMediaChannelTokens[phone, default: [:]][.files] = filesToken
+        isolated.pendingTransfers["transfer"] = Transfer(deviceID: phone)
+        let reading: Task<Void, Never> = Task { try? await Task.sleep(for: .seconds(30)) }
+        isolated.fileChunkTasks["transfer"] = reading; isolated.fileChunkTokens["transfer"] = chunkToken
+        isolated.handleFeatureMediaState(deviceID: phone, feature: .files, channelToken: filesToken,
+            companionID: "route", generation: 1, channel: .files, state: .transportInterrupted("EOF"))
+        precondition(reading.isCancelled && isolated.fileChunkTasks["transfer"] == nil
+            && isolated.fileChunkTokens["transfer"] == nil && isolated.pendingTransfers["transfer"] != nil,
+            "Files retry retained a stale reader or destroyed durable resume state")
+        // A policy update pending its phone ACK must fence every delayed reopen.
+        try isolated.clientSetup.saveSelection(deviceID: phone, features: [.screen, .audio, .camera, .files])
+        for _ in 0..<100 {
+            if isolated.featureMediaRetryTasks[phone]?[.files] == nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        precondition(isolated.companionClients["route"]!.files === before.files,
+            "Files retry bypassed a pending feature policy acknowledgement")
+        isolated.reconcileFeatureConfiguration(deviceID: phone)
+        let filesPolicy = isolated.companionClients["route"]!.control.sent.last!
+        isolated.handleFeatureConfigurationResult(companionID: "route", deviceID: phone, envelope: .init(),
+            result: .init(requestID: filesPolicy.requestID, revision: filesPolicy.revision, enabledFeatureIds: filesPolicy.enabledFeatureIds))
+        precondition(isolated.companionClients["route"]!.files !== before.files
+            && isolated.companionClients["route"]!.files.starts == 1,
+            "Exact policy ACK did not restart the deferred files channel")
+        // Independent backoffs cannot be bypassed by another feature's ACK/retry.
+        let audioBefore = isolated.companionClients["route"]!.audio, cameraBefore = isolated.companionClients["route"]!.camera
+        let audioToken = UUID(), cameraToken = UUID()
+        isolated.featureMediaChannelTokens[phone, default: [:]][.audio] = audioToken
+        isolated.featureMediaChannelTokens[phone, default: [:]][.camera] = cameraToken
+        isolated.featureMediaRetryAttempts[phone, default: [:]][.audio] = 3
+        isolated.handleFeatureMediaState(deviceID: phone, feature: .audio, channelToken: audioToken,
+            companionID: "route", generation: 1, channel: .audio, state: .transportInterrupted("slow retry"))
+        isolated.handleFeatureMediaState(deviceID: phone, feature: .camera, channelToken: cameraToken,
+            companionID: "route", generation: 1, channel: .camera, state: .transportInterrupted("fast retry"))
+        for _ in 0..<100 {
+            if isolated.companionClients["route"]!.camera !== cameraBefore { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        precondition(isolated.companionClients["route"]!.camera !== cameraBefore
+            && isolated.companionClients["route"]!.audio === audioBefore,
+            "A fast sibling retry bypassed the audio backoff")
+        isolated.setFeatureSelection(deviceID: phone, features: [.screen, .files, .camera])
+        precondition(isolated.featureMediaRetryTasks[phone]?[.audio] == nil
+            && isolated.featureMediaRetryTokens[phone]?[.audio] == nil,
+            "Disabling a feature retained its delayed retry")
+        isolated.resetFeatureConfigurationForSession(deviceID: phone)
+        precondition(isolated.featureMediaRetryTasks[phone] == nil && isolated.featureMediaRetryAttempts[phone] == nil,
+            "Session reset retained auxiliary retry work")
+        let protocolToken = UUID()
+        isolated.featureMediaChannelTokens[phone, default: [:]][.audio] = protocolToken
+        isolated.handleFeatureMediaState(deviceID: phone, feature: .audio, channelToken: protocolToken,
+            companionID: "route", generation: 1, channel: .audio, state: .authenticationRejected("revoked"))
+        isolated.handleFeatureMediaState(deviceID: phone, feature: .audio, channelToken: protocolToken,
+            companionID: "route", generation: 1, channel: .audio, state: .failed("bad frame"))
+        precondition(isolated.mediaStateCallbacks == 2, "Authentication/protocol failure was downgraded to socket-only recovery")
+        isolated.terminationAdmission.admitsWork = false
+        isolated.handleFeatureMediaState(deviceID: phone, feature: .audio, channelToken: protocolToken,
+            companionID: "route", generation: 1, channel: .audio, state: .transportInterrupted("shutdown"))
+        precondition(isolated.featureMediaRetryTasks[phone] == nil, "Termination admitted a new auxiliary retry")
         let other = "device:" + UUID().uuidString.lowercased()
         let audio = AppModel(root.appendingPathComponent("audio.json"))
         try audio.clientSetup.saveSelection(deviceID: phone, features: [.screen, .audio, .clipboard])

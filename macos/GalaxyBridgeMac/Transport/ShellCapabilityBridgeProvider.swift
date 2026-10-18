@@ -449,7 +449,11 @@ final class ShellCapabilityBridgeProvider: ObservableObject, ShellCapturePrepari
             if let outputObserver, operation == .startScrcpy {
                 log = CompanionTLSClient(endpoint: context.endpoint, peer: context.peer, hostID: context.hostID,
                     sessionID: context.sessionID, channelKind: .enhancedStream, stateHandler: { state in
-                        if case .disconnected = state { outputObserver.cancel() }
+                        switch state {
+                        case .failed, .transportInterrupted, .authenticationRejected, .disconnected:
+                            outputObserver.cancel()
+                        default: break
+                        }
                     }, envelopeHandler: { _, _ in }, rawStreamID: id + "/log",
                     rawDataHandler: { data, next in outputObserver.receive(data); next() })
                 log?.start()

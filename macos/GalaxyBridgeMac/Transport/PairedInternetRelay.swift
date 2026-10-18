@@ -190,7 +190,7 @@ final class PairedInternetRelay {
                 sessionID: relay.sessionID, channelKind: .internetProxy,
                 stateHandler: { [weak self] state in
                     Task { @MainActor in
-                        switch state { case .failed, .authenticationRejected, .disconnected: self?.cancel(); default: break }
+                        switch state { case .failed, .transportInterrupted, .authenticationRejected, .disconnected: self?.cancel(); default: break }
                     }
                 }, envelopeHandler: { _, _ in }, rawStreamID: relay.leaseID,
                 rawReadyHandler: { [weak self] in

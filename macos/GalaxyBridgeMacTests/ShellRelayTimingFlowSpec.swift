@@ -9,7 +9,7 @@ struct ShellCapabilityBridgeContext: Sendable {
 }
 enum ShellCapabilityBridgeFailure: Error { case unavailable, timeout }
 enum StubChannelKind { case enhancedStream }
-enum StubConnectionState { case connected, failed, authenticationRejected, disconnected }
+enum StubConnectionState { case connected, failed, transportInterrupted, authenticationRejected, disconnected }
 enum PrimaryMediaDiagnostics {
     static func isEnabled(arguments: [String], bundleID: String?) -> Bool { false }
 }

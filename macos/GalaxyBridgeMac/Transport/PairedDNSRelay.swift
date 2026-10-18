@@ -231,7 +231,7 @@ final class PairedDNSRelay {
             let client = CompanionTLSClient(endpoint: gateway.endpoint, peer: gateway.peer, hostID: gateway.hostID,
                 sessionID: gateway.sessionID, channelKind: .internetProxy,
                 stateHandler: { [weak self] state in
-                    Task { @MainActor in switch state { case .failed, .authenticationRejected, .disconnected: self?.finish(nil); default: break } }
+                    Task { @MainActor in switch state { case .failed, .transportInterrupted, .authenticationRejected, .disconnected: self?.finish(nil); default: break } }
                 }, envelopeHandler: { _, _ in }, rawStreamID: gateway.leaseID, rawCodec: "dns-wire-v1",
                 rawReadyHandler: { [weak self] in Task { @MainActor in self?.send() } },
                 rawDataHandler: { [weak self] bytes, finished in

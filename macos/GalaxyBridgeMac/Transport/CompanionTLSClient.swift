@@ -8,6 +8,8 @@ enum CompanionConnectionState: Equatable, Sendable {
     case connecting
     case connected
     case failed(String)
+    /// Network interruption after authenticated Hello, never a decode/auth failure.
+    case transportInterrupted(String)
     case authenticationRejected(String)
     case disconnected
 }
@@ -45,6 +47,7 @@ final class CompanionTLSClient: @unchecked Sendable {
     private var channelOpened = false
     private var receivedHello = false
     private var deliveredTerminalAuthenticationFailure = false
+    private var deliveredTerminalTransportFailure = false
     private var messageID: UInt64 = 1
     private let messageIDLock = NSLock()
     private let notificationActionCapabilityLock = NSLock()
@@ -168,17 +171,16 @@ final class CompanionTLSClient: @unchecked Sendable {
                 }
             case let .waiting(error):
                 diagnostics.pathWaiting(error)
-                stateHandler(.failed(CompanionNetworkFailure.message(
+                reportTransportInterruption(CompanionNetworkFailure.message(
                     unsatisfiedReason: connection.currentPath?.unsatisfiedReason
-                )))
-                connection.cancel()
+                ))
             case let .failed(error):
                 diagnostics.networkFailed(error)
-                stateHandler(.failed(error.localizedDescription))
+                reportTransportInterruption(error.localizedDescription)
             case .cancelled:
                 heartbeatTimer?.cancel()
                 heartbeatTimer = nil
-                if !deliveredTerminalAuthenticationFailure {
+                if !deliveredTerminalAuthenticationFailure && !deliveredTerminalTransportFailure {
                     stateHandler(.disconnected)
                 }
             default: break
@@ -203,7 +205,7 @@ final class CompanionTLSClient: @unchecked Sendable {
         connection.send(content: frame, completion: .contentProcessed { [weak self] error in
             if let error {
                 self?.diagnostics.sendFailed(error)
-                self?.stateHandler(.failed(error.localizedDescription))
+                self?.reportTransportInterruption(error.localizedDescription)
             }
         })
     }
@@ -380,18 +382,14 @@ final class CompanionTLSClient: @unchecked Sendable {
             }
             if let error {
                 diagnostics.receiveFailed(error)
-                stateHandler(.failed(error.localizedDescription))
-                connection.cancel()
+                reportTransportInterruption(error.localizedDescription)
                 return
             }
             if complete {
                 diagnostics.peerEOF()
                 if deliveredTerminalAuthenticationFailure { return }
-                stateHandler(
-                    receivedHello
-                        ? .disconnected
-                        : .failed("Phone rejected session authentication")
-                )
+                reportTransportInterruption(receivedHello
+                    ? "Companion channel closed" : "Phone rejected session authentication")
                 return
             }
             receive()
@@ -410,8 +408,10 @@ final class CompanionTLSClient: @unchecked Sendable {
         if case .hello? = envelope.payload {
             receivedHello = true
             diagnostics.helloReceived()
-            stateHandler(.connected)
-            if channelKind == .control { startHeartbeat() }
+            if channelKind == .control {
+                stateHandler(.connected)
+                startHeartbeat()
+            }
     }
         if case let .pong(pong)? = envelope.payload {
             let now = ProcessInfo.processInfo.systemUptime
@@ -483,6 +483,11 @@ final class CompanionTLSClient: @unchecked Sendable {
         try send(envelope)
         diagnostics.openChannelRequested()
         channelOpened = true
+        // Publish only after OpenChannel is enqueued. In particular, a pending
+        // file manifest must never be the first ordinary request on this socket:
+        // protocol-v1 peers would classify it as a legacy control connection.
+        // This guarantees ordering, not a remote channel-open acknowledgement.
+        stateHandler(.connected)
     }
 
     private func receiveRaw() {
@@ -491,14 +496,24 @@ final class CompanionTLSClient: @unchecked Sendable {
             let next: @Sendable () -> Void = { [weak self] in
                 guard let self else { return }
                 self.queue.async {
-                    if let error { self.stateHandler(.failed(error.localizedDescription)); self.connection.cancel() }
-                    else if complete { self.stateHandler(.disconnected); self.connection.cancel() }
+                    if let error { self.reportTransportInterruption(error.localizedDescription) }
+                    else if complete { self.reportTransportInterruption("Companion channel closed") }
                     else { self.receiveRaw() }
                 }
             }
             if let data, !data.isEmpty, let rawDataHandler { rawDataHandler(data, next) }
             else { next() }
         }
+    }
+
+    private func reportTransportInterruption(_ message: String) {
+        guard !deliveredTerminalAuthenticationFailure, !deliveredTerminalTransportFailure else { return }
+        deliveredTerminalTransportFailure = true
+        // Hello is the existing authenticated-session boundary. A successful
+        // channelOpen is not implied; only the *network* failure is isolated.
+        // Pre-Hello TLS failures and every decode/auth failure stay conservative.
+        stateHandler(receivedHello ? .transportInterrupted(message) : .failed(message))
+        connection.cancel()
     }
 
     private func nextMessageID() -> UInt64 {

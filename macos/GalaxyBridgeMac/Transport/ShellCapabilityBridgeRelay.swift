@@ -83,7 +83,7 @@ final class ShellCapabilityBridgeRelay: @unchecked Sendable {
         let remote = CompanionTLSClient(endpoint: context.endpoint, peer: context.peer, hostID: context.hostID,
             sessionID: context.sessionID, channelKind: .enhancedStream,
             stateHandler: { [weak pipe] state in
-                switch state { case .failed, .authenticationRejected, .disconnected: pipe?.cancel(); default: break }
+                switch state { case .failed, .transportInterrupted, .authenticationRejected, .disconnected: pipe?.cancel(); default: break }
             }, envelopeHandler: { _, _ in }, rawStreamID: leaseID + "/" + type,
             rawReadyHandler: { [weak pipe] in guard let pipe else { return }; pipe.queue.async { pipe.read() } },
             rawDataHandler: { [weak pipe] data, next in
