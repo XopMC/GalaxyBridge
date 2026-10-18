@@ -2,6 +2,11 @@ package com.xopmc.galaxybridge.qa.gestureresponse;
 
 /** Synthetic GBM1 image marker; no phone identity or user content. */
 final class InputMarkerBits {
+    static int pressureCounter(float pressure) {
+        if (!Float.isFinite(pressure) || pressure < 0 || pressure > 1) return -1;
+        int counter = Math.round(pressure * 65535f) - 0x8000;
+        return counter >= 1 && counter <= 256 ? counter : -1;
+    }
     static byte[] encode(long nonce, int counter) {
         if (nonce <= 0 || nonce > 0xffffffffL || counter < 0 || counter > 65535) {
             throw new IllegalArgumentException("marker bounds");

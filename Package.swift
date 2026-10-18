@@ -4,6 +4,8 @@ import PackageDescription
 import Foundation
 
 let isMacAppStoreBuild = ProcessInfo.processInfo.environment["GALAXYBRIDGE_APP_STORE"] == "1"
+let inputReplayQASettings: [SwiftSetting] = !isMacAppStoreBuild && ProcessInfo.processInfo.environment["GB_INPUT_REPLAY_QA"] == "1"
+    ? [.define("GB_INPUT_REPLAY_QA")] : []
 var galaxyBridgeMacDependencies: [Target.Dependency] = [
     "GalaxyBridgeCore",
     "GalaxyBridgeProtocol",
@@ -86,8 +88,8 @@ let package = Package(
             dependencies: galaxyBridgeMacDependencies,
             path: "macos/GalaxyBridgeMac",
             exclude: ["Info.plist", "Assets.xcassets", "Resources"],
-            swiftSettings: isMacAppStoreBuild ? [.define("GALAXYBRIDGE_APP_STORE")]
-                : quicBackendLibrary.hasSuffix("-qa.a") ? [.define("GB_QUIC_BACKEND_QA")] : [],
+            swiftSettings: (isMacAppStoreBuild ? [.define("GALAXYBRIDGE_APP_STORE")]
+                : quicBackendLibrary.hasSuffix("-qa.a") ? [.define("GB_QUIC_BACKEND_QA")] : []) + inputReplayQASettings,
             linkerSettings: quicBackendLink + [
                 .linkedFramework("AppKit"),
                 .linkedFramework("AVFoundation"),

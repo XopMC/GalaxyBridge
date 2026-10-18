@@ -12,21 +12,29 @@ public final class GestureResponseActivity extends Activity {
   getWindow().getDecorView().setSystemUiVisibility(4096|1024|512|4|2);
   long nonce=getIntent().getLongExtra("gb_marker_nonce",0);
   if(nonce<0 || nonce>0xffffffffL)throw new IllegalArgumentException("marker nonce");
-  setContentView(new Surface(this,nonce));
+  setContentView(new Surface(this,nonce,getIntent().getBooleanExtra("gb_pressure_markers",false)));
   getWindow().setDecorFitsSystemWindows(false);
   getWindow().getInsetsController().hide(WindowInsets.Type.systemBars());
  }
  static final class Surface extends View {
   final Paint paint=new Paint(3),markerPaint=new Paint(); final OverScroller fling;
   final long markerNonce;
+  final boolean pressureMarkers;
+  int pressureCounter;
   final float density; VelocityTracker velocity;
   float offset,lastY,touchX,touchY; long sequence,draws,moves; boolean down;
-  Surface(Activity activity,long nonce) { super(activity); markerNonce=nonce; density=getResources().getDisplayMetrics().density;
+  Surface(Activity activity,long nonce,boolean pressureMode) { super(activity); markerNonce=nonce; pressureMarkers=pressureMode; density=getResources().getDisplayMetrics().density;
    fling=new OverScroller(activity); paint.setTypeface(Typeface.create("sans-serif-medium",0)); setFocusable(true); }
   float rowHeight(){return 92*density;}
   int limit(){return Math.max(0,(int)(80*rowHeight()-getHeight()+130*density));}
   public boolean onTouchEvent(MotionEvent event) {
    int action=event.getActionMasked();
+   if(pressureMarkers && (action==MotionEvent.ACTION_DOWN || action==MotionEvent.ACTION_MOVE)) {
+    int counter=InputMarkerBits.pressureCounter(event.getPressure());
+    pressureCounter=counter<0?65535:counter;
+    android.os.Trace.beginSection("GBM1/input/"+pressureCounter+"/event_ms/"+event.getEventTime()); android.os.Trace.endSection();
+    Log.i("GBGestureResponseQA","marker_input="+pressureCounter+" action="+action+" event_ms="+event.getEventTime()+" dispatch_ms="+SystemClock.uptimeMillis());
+   }
    if(action==MotionEvent.ACTION_DOWN) {
     sequence++; moves=0;
     if(markerNonce!=0) {
@@ -55,7 +63,7 @@ public final class GestureResponseActivity extends Activity {
   }
   public void computeScroll(){if(fling.computeScrollOffset()){offset=fling.getCurrY();postInvalidateOnAnimation();}}
   protected void onDraw(Canvas canvas) {
-   if(markerNonce!=0)android.os.Trace.beginSection("GBM1/draw/"+sequence);
+   if(markerNonce!=0)android.os.Trace.beginSection("GBM1/draw/"+(pressureMarkers?pressureCounter:sequence));
    try {
    draws++; canvas.drawColor(0xfff0f3fa);
    float header=130*density; canvas.save(); canvas.clipRect(0,header,getWidth(),getHeight());
@@ -74,7 +82,7 @@ public final class GestureResponseActivity extends Activity {
    canvas.drawText("Swipe, scroll, tap — no permissions",24*density,104*density,paint);
    if(down){paint.setColor(0xb0f46450);canvas.drawCircle(touchX,touchY,18*density,paint);}
    if(markerNonce!=0 && sequence<=65535) {
-    byte[] bits=InputMarkerBits.encode(markerNonce,(int)sequence);
+    byte[] bits=InputMarkerBits.encode(markerNonce,pressureMarkers?pressureCounter:(int)sequence);
     float dx=getWidth()/23f,dy=getHeight()/23f;
     for(int bit=0;bit<96;bit++) {
      int row=bit/16,column=bit%16;

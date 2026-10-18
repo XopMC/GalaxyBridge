@@ -7,6 +7,13 @@ public final class InputMarkerBitsSpec {
         return result.toString();
     }
     public static void main(String[] args) {
+        for (int counter = 1; counter <= 256; ++counter) {
+            if (InputMarkerBits.pressureCounter((0x8000 + counter) / 65535f) != counter)
+                throw new AssertionError("actual 16-bit wire pressure did not retain its source ordinal");
+        }
+        for (float pressure : new float[] {0, 1, -1, Float.NaN, Float.POSITIVE_INFINITY, 0x8000 / 65535f, 0x8101 / 65535f}) {
+            if (InputMarkerBits.pressureCounter(pressure) != -1) throw new AssertionError("unowned pressure accepted");
+        }
         int[] counters = {0, 1, 2, 7, 65535};
         String[] golden = {"47424d31102030400000744b", "47424d31102030400001646a", "47424d311020304000025409", "47424d3110203040000704ac", "47424d3110203040ffff6944"};
         for (int index = 0; index < counters.length; index++) {

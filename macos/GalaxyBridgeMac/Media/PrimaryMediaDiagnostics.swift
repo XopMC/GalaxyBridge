@@ -63,6 +63,23 @@ enum PrimaryInputMarkerConfiguration: Equatable, Sendable {
 struct PrimaryInputMarker: Sendable {
     let counter: UInt16
 
+    static func qualifiesForMarker(_ data: Data) -> Bool {
+#if GB_INPUT_REPLAY_QA && !GALAXYBRIDGE_APP_STORE
+        if PrimaryTouchReplayConfiguration.process != nil { return PrimaryTouchReplayEvent.qualifies(data) }
+#endif
+        return isClickStart(data)
+    }
+
+    static func dispatchedCounter(_ data: Data) -> UInt16? {
+#if GB_INPUT_REPLAY_QA && !GALAXYBRIDGE_APP_STORE
+        guard PrimaryTouchReplayConfiguration.process != nil, PrimaryTouchReplayEvent.qualifies(data) else { return nil }
+        let bytes = Array(data)
+        return (UInt16(bytes[22]) << 8 | UInt16(bytes[23])) - 0x8000
+#else
+        return nil
+#endif
+    }
+
     static func decode(_ signature: PrimaryFrameSignature, nonce: UInt32) -> Self? {
         guard signature.luma.count == 24 * 24, nonce != 0 else { return nil }
         var bytes = [UInt8](repeating: 0, count: 12)
@@ -221,12 +238,16 @@ struct PrimaryMediaSummary: Sendable {
 
     private var logFields: [String] {
         let firstPresented = firstPresentedElapsedMS.map { String($0) } ?? "none"
+        var markerMetric = "validated_click_marker_v1"
+#if GB_INPUT_REPLAY_QA && !GALAXYBRIDGE_APP_STORE
+        if PrimaryTouchReplayConfiguration.process != nil { markerMetric = "validated_pressure_touch_marker_v1" }
+#endif
         var fields = ["generation=\(generation)", "terminal=\(terminal ? 1 : 0)",
                       "elapsed_s=\(elapsedSeconds)", "slots=\(retainedSlots)",
                       "parser_high_bytes=\(parserHighWaterBytes)",
                       "stream_order=video,audio,control", "stream_bytes=\(streamBytes)", "stream_packets=\(streamPackets)",
                       "control_completion=contentProcessed_not_device_injection",
-                      "input_metric=\(inputMarkerState == "disabled" ? "next_changed_frame_requires_static_response_fixture" : "validated_click_marker_v1")",
+                      "input_metric=\(inputMarkerState == "disabled" ? "next_changed_frame_requires_static_response_fixture" : markerMetric)",
                       "presentation_interval=distinct_frames_requires_continuous_motion_fixture",
                       "oldest_age=tracked_only_if_correlation_lost", "hist_upper_ms=0,1,5,10,20,50,80,100,150,250,500,1000,inf",
                       "first_presented_ms=\(firstPresented)"]
@@ -370,6 +391,11 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
     private var markerInvalidated = false
     private var lastMarkerCounter: UInt16?
     private var nextMarkerCounter: UInt16?
+#if GB_INPUT_REPLAY_QA && !GALAXYBRIDGE_APP_STORE
+    var touchReplayBaselineReady: Bool {
+        lock.withLock { !terminal && !markerInvalidated && lastMarkerCounter == 0 && nextMarkerCounter == 0 }
+    }
+#endif
     private var lastMarkerFrameSequence: UInt64?
     private var firstPresentedAt: Double?
     private var lastPresentedFrame: PrimaryGapEndpoint?
@@ -602,7 +628,8 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
         trace: PrimaryMediaTrace,
         at time: Double,
         epochMS: Double = Date().timeIntervalSince1970 * 1_000,
-        markerGestureStart: Bool = true
+        markerGestureStart: Bool = true,
+        dispatchedMarkerCounter: UInt16? = nil
     ) {
         lock.withLock {
             guard accepts(trace), time.isFinite, time >= 0, epochMS.isFinite, epochMS >= 0 else { return }
@@ -610,8 +637,22 @@ final class PrimaryMediaDiagnostics: @unchecked Sendable {
             if markerConfiguration != .disabled {
                 guard markerGestureStart, !markerInvalidated else { return }
                 guard let previous = nextMarkerCounter else { invalidateInputMarker(); return }
+#if GB_INPUT_REPLAY_QA && !GALAXYBRIDGE_APP_STORE
+                if PrimaryTouchReplayConfiguration.process != nil {
+                    guard let counter = dispatchedMarkerCounter, counter > previous, counter <= 256 else {
+                        invalidateInputMarker(); return
+                    }
+                    // MOVE coalescing may skip inputs before dispatch. Only
+                    // the counter carried by this actual wire packet is owned.
+                    expectedMarkerCounter = counter
+                } else {
+                    guard previous < .max else { invalidateInputMarker(); return }
+                    expectedMarkerCounter = previous + 1
+                }
+#else
                 guard previous < .max else { invalidateInputMarker(); return }
                 expectedMarkerCounter = previous + 1
+#endif
                 nextMarkerCounter = expectedMarkerCounter
             }
             let expirationThreshold = time - Self.inputProbeMaximumAge

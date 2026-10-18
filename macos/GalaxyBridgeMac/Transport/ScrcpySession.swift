@@ -1660,7 +1660,9 @@ enum ScrcpyPrimaryControlDelivery {
                 trace.collector.duration(.inputToDispatch, seconds: sentAt - received)
             }
             if correlated, let trace {
-                trace.collector.inputDispatched(trace: trace, at: sentAt, markerGestureStart: PrimaryInputMarker.isClickStart(data))
+                trace.collector.inputDispatched(trace: trace, at: sentAt,
+                    markerGestureStart: PrimaryInputMarker.qualifiesForMarker(data),
+                    dispatchedMarkerCounter: PrimaryInputMarker.dispatchedCounter(data))
             }
             let accepted = sender(data) { error in
                 if let trace {

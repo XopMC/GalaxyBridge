@@ -337,7 +337,9 @@ final class QuicScrcpySessionTransport: ScrcpySessionTransport, @unchecked Senda
                             if let receivedAt = trace.collector.stageTime(.received, trace: trace) {
                                 trace.collector.duration(.inputToDispatch, seconds: max(0, dispatchedAt - receivedAt))
                             }
-                            trace.collector.inputDispatched(trace: trace, at: dispatchedAt, markerGestureStart: PrimaryInputMarker.isClickStart(command.bytes))
+                            trace.collector.inputDispatched(trace: trace, at: dispatchedAt,
+                                markerGestureStart: PrimaryInputMarker.qualifiesForMarker(command.bytes),
+                                dispatchedMarkerCounter: PrimaryInputMarker.dispatchedCounter(command.bytes))
                         }
                         do {
                             // A release seals the gesture at the latest move

@@ -91,6 +91,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var enhancedStates: [String: ScrcpySessionState] = [:]
     private var enhancedSessionDiagnostics = EnhancedSessionDiagnostics()
     private let primaryMediaDiagnosticsEnabled: Bool
+#if GB_INPUT_REPLAY_QA && !GALAXYBRIDGE_APP_STORE
+    private let primaryTouchReplay = PrimaryTouchReplay()
+#endif
     // Screen-interlock wiring is intentionally isolated from transport state.
     @Published private(set) var enhancedScreenInterlocks: [String: ScreenInterlockPresentation] = [:]
     @Published private(set) var recordingDeviceIDs: Set<String> = []
@@ -2070,8 +2073,45 @@ final class AppModel: ObservableObject {
                                         epoch: frame.epoch, sourceID: sourceID)
                     }
                 })
+#if GB_INPUT_REPLAY_QA && !GALAXYBRIDGE_APP_STORE
+            self.observePrimaryTouchReplay(frame, session: session, deviceID: deviceID)
+#endif
         }
     }
+
+#if GB_INPUT_REPLAY_QA && !GALAXYBRIDGE_APP_STORE
+    private func observePrimaryTouchReplay(_ frame: NativeDecodedFrame, session: ScrcpySession, deviceID: String) {
+        if frame.isAdmitted, self.acceptsScreenMedia(.enhanced, deviceID: deviceID),
+           let diagnostics = session.primaryDiagnostics {
+            let source = frame.context.attempt.id.attemptID
+            let binding = frame.context.binding
+            let size = session.videoSize
+            self.primaryTouchReplay.observe(peerID: deviceID, attemptID: source,
+                markerReady: diagnostics.touchReplayBaselineReady, retire: { [weak session] in
+                    guard let session, session.nativeOwner?.attempt.id.attemptID == source else { return }
+                    session.stop()
+                }) { [weak self, weak session] event in
+                guard let self, let session, self.activeEnhancedDeviceID(session) == deviceID,
+                      session.nativeOwner?.attempt.id.attemptID == source, session.nativeOwner?.attempt.isAdmitted == true,
+                      binding?.isAdmitted ?? true,
+                      self.acceptsScreenMedia(.enhanced, deviceID: deviceID),
+                      let deliverySize = event.deliverySize(initial: size, current: session.videoSize) else { return false }
+                let action: ScrcpyMotionAction = switch event.action {
+                case .down: .down; case .move: .move; case .up: .up; case .cancel: .cancel
+                }
+                let width = UInt16(deliverySize.width), height = UInt16(deliverySize.height)
+                var bytes = ScrcpyControlMessage.virtualFingerTouch(action: action,
+                    x: Int32(event.x * Double(width - 1)), y: Int32(event.y * Double(height - 1)),
+                    screenWidth: width, screenHeight: height, pressure: event.counter == nil ? 0 : 1)
+                guard bytes.count == 32 else { return false }
+                bytes[22] = UInt8(event.pressure >> 8); bytes[23] = UInt8(event.pressure & 255)
+                let trace = diagnostics.received(stream: .control, bytes: bytes.count, pts: nil, epoch: nil, now: ProcessInfo.processInfo.systemUptime)
+                session.sendControl(bytes, diagnosticTrace: trace)
+                return true
+            }
+        }
+    }
+#endif
 
     /// The actual final receive body, shared by initial binding and adoption.
     static func receiveEnhancedNativeFrame(_ frame: NativeDecodedFrame, surface: VideoSurfaceModel,
