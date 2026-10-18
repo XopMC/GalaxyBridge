@@ -13,7 +13,19 @@ final class ShellDisplayInteractionBackend: PhoneDisplayInteractionBackend {
         // The cleanup handle is retained before SNAPSHOT can allocate a child.
         let reserved = try await provider.beginDisplayStateOwnership()
         lease = reserved
-        try await provider.snapshotDisplayState(reserved)
+        do { try await provider.snapshotDisplayState(reserved) }
+        catch {
+            guard !Task.isCancelled, reserved.displayState?.header == nil,
+                  reserved.displayState?.mayHaveMutated == false else { throw error }
+            // A failed read may have created a child. Only its exact typed
+            // no-start receipt can permit the existing legacy display path.
+            let cleanup = Task { [provider] in try await provider.retire(reserved) }
+            try await cleanup.value
+            try Task.checkCancellation()
+            guard reserved.displayState?.confirmedNotStarted == true else { throw error }
+            lease = nil
+            throw PhoneDisplayInteractionPreparationFailure.unsupportedAfterConfirmedNoStart
+        }
     }
     func apply(_ policy: DisplayStateControllerAcknowledgement.PanelPolicy) async throws {
         guard let lease else { throw ShellCapabilityBridgeFailure.invalidResult }

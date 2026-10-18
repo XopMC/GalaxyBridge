@@ -63,6 +63,8 @@ struct GBShellBridgeResult {
   return result.retirementProof
  }
  func notifyRuntimeUpgradeIfIdle() {}
+ func retire(_ lease: ShellCapabilityBridgeLease) async throws { try await retireDisplayState(lease) }
+ // ACTUAL_SUPPORTS_COMPOSITE
  // ACTUAL_BEGIN_DISPLAY_STATE
  // ACTUAL_SNAPSHOT_DISPLAY_STATE
  // ACTUAL_APPLY_DISPLAY_STATE
@@ -70,6 +72,7 @@ struct GBShellBridgeResult {
  // ACTUAL_POLL_DISPLAY_STATE
  // ACTUAL_RETIRE_DISPLAY_STATE
 }
+typealias ShellCapabilityBridgeProvider = Provider
 @main enum CompositeProviderSpec {
  static func require(_ value: Bool, _ text: String) throws { if !value { throw NSError(domain: text, code: 1) } }
  @MainActor static func owner(_ provider: Provider, header: DisplayStateControllerAcknowledgement?, policy: Bool = false) throws -> ShellCapabilityBridgeLease {
@@ -89,6 +92,49 @@ struct GBShellBridgeResult {
   do {
    let frames = try String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8).split(separator: "\n").map { Data($0.utf8) }
    let header = try DisplayStateControllerAcknowledgement.decode(frames[0])
+   do {
+    let p = Provider(); let backend = ShellDisplayInteractionBackend(provider: p)
+    p.onPerform = {
+     p.result.hasRetirementProof = false
+     p.result.state = p.operations.last == .stop ? "display_state_not_started" : "failed"
+    }
+    var fallback = false
+    do { try await backend.beginSnapshot() }
+    catch PhoneDisplayInteractionPreparationFailure.unsupportedAfterConfirmedNoStart { fallback = true }
+    try require(fallback && p.leases.isEmpty && p.operations == [.startDisplayState, .stop]
+                && p.supportsCompositeDisplayState && !backend.mayHaveMutated,
+                "Only confirmed typed no-start cleanup permits per-attempt compatibility")
+    try await backend.retire()
+    try require(p.operations == [.startDisplayState, .stop], "A retired unsupported snapshot cannot send another STOP")
+    // A transient startup failure cannot permanently downgrade this same
+    // control/session/boot after the scoped observation becomes available.
+    p.onPerform = nil; p.result.state = "display_state_snapshotted"
+    p.result.displayStateAcknowledgement = frames[0]
+    let retry = ShellDisplayInteractionBackend(provider: p)
+    try await retry.beginSnapshot()
+    try require(p.leases.count == 1 && p.supportsCompositeDisplayState,
+                "Healthy retry in the same session must probe full scoped support again")
+    p.result.state = "display_state_retired"; p.result.hasRetirementProof = true
+    var retired = try JSONSerialization.jsonObject(with: frames[5]) as! [String: Any]
+    retired["revision"] = 0
+    p.result.retirementProof.displayStateTerminalAcknowledgement = try JSONSerialization.data(withJSONObject: retired)
+    try await retry.retire()
+   }
+   do {
+    let p = Provider(); let backend = ShellDisplayInteractionBackend(provider: p)
+    p.onPerform = {
+     if p.operations.last == .stop { throw ShellCapabilityBridgeFailure.timeout }
+     p.result.hasRetirementProof = false; p.result.state = "failed"
+    }
+    var cleanupFailed = false
+    do { try await backend.beginSnapshot() }
+    catch ShellCapabilityBridgeFailure.timeout { cleanupFailed = true }
+    try require(cleanupFailed && p.leases.count == 1 && p.supportsCompositeDisplayState,
+                "A missing cleanup receipt must retain ownership without a legacy fallback")
+    p.onPerform = nil; p.result.hasRetirementProof = false; p.result.state = "display_state_not_started"
+    try await backend.retire()
+    try require(p.leases.isEmpty, "The same retained unsupported startup can retry its exact cleanup")
+   }
    for replacedSession in [false, true] {
     let p = Provider(); let lease = try await p.beginDisplayStateOwnership()
     if replacedSession { p.currentSession = "replacement-session" }

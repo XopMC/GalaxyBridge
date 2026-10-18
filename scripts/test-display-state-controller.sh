@@ -63,7 +63,7 @@ import sys
 root, out = map(Path, sys.argv[1:])
 source = (root / 'macos/GalaxyBridgeMac/Transport/ShellCapabilityBridgeProvider.swift').read_text()
 def member(signature):
-    start = source.index(signature)
+    start = source.index(signature, source.index('final class ShellCapabilityBridgeProvider:'))
     opening = source.index('{', start)
     depth = 0
     for end in range(opening, len(source)):
@@ -78,12 +78,15 @@ for marker, signature in [('BEGIN', 'func beginDisplayStateOwnership('), ('SNAPS
                           ('POLL', 'func pollDisplayState('),
                           ('RETIRE', 'private func retireDisplayState(')]:
     fixture = fixture.replace('// ACTUAL_' + marker + '_DISPLAY_STATE', member(signature))
+fixture = fixture.replace('// ACTUAL_SUPPORTS_COMPOSITE', member('var supportsCompositeDisplayState:'))
 (out / 'CompositeDisplayProviderSpec.swift').write_text(fixture)
 PY
 xcrun swiftc -swift-version 6 -parse-as-library \
   "$root/macos/GalaxyBridgeMac/Transport/DisplayStateControllerProtocol.swift" \
   "$root/macos/GalaxyBridgeMac/Transport/DisplayStateRetirementEvidence.swift" \
   "$root/macos/GalaxyBridgeMac/Transport/DisplayStateLeaseState.swift" \
+  "$root/macos/GalaxyBridgeMac/PhoneDisplayInteractionCoordinator.swift" \
+  "$root/macos/GalaxyBridgeMac/Transport/ShellDisplayInteractionBackend.swift" \
   "$tmp/CompositeDisplayProviderSpec.swift" -o "$tmp/swift-provider-spec"
 "$tmp/swift-provider-spec" "$tmp/wire.jsonl"
 python3 - "$tmp" <<'PY'

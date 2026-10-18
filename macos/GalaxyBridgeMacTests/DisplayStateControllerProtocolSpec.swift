@@ -36,7 +36,8 @@ enum DisplayStateControllerProtocolSpec {
         let initial = startup.initial!
         var localOnly = DisplayStateLeaseState()
         localOnly.beginDraining(); try localOnly.confirmNeverDispatched()
-        try require(localOnly.retired, "A never-dispatched local reservation has no remote child to stop")
+        try require(localOnly.retired && !localOnly.confirmedNotStarted,
+                    "A never-dispatched local reservation has no remote child, but is not typed remote no-start evidence")
         var queued = DisplayStateLeaseState()
         queued.markSnapshotDispatched(); queued.beginDraining()
         try rejects("A queued SNAPSHOT remains uncertain after timeout; no header does not prove no child") {
@@ -71,7 +72,8 @@ enum DisplayStateControllerProtocolSpec {
         var unknownStartup = DisplayStateLeaseState()
         unknownStartup.beginDraining()
         try unknownStartup.confirmNotStarted()
-        try require(unknownStartup.retired, "Exact typed no-start cleanup settles a lost read-only startup")
+        try require(unknownStartup.retired && unknownStartup.confirmedNotStarted,
+                    "Exact typed no-start cleanup settles a lost read-only startup with specific evidence")
         try rejects("A retired no-start lease must not accept a resurrected startup") { try unknownStartup.acceptSnapshot(startup) }
         try rejects("Typed no-start cannot erase a known native child") { try cancelledStartup.confirmNotStarted() }
         try rejects("Typed no-start cannot erase a possible policy") { try leaseState.confirmNotStarted() }

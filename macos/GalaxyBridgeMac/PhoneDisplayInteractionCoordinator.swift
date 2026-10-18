@@ -1,6 +1,12 @@
 #if !GALAXYBRIDGE_APP_STORE
 import Foundation
 
+/// Internal proof marker. Only emit after typed no-start retirement, before
+/// any policy attempt; it is never decoded directly from an error string.
+enum PhoneDisplayInteractionPreparationFailure: Error, Equatable {
+    case unsupportedAfterConfirmedNoStart
+}
+
 /// Cancellation may arrive off MainActor while a native snapshot is suspended.
 /// Its admission fence must close synchronously, before that snapshot resumes.
 final class PhoneDisplayInteractionAdmission: @unchecked Sendable {
@@ -27,7 +33,9 @@ final class PhoneDisplayInteractionCoordinator {
     enum Status: Equatable { case idle, preparing, hidden, visible, restoring, failed }
     private(set) var status = Status.idle
     var statusHandler: ((Status) -> Void)?
-    var hasOutstandingOwnership: Bool { owner != nil || !demands.isEmpty }
+    var hasOutstandingOwnership: Bool {
+        owner != nil || (!demands.isEmpty && !(failure is PhoneDisplayInteractionPreparationFailure))
+    }
     private let makeOwner: () throws -> any PhoneDisplayInteractionBackend
     private let heartbeat: (@Sendable () async throws -> Void)?
     private struct Demand {
@@ -56,7 +64,8 @@ final class PhoneDisplayInteractionCoordinator {
         self.makeOwner = makeOwner; self.heartbeat = heartbeat
     }
     func reserve(_ id: UUID, admission: PhoneDisplayInteractionAdmission = .init(), onFailure: @escaping () -> Void = {}) throws {
-        guard failure == nil, demands[id] == nil else { throw Failure.unavailable }
+        if let failure { throw failure }
+        guard demands[id] == nil else { throw Failure.unavailable }
         demands[id] = Demand(admission: admission, onFailure: onFailure)
     }
     func prepare(_ id: UUID) async throws {
@@ -147,8 +156,13 @@ final class PhoneDisplayInteractionCoordinator {
         } catch { fail(error) }
     }
     private func fail(_ error: Error) {
-        failure = error; heartbeatTask?.cancel(); heartbeatTask = nil; pollRequested = false
-        publish(.failed)
+        let noStart = error is PhoneDisplayInteractionPreparationFailure
+            && !snapshotComplete && !interactive && appliedPolicy == nil
+        // The marker is valid only while beginning a read-only snapshot. A
+        // backend must never convert later policy uncertainty into fallback.
+        failure = error is PhoneDisplayInteractionPreparationFailure && !noStart ? Failure.unavailable : error
+        heartbeatTask?.cancel(); heartbeatTask = nil; pollRequested = false
+        if noStart { owner = nil; publish(.idle) } else { publish(.failed) }
         var callbacks: [() -> Void] = []
         for id in Array(demands.keys) where demands[id]?.failureDelivered == false {
             if let callback = demands[id]?.onFailure { callbacks.append(callback) }

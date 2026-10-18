@@ -35,6 +35,35 @@ public final class DisplayStateSnapshotTest {
             "Power Group User Activity:\n" + group(0, "1", activity)), interactive);
     }
     public static void main(String[] args) throws Exception {
+        for (String state : new String[]{"Asleep", "Awake", "Dreaming", "Dozing"}) {
+            boolean interactive = state.equals("Awake") || state.equals("Dreaming");
+            String singleton = power(state, 200, 100,
+                "Display Group User Activity:\n  displayGroupId=0\n  lastUserActivityTime=90\n  lastUserActivityTimeNoChangeLights=80\n");
+            DisplayStateSnapshot.PowerEvidence resolved = DisplayStateSnapshot.parsePower(singleton, interactive);
+            assert resolved.defaultWakefulness == DisplayStateSnapshot.Wakefulness.name(state)
+                : "complete singleton group inventory must resolve its exact aggregate state";
+            try { resolved.powerGroupIDs.add("1"); throw new AssertionError("power inventory is mutable"); }
+            catch (UnsupportedOperationException expected) {}
+            DisplayStateSnapshot.PowerEvidence incomplete = DisplayStateSnapshot.parsePower(
+                singleton.substring(0, singleton.indexOf("Wireless Charger Detector State:")), interactive);
+            assert incomplete.defaultWakefulness == null : "truncated inventory cannot prove a singleton";
+            DisplayStateSnapshot.PowerEvidence unknownBoundary = DisplayStateSnapshot.parsePower(
+                singleton.replace("Wireless Charger Detector State:", "Unknown Vendor Section:"), interactive);
+            assert unknownBoundary.defaultWakefulness == null : "an unknown boundary cannot attest complete group enumeration";
+            String multiple = singleton.replace("\nWireless Charger Detector State:",
+                "\n  displayGroupId=1\n  lastUserActivityTime=90\n  lastUserActivityTimeNoChangeLights=80\nWireless Charger Detector State:");
+            DisplayStateSnapshot.PowerEvidence combined = DisplayStateSnapshot.parsePower(multiple, interactive);
+            assert combined.defaultWakefulness == (state.equals("Asleep") || state.equals("Dreaming")
+                ? DisplayStateSnapshot.Wakefulness.name(state) : null) : "ambiguous multi-group evidence must remain unknown";
+            assert !resolved.sameObservation(combined) : "group creation must fence a sampled baseline even when aggregate state agrees";
+            reject(() -> DisplayStateSnapshot.parsePower(singleton.replace("\nWireless Charger Detector State:",
+                "\n  displayGroupId:1\nWireless Charger Detector State:"), interactive));
+            reject(() -> DisplayStateSnapshot.parsePower(singleton.replace("\nWireless Charger Detector State:",
+                "\n  displayGroupId=1\n  lastUserActivityTime=90\nWireless Charger Detector State:"), interactive));
+        }
+        reject(() -> DisplayStateSnapshot.parsePower(power("Dreaming", 200, 100,
+            "Display Group User Activity:\n  displayGroupId=0\n  lastUserActivityTime=90\n  lastUserActivityTimeNoChangeLights=80\n"
+            + group(1, "1", 90)), true));
         Map<String, DisplayStateSnapshot.Mode> parsed = new LinkedHashMap<>(DisplayStateSnapshot.parsePhysical(panels("OFF", "DOZE")));
         assert parsed.size() == 2 && parsed.get("10") == DisplayStateSnapshot.Mode.OFF;
         assert parsed.get("20") == DisplayStateSnapshot.Mode.DOZE && !parsed.containsKey("900");
@@ -125,7 +154,11 @@ public final class DisplayStateSnapshotTest {
         if (args.length % 2 != 0) throw new IllegalArgumentException("Expected private power dump / explicit interactivity pairs");
         for (int i = 0; i < args.length; i += 2) {
             if (!args[i + 1].equals("true") && !args[i + 1].equals("false")) throw new IllegalArgumentException("Interactivity must be explicit");
-            DisplayStateSnapshot.parsePower(new String(Files.readAllBytes(Paths.get(args[i])), StandardCharsets.UTF_8), Boolean.parseBoolean(args[i + 1]));
+            DisplayStateSnapshot.PowerEvidence observed = DisplayStateSnapshot.parsePower(
+                new String(Files.readAllBytes(Paths.get(args[i])), StandardCharsets.UTF_8), Boolean.parseBoolean(args[i + 1]));
+            System.out.println("READ-ONLY power evidence: default=" + observed.defaultWakefulness + " global="
+                + observed.globalWakefulness + " groups=" + observed.powerGroupIDs.size()
+                + " complete=" + observed.completePowerGroupInventory);
         }
         System.out.println("PASS exact raw panel modes, independent default interactivity, global/group isolation, strict bounded evidence and stable read-only sampling");
         if (args.length != 0) System.out.println("PASS private captured power schemas: " + args.length / 2 + "; contents not emitted or included in source fixtures");

@@ -71,17 +71,21 @@ final class DisplayStateSnapshot {
     /** The top-level PowerManager stamps are GLOBAL, even when display 0 has a different state. */
     static final class PowerEvidence {
         final boolean defaultInteractive;
-        final Wakefulness defaultWakefulness; // absent on older vendor group dumps; never inferred from global state
+        final Wakefulness defaultWakefulness; // explicit, or uniquely resolved from a complete group inventory
         final Wakefulness globalWakefulness;
+        final Set<String> powerGroupIDs;
+        final boolean completePowerGroupInventory;
         final long lastGlobalWakeTime, lastGlobalSleepTime;
         final long defaultActivityTime, defaultActivityNoChangeLightsTime;
         final TransitionScope transitionScope = TransitionScope.GLOBAL;
         private PowerEvidence(boolean interactive, Wakefulness group, Wakefulness global, long wake, long sleep,
-                long activity, long noChangeLights) throws Failure {
+                long activity, long noChangeLights, Set<String> groups, boolean completeGroups) throws Failure {
             if ((group != null && group.interactive() != interactive) || (interactive && !global.interactive())
                     || (group != null && group.aggregateRank() > global.aggregateRank()))
                 throw new Failure("display_interactivity_unsettled");
             defaultInteractive = interactive; defaultWakefulness = group; globalWakefulness = global;
+            powerGroupIDs = Collections.unmodifiableSet(new LinkedHashSet<>(groups));
+            completePowerGroupInventory = completeGroups;
             lastGlobalWakeTime = wake; lastGlobalSleepTime = sleep;
             defaultActivityTime = activity; defaultActivityNoChangeLightsTime = noChangeLights;
         }
@@ -89,7 +93,8 @@ final class DisplayStateSnapshot {
             return other != null && defaultInteractive == other.defaultInteractive && defaultWakefulness == other.defaultWakefulness
                 && globalWakefulness == other.globalWakefulness && lastGlobalWakeTime == other.lastGlobalWakeTime
                 && lastGlobalSleepTime == other.lastGlobalSleepTime && defaultActivityTime == other.defaultActivityTime
-                && defaultActivityNoChangeLightsTime == other.defaultActivityNoChangeLightsTime;
+                && defaultActivityNoChangeLightsTime == other.defaultActivityNoChangeLightsTime
+                && completePowerGroupInventory == other.completePowerGroupInventory && powerGroupIDs.equals(other.powerGroupIDs);
         }
     }
 
@@ -200,7 +205,9 @@ final class DisplayStateSnapshot {
     static PowerEvidence parsePower(String dump, boolean defaultInteractive) throws Failure {
         Map<String, String> global = new HashMap<>(), group = null, defaultGroup = null;
         Set<String> groups = new HashSet<>();
+        Map<String, Map<String, String>> groupFields = new HashMap<>();
         boolean stateSection = false, activitySection = false, sawState = false, sawActivity = false;
+        boolean completeGroups = false;
         for (String raw : lines(dump)) {
             String line = raw.trim();
             if (line.equals("Power Manager State:")) {
@@ -213,6 +220,8 @@ final class DisplayStateSnapshot {
             }
             // Section headers are unindented. Do not consume similarly named vendor diagnostics elsewhere.
             if (!raw.isEmpty() && !Character.isWhitespace(raw.charAt(0)) && line.endsWith(":")) {
+                if (activitySection) completeGroups = line.equals("Wireless Charger Detector State:")
+                    || line.equals("Notifier:") || line.equals("FaceDownDetector:");
                 stateSection = false; activitySection = false; continue;
             }
             if (stateSection) {
@@ -228,7 +237,10 @@ final class DisplayStateSnapshot {
                     if (!id.matches("0|[1-9][0-9]{0,8}") || !groups.add(id) || groups.size() > 64)
                         throw new Failure("display_group_unknown");
                     group = new HashMap<>();
+                    groupFields.put(id, group);
                     if (id.equals("0")) defaultGroup = group;
+                } else if (line.startsWith("groupId") || line.startsWith("displayGroupId")) {
+                    throw new Failure("display_group_unknown");
                 } else if (group != null) {
                     int split = line.indexOf('=');
                     if (split < 0) continue;
@@ -242,8 +254,22 @@ final class DisplayStateSnapshot {
         if (!required(global, "mWakefulnessChanging").equals("false")) throw new Failure("display_power_unsettled");
         Wakefulness globalState = Wakefulness.name(required(global, "mWakefulness"));
         Wakefulness defaultState = defaultGroup.containsKey("mWakefulness") ? Wakefulness.group(defaultGroup.get("mWakefulness")) : null;
+        if (defaultState == null && completeGroups) {
+            // AOSP's global state is max(all live groups). The activity section
+            // enumerates that same locked inventory. Resolve only unique cases;
+            // another awake group must never turn a dreaming default into AWAKE.
+            for (Map<String, String> fields : groupFields.values()) {
+                uptime(required(fields, "lastUserActivityTime"));
+                uptime(required(fields, "lastUserActivityTimeNoChangeLights"));
+                if (fields.containsKey("mWakefulness") && Wakefulness.group(fields.get("mWakefulness")).aggregateRank() > globalState.aggregateRank())
+                    throw new Failure("display_power_unsettled");
+            }
+            if (groups.size() == 1 || globalState == Wakefulness.ASLEEP
+                    || (globalState == Wakefulness.DREAMING && defaultInteractive)) defaultState = globalState;
+        }
         return new PowerEvidence(defaultInteractive, defaultState, globalState,
             uptime(required(global, "mLastWakeTime")), uptime(required(global, "mLastSleepTime")),
-            uptime(required(defaultGroup, "lastUserActivityTime")), uptime(required(defaultGroup, "lastUserActivityTimeNoChangeLights")));
+            uptime(required(defaultGroup, "lastUserActivityTime")), uptime(required(defaultGroup, "lastUserActivityTimeNoChangeLights")),
+            groups, completeGroups);
     }
 }

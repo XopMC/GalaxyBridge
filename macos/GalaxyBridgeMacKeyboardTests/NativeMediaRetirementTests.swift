@@ -12,12 +12,19 @@ import Testing
     var holdSnapshot = false
     var snapshotWaiter: CheckedContinuation<Void, Never>?
     var failRetirement = false
+    var confirmedNoStart = false
+    var unsupportedDuringApply = false
     func beginSnapshot() async throws {
         events.append("snapshot")
         if holdSnapshot { await withCheckedContinuation { snapshotWaiter = $0 } }
+        if confirmedNoStart {
+            events.append("typedNoStart")
+            throw PhoneDisplayInteractionPreparationFailure.unsupportedAfterConfirmedNoStart
+        }
     }
     func apply(_ policy: DisplayStateControllerAcknowledgement.PanelPolicy) async throws {
         events.append(policy == .preserve ? "interactive" : policy == .hide ? "hide" : "show")
+        if unsupportedDuringApply { throw PhoneDisplayInteractionPreparationFailure.unsupportedAfterConfirmedNoStart }
     }
     func poll() async throws { events.append("poll") }
     func retire() async throws {
@@ -56,6 +63,59 @@ import Testing
 
 @Suite(.serialized)
 struct NativeMediaRetirementTests {
+    @Test @MainActor func displayInteractionCancelledNoStartNeverAdmitsLegacyProducer() async throws {
+        let backend = DisplayInteractionFixtureBackend(); backend.confirmedNoStart = true; backend.holdSnapshot = true
+        let coordinator = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+        let session = try ScrcpySession(serial: "cancelled-no-start-no-adb",
+            adb: ADBClient(testingExecutableURL: URL(fileURLWithPath: "/usr/bin/true")),
+            physicalDisplayPolicy: .leaveUnchanged, automaticDisplayManagement: false,
+            nativePreparationBoundary: { _, _ in Issue.record("Cancelled startup cannot fall back to another producer"); return false },
+            displayInteractionCoordinator: coordinator)
+        session.start(preferredCodec: .h264)
+        try await NativeFixtures.until { backend.snapshotWaiter != nil }
+        session.stop()
+        backend.snapshotWaiter?.resume(); backend.snapshotWaiter = nil
+        await session.waitForScheduledCleanup()
+        #expect(session.state == .stopped && session.cleanupPhysicallySettled)
+        #expect(backend.events == ["snapshot", "typedNoStart"])
+    }
+
+    @Test @MainActor func displayInteractionConfirmedNoStartKeepsBothProducersAvailable() async throws {
+        let backend = DisplayInteractionFixtureBackend(); backend.confirmedNoStart = true
+        let coordinator = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+        let boundaries = NativeFixtureBox(0)
+        var sessions: [ScrcpySession] = []
+        for index in 0..<2 {
+            let session = try ScrcpySession(serial: "no-start-compatibility-\(index)",
+                adb: ADBClient(testingExecutableURL: URL(fileURLWithPath: "/usr/bin/true")),
+                physicalDisplayPolicy: .leaveUnchanged, automaticDisplayManagement: false,
+                nativePreparationBoundary: { _, _ in boundaries.update { $0 += 1 }; return false },
+                displayInteractionCoordinator: coordinator)
+            sessions.append(session); session.start(preferredCodec: .h264)
+        }
+        try await NativeFixtures.until {
+            boundaries.value == 2 || sessions.allSatisfy { if case .failed = $0.state { return true }; return false }
+        }
+        #expect(boundaries.value == 2, "A positively retired unsupported snapshot must preserve existing capture functionality")
+        #expect(sessions.allSatisfy { !$0.usesCompositeDisplayInteraction })
+        #expect(!coordinator.hasOutstandingOwnership && !backend.events.contains("interactive"))
+        for session in sessions { await session.stopAndWaitForCleanup(); #expect(session.cleanupPhysicallySettled) }
+    }
+
+    @Test @MainActor func displayInteractionPolicyUncertaintyCannotBecomeLegacyFallback() async throws {
+        let backend = DisplayInteractionFixtureBackend(); backend.unsupportedDuringApply = true
+        let coordinator = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+        let session = try ScrcpySession(serial: "uncertain-policy-no-adb",
+            adb: ADBClient(testingExecutableURL: URL(fileURLWithPath: "/usr/bin/true")),
+            physicalDisplayPolicy: .leaveUnchanged, automaticDisplayManagement: false,
+            nativePreparationBoundary: { _, _ in Issue.record("Possible APPLY must not fall back to another panel owner"); return false },
+            displayInteractionCoordinator: coordinator)
+        session.start(preferredCodec: .h264)
+        try await NativeFixtures.until { if case .failed = session.state { return true }; return false }
+        await session.stopAndWaitForCleanup()
+        #expect(backend.events == ["snapshot", "interactive", "retire"])
+    }
+
     @Test(arguments: [false, true]) @MainActor
     func displayInteractionRetainsProducerThatStartedBeforeChannelsReturned(stopDuringStartup: Bool) async throws {
         let backend = DisplayInteractionFixtureBackend()

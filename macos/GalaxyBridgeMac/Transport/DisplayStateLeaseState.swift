@@ -7,6 +7,7 @@ struct DisplayStateLeaseState: Sendable {
     private(set) var header: DisplayStateControllerAcknowledgement?
     private(set) var draining = false
     private(set) var retired = false
+    private(set) var confirmedNotStarted = false
     private(set) var lastConfirmedRevision: UInt64 = 0
     private(set) var lastAttemptedRevision: UInt64 = 0
     private(set) var pendingRevision: UInt64?
@@ -59,7 +60,7 @@ struct DisplayStateLeaseState: Sendable {
     mutating func beginDraining() { draining = true }
     mutating func confirmNotStarted() throws {
         guard draining, !retired, header == nil, !mayHaveMutated else { throw DisplayStateProtocolError.unexpectedReply }
-        retired = true
+        retired = true; confirmedNotStarted = true
     }
     mutating func confirmRetirement(_ evidence: DisplayStateRetirementEvidence) throws -> DisplayStateRetirementEvidence.Disposition {
         guard draining, !retired else { throw DisplayStateProtocolError.unexpectedReply }

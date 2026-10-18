@@ -597,13 +597,23 @@ final class ScrcpySession: ObservableObject {
             interaction = shellProvider.displayInteraction
         }
         if let interaction {
-            let attemptID = owner.attempt.id
-            let lease = try ScrcpyDisplayInteractionLease(coordinator: interaction, onFailure: { [weak self] in
-                guard let self, self.nativeOwner?.attempt.id == attemptID, self.preparationID == request else { return }
-                self.fail(ShellCapabilityBridgeFailure.operationFailed, component: "Display interaction")
-            })
-            displayInteractionLease = lease
-            try await lease.prepare()
+            do {
+                let attemptID = owner.attempt.id
+                let lease = try ScrcpyDisplayInteractionLease(coordinator: interaction, onFailure: { [weak self] in
+                    guard let self, self.nativeOwner?.attempt.id == attemptID, self.preparationID == request else { return }
+                    self.fail(ShellCapabilityBridgeFailure.operationFailed, component: "Display interaction")
+                })
+                displayInteractionLease = lease
+                try await lease.prepare()
+            } catch PhoneDisplayInteractionPreparationFailure.unsupportedAfterConfirmedNoStart {
+                try Task.checkCancellation()
+                if let lease = displayInteractionLease {
+                    try await lease.retire(producerPhysicallySettled: true)
+                    displayInteractionLease = nil
+                }
+                // No policy or producer was started, and typed cleanup has
+                // finished. Existing readiness now selects the legacy owner.
+            }
             try checkPreparation(request)
         }
         if let nativePreparationBoundary {
