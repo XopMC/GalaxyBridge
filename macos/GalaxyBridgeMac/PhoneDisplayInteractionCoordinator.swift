@@ -1,6 +1,15 @@
 #if !GALAXYBRIDGE_APP_STORE
 import Foundation
 
+/// Cancellation may arrive off MainActor while a native snapshot is suspended.
+/// Its admission fence must close synchronously, before that snapshot resumes.
+final class PhoneDisplayInteractionAdmission: @unchecked Sendable {
+    private let lock = NSLock()
+    private var accepting = true
+    var isOpen: Bool { lock.withLock { accepting } }
+    func close() { lock.withLock { accepting = false } }
+}
+
 @MainActor
 protocol PhoneDisplayInteractionBackend: AnyObject {
     func beginSnapshot() async throws
@@ -18,7 +27,8 @@ final class PhoneDisplayInteractionCoordinator {
     private let makeOwner: () throws -> any PhoneDisplayInteractionBackend
     private let heartbeat: (@Sendable () async throws -> Void)?
     private struct Demand {
-        var active = true
+        let admission: PhoneDisplayInteractionAdmission
+        var active: Bool { admission.isOpen }
         var admitted = false
         var ready = false
         var failureDelivered = false
@@ -40,9 +50,9 @@ final class PhoneDisplayInteractionCoordinator {
          heartbeat: (@Sendable () async throws -> Void)? = { try await Task.sleep(for: .seconds(2)) }) {
         self.makeOwner = makeOwner; self.heartbeat = heartbeat
     }
-    func reserve(_ id: UUID, onFailure: @escaping () -> Void = {}) throws {
+    func reserve(_ id: UUID, admission: PhoneDisplayInteractionAdmission = .init(), onFailure: @escaping () -> Void = {}) throws {
         guard failure == nil, demands[id] == nil else { throw Failure.unavailable }
-        demands[id] = Demand(onFailure: onFailure)
+        demands[id] = Demand(admission: admission, onFailure: onFailure)
     }
     func prepare(_ id: UUID) async throws {
         guard demands[id]?.active == true else { throw Failure.unavailable }
@@ -57,7 +67,7 @@ final class PhoneDisplayInteractionCoordinator {
     }
     func cancelAdmission(_ id: UUID) {
         guard demands[id] != nil else { return }
-        demands[id]?.active = false
+        demands[id]?.admission.close()
         // Keep readiness/ownership until this producer is physically settled.
         enqueue()
     }

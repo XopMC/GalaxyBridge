@@ -6,6 +6,7 @@ import Foundation
     var snapshotBarrier: CheckedContinuation<Void, Never>?
     var holdSnapshot = false
     var failApply = false
+    var failPoll = false
     var failRetirement = false
     var onSnapshot: (() -> Void)?
     func beginSnapshot() async throws {
@@ -17,7 +18,10 @@ import Foundation
         events.append(policy == .preserve ? "interactive" : policy == .hide ? "hide" : "show")
         if failApply { throw PhoneDisplayInteractionCoordinator.Failure.unavailable }
     }
-    func poll() async throws { events.append("poll") }
+    func poll() async throws {
+        events.append("poll")
+        if failPoll { throw PhoneDisplayInteractionCoordinator.Failure.unavailable }
+    }
     func retire() async throws {
         events.append("retire")
         if failRetirement { throw PhoneDisplayInteractionCoordinator.Failure.cleanupIncomplete }
@@ -30,6 +34,62 @@ import Foundation
         if !value { throw Failure.expectation(message) }
     }
     @MainActor static func run() async throws {
+        do {
+            let backend = InteractionBackend(); backend.failApply = true
+            let coordinator = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+            var failures = 0
+            let initial = try ScrcpyDisplayInteractionLease(coordinator: coordinator, onFailure: { failures += 1 })
+            var rejected = false; do { try await initial.prepare() } catch { rejected = true }
+            try require(rejected && failures == 0, "Initial prepare failure stays with its awaiting caller, before producer admission")
+            try await initial.retire(producerPhysicallySettled: true)
+            backend.failApply = false
+            let active = try ScrcpyDisplayInteractionLease(coordinator: coordinator, onFailure: { failures += 1 })
+            try await active.prepare(); backend.failPoll = true
+            await coordinator.poll(); await coordinator.poll()
+            try require(failures == 1, "A running producer receives one owner-failure callback")
+            try await active.retire(producerPhysicallySettled: true)
+        }
+        do {
+            let backend = InteractionBackend(); backend.holdSnapshot = true
+            let coordinator = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+            let lease = try ScrcpyDisplayInteractionLease(coordinator: coordinator)
+            let preparation = Task { @MainActor in
+                do { try await lease.prepare(); return false }
+                catch is CancellationError { return true }
+                catch { return false }
+            }
+            for _ in 0..<1000 {
+                if backend.snapshotBarrier != nil { break }
+                await Task.yield()
+            }
+            try require(backend.snapshotBarrier != nil, "Handle cancellation test must reach a suspended native SNAPSHOT")
+            preparation.cancel()
+            backend.snapshotBarrier?.resume(); backend.snapshotBarrier = nil
+            try require(await preparation.value, "Prepare must preserve Task cancellation classification")
+            try require(backend.events == ["snapshot"] && !lease.admitted,
+                        "Cancelling prepare during SNAPSHOT must close admission before the first APPLY")
+            try await lease.retire(producerPhysicallySettled: true)
+            try require(backend.events == ["snapshot", "retire"], "Read-only startup still settles its exact child")
+        }
+        do {
+            let backend = InteractionBackend()
+            let coordinator = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+            let lease = try ScrcpyDisplayInteractionLease(coordinator: coordinator)
+            try await lease.prepare(); try require(lease.admitted, "The producer waits for interactive readiness")
+            lease.ready(); await coordinator.waitForSettlement()
+            var rejected = false
+            do { try await lease.retire(producerPhysicallySettled: false) } catch { rejected = true }
+            try require(rejected && lease.cancelled && !lease.retired && !backend.events.contains("retire"),
+                        "An unsettled producer closes admission but cannot release its logical owner")
+            await coordinator.poll()
+            try require(backend.events.last == "poll", "Physical producer cleanup retains renewal even after admission closes")
+            lease.ready(); await coordinator.waitForSettlement()
+            try await lease.retire(producerPhysicallySettled: true)
+            try require(lease.retired && backend.events.last == "retire", "The exact physical barrier permits final owner retirement")
+            let count = backend.events.count
+            try await lease.retire(producerPhysicallySettled: true)
+            try require(backend.events.count == count, "Repeated cleanup cannot recreate or re-retire an owner")
+        }
         do {
             let backend = InteractionBackend(); backend.holdSnapshot = true
             let coordinator = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
