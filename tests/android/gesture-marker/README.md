@@ -27,3 +27,30 @@ Run the host Swift/Java wire and matching checks with
 `sh scripts/test-macos-input-marker.sh` using a supported JDK 21. Build the activity
 with the normal Android SDK tools and a disposable test signing key. Do not sign
 this fixture with a distribution key or include its APK in a release.
+
+
+## Clipboard acceptance
+
+The same disposable APK includes `ClipboardQaActivity`. It uses the ordinary
+foreground Android clipboard API and a private provider granting read access to
+one generated PNG. No keyboard, share flow, permissions or network access are
+required. Text and images differ by direction so a stale local clipboard cannot
+satisfy the return-path check. Receipts contain only the run ID, operation,
+match result and hashes of verified neutral pixels.
+
+The CMake `check` target compiles an unsigned APK under
+`device-tests/clipboard-input-unsigned.apk`. Sign it with a disposable test key
+before installing; never include it in release assets. Preserve that key when
+updating an existing fixture.
+
+Launch `.ClipboardQaActivity` with a fresh UUID string extra `qa_run` and an
+optional `qa_operation`: `copy-text`, `paste-text`, `copy-image` or `paste-image`.
+The operation runs once after the window receives focus. Read its result with
+`adb shell run-as com.xopmc.galaxybridge.qa.gestureresponse cat files/clipboard-qa.json`.
+Mac-to-phone text must be `GB-QA-MAC-<qa_run>`; phone-to-Mac text is
+`GB-QA-PHONE-<qa_run>`. Compare images by decoded RGBA pixels, not PNG encoding.
+
+Preserve and restore the original Mac clipboard during tests. Remove generated
+`cache/clipboard-qa/neutral.png` and `files/clipboard-qa.json`, and uninstall the
+fixture when hardware acceptance is finished. These files belong only to this
+QA package; do not clear other applications or their history.

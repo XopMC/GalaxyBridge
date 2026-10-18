@@ -26,7 +26,7 @@ if (build / 'BuildArtifacts.json').is_file():
 def run(args, extra=None):
     subprocess.run([str(x) for x in args], cwd=ROOT, env=dict(env, **(extra or {})), check=True)
 for script in ['public-build.py', 'package-macos-direct.py', 'package-android-direct.py',
-               'build-macos-dmg-layout.py', 'verify-macos-dmg-layout.py', 'build-android-catalog-device-test.py',
+               'build-macos-dmg-layout.py', 'verify-macos-dmg-layout.py', 'build-android-catalog-device-test.py', 'build-android-clipboard-device-test.py',
                'test-android-direct-components.py', 'bootstrap-build-tools.py',
                'build-internet-runtime.py', 'package-network-helper.py',
                'network-test-guardian.py', 'test-nearby-bootstrap-interop.py',
@@ -67,6 +67,8 @@ env.update(JAVA_HOME=java, GB_NEARBY_SWIFT_MODULES=str(swift_bin / 'Modules'),
 env['GB_OWNED_ADB_TEST_RUNTIME'] = str(build / 'artifacts/adb')
 run([sys.executable, ROOT / 'scripts/build-android-catalog-device-test.py', '--java-home', java,
      '--output', build / 'device-tests/catalog-check.jar'])
+run([sys.executable, ROOT / 'scripts/build-android-clipboard-device-test.py', '--java-home', java,
+     '--output', build / 'device-tests/clipboard-input-unsigned.apk'])
 for script in ['test-macos-companion-tunnel.sh', 'test-macos-companion-diagnostics.sh', 'test-macos-owned-adb-runtime.sh', 'test-macos-incoming-file-store.sh', 'test-macos-client-setup.sh', 'test-macos-feature-configuration-entrypoint.sh', 'test-companion-transport-interruption.sh', 'test-macos-file-transfer-presentation.sh']:
     run(['sh', ROOT / 'scripts' / script])
 for script in ['test-clipboard-agent-protocol.sh', 'test-clipboard-primary-read-admission.sh', 'test-clipboard-callback-lifecycle.sh', 'test-macos-clipboard-polling.sh', 'test-macos-clipboard-hub.sh',

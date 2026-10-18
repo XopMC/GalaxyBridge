@@ -2,5 +2,8 @@
     <uses-sdk android:minSdkVersion="31" android:targetSdkVersion="35" />
     <application android:label="Galaxy Bridge Gesture QA" android:debuggable="true" android:allowBackup="false" android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".GestureResponseActivity" android:exported="true" />
+        <activity android:name=".ClipboardQaActivity" android:exported="true" />
+        <provider android:name=".ClipboardQaProvider" android:authorities="com.xopmc.galaxybridge.qa.gestureresponse.clipboardqa"
+            android:exported="false" android:grantUriPermissions="true" />
     </application>
 </manifest>
