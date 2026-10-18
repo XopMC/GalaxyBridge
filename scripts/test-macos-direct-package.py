@@ -46,6 +46,25 @@ assert "Virtual webcam support is not included" in release_text
 assert "Extension remains embedded" in release_text
 assert "does not certify every device" in release_text
 print("Direct package metadata: candidate default, explicit release scope, embedded unprovisioned extension and honest install instructions passed.")
+with tempfile.TemporaryDirectory(prefix="gb-diagnostic-package-") as temporary:
+    work = Path(temporary)
+    for name, marker, executable in (
+        ("marked", True, b"ordinary-host"),
+        ("legacy-probe", None, b"host --qa-touch-replay-peer= argument"),
+    ):
+        source = work / (name + ".app")
+        (source / "Contents/MacOS").mkdir(parents=True)
+        info = {"CFBundleExecutable": "GalaxyBridgeMac"}
+        if marker is not None:
+            info["GalaxyBridgeInputReplayQA"] = marker
+        (source / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
+        (source / "Contents/MacOS/GalaxyBridgeMac").write_bytes(executable)
+        output = work / (name + "-output")
+        result = subprocess.run([sys.executable, str(ROOT / "scripts/package-macos-direct.py"),
+                                 str(source), str(output), "--release"], capture_output=True, text=True)
+        assert result.returncode != 0 and "QA/diagnostic" in result.stderr, result.stderr
+        assert not output.exists(), "A diagnostic rejection must precede all packaging side effects"
+print("Direct package rejects marked and legacy input QA binaries before staging: PASS")
 if sys.argv[1:] == ["--metadata-only"]:
     raise SystemExit(0)
 if sys.argv[1:]:
@@ -71,6 +90,7 @@ with tempfile.TemporaryDirectory(prefix="gb-direct-package-") as temporary:
             "CFBundlePackageType": "APPL" if bundle == app else "SYSX", "CFBundleVersion": "1"}))
     resources = app / "Contents/Resources"
     resources.mkdir()
+    shutil.copy2(ROOT / "macos/GalaxyBridgeMac/Resources/GalaxyBridge.icns", resources / "GalaxyBridge.icns")
     (resources / "BuildArtifacts.json").write_text(__import__("json").dumps({
         "adbSHA": hashlib.sha256((runtime / "adb").read_bytes()).hexdigest(),
         "libusbSHA": hashlib.sha256((runtime / "libusb-1.0.0.dylib").read_bytes()).hexdigest(),

@@ -45,6 +45,33 @@ for inherited in ({}, {'GALAXYBRIDGE_APP_STORE': '1'}):
 
 print('Public Direct build ignores inherited Store mode for compile and binary lookup: PASS')
 
+for enabled in (False, True):
+    with tempfile.TemporaryDirectory() as temporary:
+        build = Path(temporary)
+        binary_directory = build / 'binary'
+        binary_directory.mkdir()
+        (binary_directory / 'GalaxyBridgeMac').write_bytes(b'host fixture')
+        inherited = {'GB_INPUT_REPLAY_QA': '1'} if enabled else {}
+        observed = []
+        def inspect_staged_metadata(arguments, env):
+            if arguments[0:2] == ['swift', 'build']:
+                assert (env.get('GB_INPUT_REPLAY_QA') == '1') == enabled
+                return
+            assert Path(arguments[1]).name == 'test-macos-main-bundle-localization.py'
+            info = __import__('plistlib').loads((Path(arguments[2]) / 'Contents/Info.plist').read_bytes())
+            assert info['GalaxyBridgeInputReplayQA'] is enabled
+            observed.append(enabled)
+            raise EndProbe()
+        with patch.object(module, 'generate_pins', return_value=(root / '.build/public-pins/probe', 'probe')), \
+             patch.object(module, 'run', side_effect=inspect_staged_metadata), \
+             patch.object(module.subprocess, 'check_output', return_value=str(binary_directory)):
+            try:
+                module.macos_app(build, inherited)
+            except EndProbe:
+                pass
+        assert observed == [enabled]
+print('Actual Direct stager marks QA builds consistently with the compiler environment: PASS')
+
 with tempfile.TemporaryDirectory() as temporary:
     build = Path(temporary)
     inherited = {'CARGO_HOME': '/unused/cargo', 'GRADLE_USER_HOME': '/unused/gradle', 'PATH': '/usr/bin'}

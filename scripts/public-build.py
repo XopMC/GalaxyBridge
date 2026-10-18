@@ -115,6 +115,7 @@ def macos_app(build, env):
                 CFBundleExecutable='GalaxyBridgeMac', GalaxyBridgeDistribution='github-direct',
                 GalaxyBridgeReleaseStatus='candidate', GalaxyBridgeCameraExtensionProvisioned=False,
                 CFBundleShortVersionString=VERSION, CFBundleVersion='4')
+    info['GalaxyBridgeInputReplayQA'] = env.get('GB_INPUT_REPLAY_QA') == '1'
     (contents / 'Info.plist').write_bytes(plistlib.dumps(info))
     for locale in (ROOT / 'macos/GalaxyBridgeMac/Resources').glob('*.lproj'):
         shutil.copytree(locale, resources / locale.name)

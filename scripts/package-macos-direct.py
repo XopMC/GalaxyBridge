@@ -69,6 +69,18 @@ if output.exists() or source == output or source in output.parents:
     raise SystemExit("Choose a new output directory outside the source app.")
 if not (source / "Contents/Info.plist").is_file():
     raise SystemExit("Source app is missing.")
+source_info = plistlib.loads((source / "Contents/Info.plist").read_bytes())
+if source_info.get("GalaxyBridgeInputReplayQA", False) is not False:
+    raise SystemExit("QA/diagnostic apps cannot be packaged for distribution. Rebuild without GB_INPUT_REPLAY_QA.")
+source_executable = source_info.get("CFBundleExecutable", "")
+if not isinstance(source_executable, str) or not source_executable or Path(source_executable).name != source_executable:
+    raise SystemExit("Source app executable name is invalid.")
+host_path = source / "Contents/MacOS" / source_executable
+if not host_path.is_file():
+    raise SystemExit("Source app executable is missing.")
+# Also reject diagnostic artifacts built before the explicit plist marker.
+if b"--qa-touch-replay-peer=" in host_path.read_bytes():
+    raise SystemExit("QA/diagnostic input replay is present in the executable. Rebuild without GB_INPUT_REPLAY_QA.")
 for name in ("adb", "libusb-1.0.0.dylib", "NOTICE", "PROVENANCE.json", "SHA256SUMS", "OWNED-CONTRACT.json", "libusb-1.0.29-source.tar.gz"):
     if not (runtime / name).is_file():
         raise SystemExit("Source-built ADB runtime missing: " + name)
