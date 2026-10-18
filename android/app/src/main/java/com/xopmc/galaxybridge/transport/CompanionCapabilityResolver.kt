@@ -30,6 +30,7 @@ internal object CompanionCapabilityResolver {
         if (BuildConfig.DISTRIBUTION != "play") {
             available += Capability.CAPABILITY_CAPTURE_RETIREMENT_PROOF
             available += Capability.CAPABILITY_SHELL_RUNTIME_IDENTITY
+            available += Capability.CAPABILITY_COMPOSITE_DISPLAY_STATE
         }
         if (BuildConfig.DISTRIBUTION != "play" && com.xopmc.galaxybridge.nearby.ForegroundConnectivityRuntime.current?.shell?.isAvailable == true) {
             available += Capability.CAPABILITY_PRIVILEGED_BRIDGE
