@@ -10,13 +10,32 @@ struct DeviceRow { let id: String; var isReady = true; var adbSerial: String? = 
     var legacyAutomaticWrites: [Bool] = []
     func setAutomaticDisplayManagement(_ enabled: Bool) async throws { legacyAutomaticWrites.append(enabled) }
 }
+@MainActor final class RetryGate {
+    var entered = false
+    private var waiter: CheckedContinuation<Void, Never>?
+    func wait() async { entered = true; await withCheckedContinuation { waiter = $0 } }
+    func release() { waiter?.resume(); waiter = nil }
+}
+@MainActor final class RetiringApplications {
+    var retry: ((String) async -> Bool)?
+    func retryRetiringOwners(deviceID: String) async -> Bool { await retry?(deviceID) ?? true }
+}
 @MainActor final class CompositeOwner: PhoneDisplayInteractionBackend {
+    enum Failure: Error { case synthetic }
+    var failPoll = false
+    var retirementFailures = 0
+    var retireCalls = 0
+    var pollCalls = 0
     var writes: [DisplayStateControllerAcknowledgement.PanelPolicy] = []
     var retired = false
     func beginSnapshot() async throws {}
     func apply(_ policy: DisplayStateControllerAcknowledgement.PanelPolicy) async throws { writes.append(policy) }
-    func poll() async throws {}
-    func retire() async throws { retired = true }
+    func poll() async throws { pollCalls += 1; if failPoll { throw Failure.synthetic } }
+    func retire() async throws {
+        retireCalls += 1
+        if retirementFailures > 0 { retirementFailures -= 1; throw Failure.synthetic }
+        retired = true
+    }
 }
 @MainActor final class ShellProvider {
     let displayInteraction: PhoneDisplayInteractionCoordinator
@@ -26,8 +45,12 @@ struct DeviceRow { let id: String; var isReady = true; var adbSerial: String? = 
     var failureHandler: ((String) -> Void)?
     var panelPowerChangedHandler: ((PhonePanelPowerSnapshot) -> Void)?
     var current = try! PhonePanelPowerSnapshot(validating: [.init(id: "17", on: false), .init(id: "22", on: true)])
+    var startFailures = 0
     var writes: [Bool] = []; var restorations: [PhonePanelPowerSnapshot] = []; var starts = 0; var stops = 0
-    func start() async throws { starts += 1 }
+    func start() async throws {
+        starts += 1
+        if startFailures > 0 { startFailures -= 1; throw CompositeOwner.Failure.synthetic }
+    }
     func snapshot() async throws -> PhonePanelPowerSnapshot { current }
     func panelPower() async throws -> PhonePanelPowerState { current.hasActivePanel ? .on : .off }
     func setPanelPower(on: Bool) async throws {
@@ -52,6 +75,10 @@ struct DeviceRow { let id: String; var isReady = true; var adbSerial: String? = 
     var scrcpySessions: [String: ScrcpySession] = [:]
     var shellProviders: [String: ShellProvider] = [:]
     var preparingDirectDevices = Set<String>()
+    var primaryCleanup: ((String) async -> Bool)?
+    var applicationWindowCoordinator: RetiringApplications? = .init()
+    func settlePrimaryCaptureRetirements(deviceID: String) async -> Bool { await primaryCleanup?(deviceID) ?? true }
+
     var terminationAdmission = Admission()
     let owner = PhysicalOwner()
     lazy var phoneDisplayPrivacy = PhoneDisplayPrivacyCoordinator { [owner] _ in owner }
@@ -66,6 +93,128 @@ struct DeviceRow { let id: String; var isReady = true; var adbSerial: String? = 
 }
 @main enum PhonePrivacyEntryPointSpec {
     @MainActor static func main() async throws {
+        do {
+            let phone = "retry-legacy", model = AppModel(), session = ScrcpySession()
+            let idle = PhoneDisplayInteractionCoordinator(makeOwner: { CompositeOwner() }, heartbeat: nil)
+            model.shellProviders[phone] = ShellProvider(idle)
+            model.scrcpySessions[phone] = session
+            model.primaryPhonePrivacyLeases[ObjectIdentifier(session)] = UUID()
+            model.owner.startFailures = 1
+            model.publishPrimaryReadiness(true, session: session)
+            await model.phonePrivacyUpdates[phone]?.value
+            guard case .failed = model.phoneDisplayPrivacy.status(deviceID: phone) else {
+                preconditionFailure("Legacy fixture must fail before Retry")
+            }
+            model.retryFromVisibleControl(deviceID: phone)
+            await model.phonePrivacyUpdates[phone]?.value
+            precondition(model.owner.starts == 2 && model.phoneDisplayPrivacy.status(deviceID: phone) == .hidden
+                         && !idle.hasOutstandingOwnership,
+                         "An idle composite provider must not intercept Retry for a failed legacy owner")
+            model.releasePhoneDisplaySession(model.primaryPhonePrivacyLeases[ObjectIdentifier(session)]!)
+            await model.phoneDisplayPrivacy.waitForSettlement(deviceID: phone)
+        }
+        do {
+            let phone = "retry-retirement", model = AppModel(), backend = CompositeOwner()
+            let interaction = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+            model.shellProviders[phone] = ShellProvider(interaction)
+            model.configurePhoneDisplayInteraction(interaction, deviceID: phone)
+            let lease = UUID(); try interaction.reserve(lease); try await interaction.prepare(lease)
+            interaction.ready(lease); await interaction.waitForSettlement()
+            backend.retirementFailures = 1
+            do { try await interaction.release(lease); preconditionFailure("Synthetic cleanup must fail first") } catch {}
+            precondition(interaction.status == .failed && backend.retireCalls == 1)
+            model.retryFromVisibleControl(deviceID: phone)
+            await model.phonePrivacyUpdates[phone]?.value
+            await interaction.waitForSettlement()
+            precondition(backend.retireCalls == 2 && backend.retired && interaction.status == .idle,
+                         "Visible Retry must retry failed retirement even when the privacy preference is unchanged")
+            precondition(model.phoneDisplayPrivacyEnabled(deviceID: phone) && model.owner.starts == 0,
+                         "Retry must preserve preference and never open a competing legacy owner")
+        }
+        do {
+            let phone = "retry-producers", model = AppModel(), backend = CompositeOwner()
+            let interaction = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+            model.shellProviders[phone] = ShellProvider(interaction)
+            model.configurePhoneDisplayInteraction(interaction, deviceID: phone)
+            let primary = UUID(), application = UUID()
+            try interaction.reserve(primary); try await interaction.prepare(primary); interaction.ready(primary)
+            try interaction.reserve(application); try await interaction.prepare(application); interaction.ready(application)
+            await interaction.waitForSettlement(); backend.failPoll = true
+            await interaction.poll(); precondition(interaction.status == .failed)
+            let gate = RetryGate()
+            model.primaryCleanup = { target in
+                guard target == phone else { return true }
+                await gate.wait()
+                try? await interaction.release(primary)
+                return false
+            }
+            model.applicationWindowCoordinator?.retry = { target in
+                guard target == phone else { return true }
+                precondition(gate.entered && backend.retireCalls == 0,
+                             "App retirement must follow primary retry and retain the shared panel owner")
+                try? await interaction.release(application)
+                return true
+            }
+            model.retryFromVisibleControl(deviceID: phone)
+            for _ in 0..<1000 where !gate.entered { await Task.yield() }
+            precondition(gate.entered && backend.retireCalls == 0,
+                         "Retry must not retire panel ownership before producer cleanup")
+            let other = "parallel", otherBackend = CompositeOwner()
+            let otherInteraction = PhoneDisplayInteractionCoordinator(makeOwner: { otherBackend }, heartbeat: nil)
+            model.shellProviders[other] = ShellProvider(otherInteraction)
+            let otherLease = UUID(); try otherInteraction.reserve(otherLease); try await otherInteraction.prepare(otherLease)
+            otherBackend.retirementFailures = 1; try? await otherInteraction.release(otherLease)
+            model.retryFromVisibleControl(deviceID: other); await model.phonePrivacyUpdates[other]?.value
+            precondition(otherBackend.retired && backend.retireCalls == 0,
+                         "One blocked phone must not prevent another phone's retry")
+            gate.release(); await model.phonePrivacyUpdates[phone]?.value
+            precondition(backend.retired && interaction.status == .idle && model.owner.starts == 0)
+        }
+        do {
+            let phone = "retry-unsettled", model = AppModel(), backend = CompositeOwner()
+            let interaction = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+            model.shellProviders[phone] = ShellProvider(interaction)
+            let lease = UUID(); try interaction.reserve(lease); try await interaction.prepare(lease)
+            backend.failPoll = true; await interaction.poll()
+            model.primaryCleanup = { _ in false }
+            model.applicationWindowCoordinator?.retry = { _ in false }
+            model.retryFromVisibleControl(deviceID: phone)
+            await model.phonePrivacyUpdates[phone]?.value
+            precondition(backend.retireCalls == 0 && interaction.status == .failed && interaction.hasOutstandingOwnership,
+                         "Retry must retain physical ownership while an unsettled producer still has demand")
+            try await interaction.release(lease)
+        }
+        do {
+            let phone = "retry-coalesced", model = AppModel(), backend = CompositeOwner()
+            let interaction = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+            model.shellProviders[phone] = ShellProvider(interaction)
+            let lease = UUID(); try interaction.reserve(lease); try await interaction.prepare(lease)
+            backend.retirementFailures = 1; try? await interaction.release(lease)
+            model.retryFromVisibleControl(deviceID: phone); model.retryFromVisibleControl(deviceID: phone)
+            await model.phonePrivacyUpdates[phone]?.value
+            precondition(backend.retireCalls == 2 && interaction.status == .idle,
+                         "Repeated clicks must coalesce rather than duplicate panel ownership")
+        }
+        do {
+            let phone = "retry-replaced", model = AppModel(), backend = CompositeOwner()
+            let interaction = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+            model.shellProviders[phone] = ShellProvider(interaction)
+            let lease = UUID(); try interaction.reserve(lease); try await interaction.prepare(lease)
+            backend.retirementFailures = 1; try? await interaction.release(lease)
+            let gate = RetryGate()
+            model.primaryCleanup = { _ in await gate.wait(); return true }
+            model.retryFromVisibleControl(deviceID: phone)
+            for _ in 0..<1000 where !gate.entered { await Task.yield() }
+            precondition(gate.entered)
+            let replacementBackend = CompositeOwner()
+            let replacement = PhoneDisplayInteractionCoordinator(makeOwner: { replacementBackend }, heartbeat: nil)
+            model.shellProviders[phone] = ShellProvider(replacement)
+            gate.release(); await model.phonePrivacyUpdates[phone]?.value
+            precondition(backend.retireCalls == 1 && replacementBackend.retireCalls == 0 && replacementBackend.pollCalls == 0,
+                         "Suspended retry must not operate through a replacement provider")
+            try await interaction.release(lease)
+        }
+
         do {
             let phone = "modern", model = AppModel(), session = ScrcpySession()
             session.usesCompositeDisplayInteraction = true
@@ -163,6 +312,6 @@ struct DeviceRow { let id: String; var isReady = true; var adbSerial: String? = 
         disabled.setPhoneDisplayPrivacy(false, deviceID: phone); await disabled.phonePrivacyUpdates[phone]?.value
         disabled.publishPrimaryReadiness(true, session: disabledSession); await disabled.phonePrivacyUpdates[phone]?.value
         precondition(disabled.owner.starts == 0 && disabled.owner.writes.isEmpty && !disabledSession.legacyAutomaticWrites.contains(true), "Saved OFF was blanked or woke a panel during initial mirror opening")
-        print("PASS actual privacy entry points: both readiness signals, untouched default ON, exact folded restoration, OFF without legacy blackout, shared app leases and respectful physical wake")
+        print("PASS actual privacy entry points: visible cleanup retry, producer settlement fence, independent phones, coalescing, provider replacement, readiness, default ON, folded restoration and respectful physical wake")
     }
 }

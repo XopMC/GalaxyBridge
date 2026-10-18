@@ -414,8 +414,7 @@ struct DeviceWorkspace: View {
                             Text(phonePrivacyStatusKey).font(.caption).foregroundStyle(.secondary)
                             if case .failed = model.phoneDisplayPrivacyStatuses[device.id] {
                                 Button("RETRY") {
-                                    model.setPhoneDisplayPrivacy(
-                                        model.phoneDisplayPrivacyEnabled(deviceID: device.id), deviceID: device.id)
+                                    model.retryPhoneDisplayPrivacy(deviceID: device.id)
                                 }
                                 .font(.caption)
                             }

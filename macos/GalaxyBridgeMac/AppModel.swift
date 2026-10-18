@@ -2589,6 +2589,40 @@ final class AppModel: ObservableObject {
         requestPhoneDisplayPrivacyUpdate(deviceID: id)
     }
 
+    func retryPhoneDisplayPrivacy(deviceID: String) {
+        let id = canonicalPhonePrivacyID(deviceID)
+        guard terminationAdmission.admitsWork, captureRouteHandoffTasks[id] == nil else { return }
+        guard let interaction = activePhoneDisplayInteraction(deviceID: id) else {
+            requestPhoneDisplayPrivacyUpdate(deviceID: id)
+            return
+        }
+        let preceding = phonePrivacyUpdates[id], ticket = UUID()
+        phonePrivacyUpdateTickets[id] = ticket
+        phonePrivacyUpdates[id] = Task { [weak self] in
+            await preceding?.value
+            guard let self else { return }
+            defer {
+                if self.phonePrivacyUpdateTickets[id] == ticket {
+                    self.phonePrivacyUpdates.removeValue(forKey: id)
+                    self.phonePrivacyUpdateTickets.removeValue(forKey: id)
+                }
+            }
+            @MainActor func isCurrent() -> Bool {
+                self.terminationAdmission.admitsWork && self.phonePrivacyUpdateTickets[id] == ticket
+                    && self.captureRouteHandoffTasks[id] == nil
+                    && self.shellProviders[id]?.displayInteraction === interaction
+            }
+            guard isCurrent() else { return }
+            // Producers retain their demands until exact owned cleanup is
+            // confirmed. Poll cannot release a panel owner with demands left.
+            _ = await self.settlePrimaryCaptureRetirements(deviceID: id)
+            guard isCurrent() else { return }
+            _ = await self.applicationWindowCoordinator?.retryRetiringOwners(deviceID: id)
+            guard isCurrent() else { return }
+            await interaction.poll()
+        }
+    }
+
     func phoneDisplaySessionReady(deviceID: String, serial: String, leaseID: UUID) {
         let id = canonicalPhonePrivacyID(deviceID)
         guard phonePrivacyLeases[leaseID] == nil, terminationAdmission.admitsWork else { return }
