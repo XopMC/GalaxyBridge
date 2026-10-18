@@ -118,8 +118,10 @@ impl Controller {
         let selected = if self.streak >= 2 && cooldown {
             self.clean = None;
             Some(((self.target as u64 * 3) / 4) as u32).map(|n| n.max(2_000_000.min(self.ceiling)))
-        } else if queued == 0 && generated == 0 && s.datagram_queue_records < 8 {
-            let since = *self.clean.get_or_insert(p.at);
+        } else if queued == 0 && generated == 0 && transport_backlog < 8 {
+            // A drained sample cannot credit the preceding interval, whose
+            // committed pacing queue may still have been backlogged.
+            let since = *self.clean.get_or_insert(now);
             if now - since >= 5_000 * MS
                 && cooldown
                 && self
@@ -216,14 +218,14 @@ mod tests {
             assert_eq!(sample(&mut c, n, n - 1, 32), None);
         }
         assert_eq!(sample(&mut c, 11, 10, 32), Some(11_250_000));
-        for n in 12..31 {
+        for n in 12..32 {
             assert_eq!(sample(&mut c, n, 10, 0), None);
         }
-        assert_eq!(sample(&mut c, 31, 10, 0), Some(12_375_000));
-        for n in 32..51 {
+        assert_eq!(sample(&mut c, 32, 10, 0), Some(12_375_000));
+        for n in 33..53 {
             assert_eq!(sample(&mut c, n, 10, 0), None);
         }
-        assert_eq!(sample(&mut c, 51, 10, 0), Some(13_612_500));
+        assert_eq!(sample(&mut c, 53, 10, 0), Some(13_612_500));
         let mut c = Controller::new(1_000_000).unwrap();
         for n in 1..100 {
             assert_eq!(sample(&mut c, n, n, 32), None);
@@ -236,6 +238,41 @@ mod tests {
         for n in 4..100 {
             assert_eq!(sample(&mut c, n, n, 32), None);
         }
+    }
+    #[test]
+    fn generated_backlog_withholds_upshift_until_five_seconds_after_observed_drain() {
+        let mut c = Controller::new(6_000_000).unwrap();
+        assert_eq!(c.receiver_recovery(1_000 * MS), Some(4_500_000));
+        let mut s = Stats::default();
+        s.authenticated = true;
+        s.application_ready = true;
+        s.path.valid = true;
+        s.path.available = true;
+        s.generated_packets = 32;
+        // Committed ciphertext may remain paced without expiring. It is not
+        // an empty path just because the plaintext queue and expiry deltas are zero.
+        for n in 1..=25 {
+            s.datagrams_admitted = n * 100;
+            assert_eq!(
+                c.sample((1_000 + n * 250) * MS, n, s),
+                None,
+                "generated backlog was counted as clean at sample {n}"
+            );
+        }
+        assert_eq!(c.target, 4_500_000);
+        s.generated_packets = 0;
+        // First observed drain is at 7.5s. The preceding busy interval earns
+        // no clean credit; recovery cannot occur before 12.5s.
+        for n in 26..46 {
+            s.datagrams_admitted = n * 100;
+            assert_eq!(
+                c.sample((1_000 + n * 250) * MS, n, s),
+                None,
+                "upshift preceded five seconds after observed drain at sample {n}"
+            );
+        }
+        s.datagrams_admitted = 4_600;
+        assert_eq!(c.sample(12_500 * MS, 46, s), Some(4_950_000));
     }
     #[test]
     fn bitrate_invalid_idle_audio_regression_and_overflow_are_not_load() {
