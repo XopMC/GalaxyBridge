@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory(prefix='gb-media-failure-diagnostics-') as temp
     helper = (ROOT / 'macos/GalaxyBridgeMac/Media/MediaFailureDiagnostics.swift').read_text()
     (output / 'Diagnostic.swift').write_text(helper.replace('import GalaxyBridgeEnhancedCore\n', ''))
     fixture = (ROOT / 'macos/GalaxyBridgeMacTests/MediaRetirementDiagnosticFlowSpec.swift').read_text()
-    retirement = declaration(provider, '    func retire(').replace('func retire(', 'override func retire(', 1)
+    retirement = declaration(provider, '    func retire(_ lease: ShellCapabilityBridgeLease) async throws {').replace('func retire(', 'override func retire(', 1)
     extras = declaration(provider, '    private enum RetirementDiagnosticStage:') + '\n' + declaration(provider, '    private func reportUnconfirmedRetirement(')
     fixture = fixture.replace('// ACTUAL_STOP_PROVIDER', '@MainActor final class ActualStopProvider: StopFixture {\n' + retirement + '\n' + extras + '\n}')
     (output / 'Retirement.swift').write_text(fixture)

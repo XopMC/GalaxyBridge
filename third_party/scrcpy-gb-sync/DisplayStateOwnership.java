@@ -94,8 +94,16 @@ final class DisplayStateOwnership {
     }
     private boolean ownedWake(DisplayStateSnapshot value) {
         return wakeAttempted && value.power.defaultInteractive && value.power.defaultWakefulness == DisplayStateSnapshot.Wakefulness.AWAKE
-            && value.power.defaultActivityTime == wakeEventTime && value.power.lastGlobalSleepTime == initial.power.lastGlobalSleepTime
-            && (value.power.lastGlobalWakeTime == initial.power.lastGlobalWakeTime || value.power.lastGlobalWakeTime == wakeEventTime);
+            && value.power.defaultActivityTime >= wakeEventTime && value.power.lastGlobalSleepTime == initial.power.lastGlobalSleepTime
+            && ((value.power.lastGlobalWakeTime == wakeEventTime && value.power.lastGlobalWakeTime != initial.power.lastGlobalWakeTime)
+                || (value.power.lastGlobalWakeTime == initial.power.lastGlobalWakeTime && value.power.defaultActivityTime == wakeEventTime));
+    }
+    private void acceptAwakeBaseline(DisplayStateSnapshot value) {
+        // A causal global wake stamp survives subsequent system/user activity.
+        // Such activity permits input but never authorizes cleanup sleep.
+        if (value.power.defaultActivityTime != wakeEventTime) sleepAuthorityRevoked = true;
+        awakeBaseline = value; reference = value.power; referenceActivityTime = reference.defaultActivityTime;
+        expected = new LinkedHashMap<>(value.panels); confirmed = new LinkedHashMap<>(value.panels);
     }
     private DisplayStateSnapshot read() throws Exception {
         DisplayStateSnapshot value = backend.read();
@@ -137,9 +145,7 @@ final class DisplayStateOwnership {
             DisplayStateSnapshot value = read();
             if (!topology(value)) { yieldAuthority(value); throw new Failure("display_topology_superseded"); }
             if (ownedWake(value)) {
-                awakeBaseline = value; reference = value.power; referenceActivityTime = reference.defaultActivityTime;
-                expected = new LinkedHashMap<>(value.panels);
-                confirmed = new LinkedHashMap<>(value.panels); return;
+                acceptAwakeBaseline(value); return;
             }
             if (value.power.defaultActivityTime != initial.power.defaultActivityTime || value.power.defaultInteractive) {
                 yieldAuthority(value); throw new Failure("display_wake_superseded");
@@ -173,10 +179,16 @@ final class DisplayStateOwnership {
         expected.put(id, mode); // arm ownership before a potentially partially applied write
         backend.setPanel(id, mode); backend.synchronizeMutations();
     }
-    private void confirmPanels(Map<String, DisplayStateSnapshot.Mode> target) throws Exception {
+    private void guardPanelWrite(DisplayStateSnapshot value, boolean checkPanels, boolean strictPower) throws Failure {
+        guardOwned(value, checkPanels);
+        if (strictPower && !powerAuthority(value)) {
+            yieldAuthority(value); throw new Failure("display_restore_power_authority_unknown");
+        }
+    }
+    private void confirmPanels(Map<String, DisplayStateSnapshot.Mode> target, boolean strictPower) throws Exception {
         long deadline = backend.uptimeMillis() + SETTLE_MILLIS;
         for (int attempt = 0; attempt < MAX_OBSERVATIONS; ++attempt) {
-            DisplayStateSnapshot value = read(); guardOwned(value, false);
+            DisplayStateSnapshot value = read(); guardPanelWrite(value, false, strictPower);
             if (value.panels.equals(target)) { confirmed = new LinkedHashMap<>(target); return; }
             if (backend.uptimeMillis() >= deadline) break;
             backend.pause();
@@ -184,18 +196,21 @@ final class DisplayStateOwnership {
         throw new Failure("display_panel_state_unconfirmed");
     }
     private void writeTarget(Map<String, DisplayStateSnapshot.Mode> target, boolean baseline) throws Exception {
+        writeTarget(target, baseline, false);
+    }
+    private void writeTarget(Map<String, DisplayStateSnapshot.Mode> target, boolean baseline, boolean strictPower) throws Exception {
         // Explicit SHOW enables only the active panel. Baseline policies may
         // restore preexisting modes, after the same identity/posture checks.
         for (String id : initial.physicalIDs) if (target.get(id) == DisplayStateSnapshot.Mode.OFF && current.panels.get(id) != target.get(id)) {
-            guardOwned(read(), true); write(id, target.get(id)); confirmPanels(expected);
+            guardPanelWrite(read(), true, strictPower); write(id, target.get(id)); confirmPanels(expected, strictPower);
         }
         for (String id : initial.physicalIDs) if (target.get(id) != DisplayStateSnapshot.Mode.OFF && current.panels.get(id) != target.get(id)) {
             if (!id.equals(initial.activePhysicalID) && (!baseline || (target.get(id) != initial.panels.get(id)
                     && (awakeBaseline == null || target.get(id) != awakeBaseline.panels.get(id)))))
                 throw new Failure("display_inactive_panel_enable_rejected");
-            guardOwned(read(), true); write(id, target.get(id)); confirmPanels(expected);
+            guardPanelWrite(read(), true, strictPower); write(id, target.get(id)); confirmPanels(expected, strictPower);
         }
-        confirmPanels(target);
+        confirmPanels(target, strictPower);
     }
     synchronized void poll() throws Exception {
         if (state != State.READY || renewalDisabled) return;
@@ -252,16 +267,19 @@ final class DisplayStateOwnership {
             // Recover an interrupted wake only with the separately armed exact event-time witness.
             if (wakeAttempted && !sleepAttempted && ownedWake(before)) {
                 if (awakeBaseline == null) {
-                    awakeBaseline = before; reference = before.power; referenceActivityTime = reference.defaultActivityTime;
-                    expected = new LinkedHashMap<>(before.panels);
-                    confirmed = new LinkedHashMap<>(before.panels);
+                    acceptAwakeBaseline(before);
                 }
             }
             observeActivity(before);
             if (!sleepAttempted && !powerAuthority(before)) { yieldAuthority(before); finishYield(); return; }
             if (!sleepAttempted && !panelAuthority(before)) { yieldAuthority(before); finishYield(); return; }
             if (sleepAuthorityRevoked && wakeAttempted && !initial.power.defaultInteractive && !sleepAttempted
-                    && before.power.defaultInteractive) { finishYield(State.YIELDED_ACTIVITY); return; }
+                    && before.power.defaultInteractive) {
+                // Keep later activity awake, but release our physical blackout.
+                // Every write/read still requires known, unchanged power authority.
+                writeTarget(awakeBaseline.panels, true, true);
+                finishYield(State.YIELDED_ACTIVITY); return;
+            }
             if (wakeAttempted && !initial.power.defaultInteractive && before.power.defaultInteractive) {
                 if (sleepAttempted) throw new Failure("display_sleep_unconfirmed");
                 sleepAttempted = true;
@@ -282,7 +300,7 @@ final class DisplayStateOwnership {
                 throw new Failure("display_restore_panel_authority_unknown");
             expected = new LinkedHashMap<>(before.panels);
             confirmed = new LinkedHashMap<>(before.panels);
-            writeTarget(initial.panels, true);
+            writeTarget(initial.panels, true, true);
             if (!restorationState(read())) throw new Failure("display_restore_unconfirmed");
             state = State.RESTORED;
         } catch (Exception failure) { uncertain(); throw failure instanceof Failure ? (Failure) failure : new Failure("display_operation_failed", failure); }

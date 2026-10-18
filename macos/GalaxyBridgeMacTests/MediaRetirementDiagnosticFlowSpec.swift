@@ -16,9 +16,17 @@ struct GBShellBridgeRequest { enum Operation { case stop, status } }
     let diagnosticID: UInt64 = 1
     let context = TestContext(sessionID: "initial-session")
     var localCancelled = false
+    var displayState: Bool? = nil
     func cancelLocal() { localCancelled = true }
 }
 @MainActor class StopFixture {
+    @MainActor final class Preparation {
+        func retire() async throws { preconditionFailure("Producer reservations are covered by their ownership suite") }
+    }
+    var producerPreparations: [String: Preparation] = [:]
+    func retireDisplayState(_ lease: ShellCapabilityBridgeLease) async throws {
+        preconditionFailure("Composite display retirement is covered by its typed protocol suite")
+    }
     let cleanupLogger = Logger(subsystem: "com.xopmc.GalaxyBridge.fixture", category: "ShellStopDiagnostic")
     var leases: [String: ShellCapabilityBridgeLease] = [:]
     var current = "initial-session"

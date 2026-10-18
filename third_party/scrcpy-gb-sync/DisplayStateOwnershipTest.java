@@ -16,6 +16,7 @@ public final class DisplayStateOwnershipTest {
         int failedWrite = -1, writes, reads, wakes, sleeps, renewals;
         boolean failWakeAfterApply, failSleepAfterApply, failNextWriteBeforeApply, omitGroupWakefulness;
         boolean completeGroupDump, virtualGroupPresent;
+        long postWakeActivityDelay;
         Runnable afterNextRead;
         Exception failNextRead;
         DisplayStateSnapshot.Mode modeAfterSleep;
@@ -46,6 +47,7 @@ public final class DisplayStateOwnershipTest {
             if (ignoreWake) return;
             defaultWake = eventTime; activity = eventTime;
             interactive = true; wakefulness = "1"; panels.put(active, ON); if (!otherGroupAwake) wake = eventTime;
+            activity += postWakeActivityDelay; now += postWakeActivityDelay;
             if (failWakeAfterApply) throw new IOException("applied_wake_then_failed");
         }
         public void sleep(long eventTime, DisplayStateSnapshot.Wakefulness target) throws Exception {
@@ -138,6 +140,7 @@ public final class DisplayStateOwnershipTest {
         }
     }
     public static void main(String[] args) throws Exception {
+        testPostWakeActivityDoesNotRejectConfirmedWake();
         testApplicationGroupAfterKnownAwake();
         testUnknownCurrentNeverGrantsSleepOrAnotherWake();
         Backend diagnostic = new Backend(); diagnostic.initiallyAwake(); DisplayStateOwnership diagnosticOwner = owner(diagnostic);
@@ -306,5 +309,43 @@ public final class DisplayStateOwnershipTest {
         int renewedBefore = ignored.renewals; unconfirmed.poll();
         assert ignored.renewals == renewedBefore : "uncertain cleanup must stop activity renewal";
         System.out.println("PASS composite engine: pre-wake baseline, privacy-independent input lifetime, exact raw restoration, partial writes, user sleep/posture/topology yield, default-group activity fence and bounded unconfirmed cleanup");
+    }
+
+    private static void testPostWakeActivityDoesNotRejectConfirmedWake() throws Exception {
+        for (boolean interrupted : new boolean[] { false, true }) {
+            Backend backend = new Backend(); backend.postWakeActivityDelay = 342;
+            backend.failWakeAfterApply = interrupted;
+            DisplayStateOwnership control = owner(backend);
+            if (interrupted) reject(() -> control.apply(true, DisplayStateOwnership.Policy.HIDE, 1));
+            else {
+                control.apply(true, DisplayStateOwnership.Policy.HIDE, 1);
+                assert control.state() == DisplayStateOwnership.State.READY && backend.panels.get("20") == OFF
+                    : "activity after our exact global wake must not break display admission";
+                control.poll();
+            }
+            control.restore();
+            assert control.state() == DisplayStateOwnership.State.YIELDED_ACTIVITY && backend.sleeps == 0
+                && backend.wakes == 1 && backend.interactive && backend.panels.get("20") == ON
+                : "post-wake activity must revoke sleep even after an applied Binder failure";
+        }
+        Backend ambiguous = new Backend(); ambiguous.otherGroupAwake = true; ambiguous.postWakeActivityDelay = 342;
+        DisplayStateOwnership unproven = owner(ambiguous);
+        reject(() -> unproven.apply(true, DisplayStateOwnership.Policy.HIDE, 1));
+        assert unproven.state() != DisplayStateOwnership.State.READY && ambiguous.writes == 0
+            : "unchanged aggregate wake plus later activity cannot identify our wake";
+        Backend sameTick = new Backend(); sameTick.otherGroupAwake = true;
+        sameTick.wake = sameTick.now + 1; sameTick.postWakeActivityDelay = 342;
+        DisplayStateOwnership coincident = owner(sameTick);
+        reject(() -> coincident.apply(true, DisplayStateOwnership.Policy.HIDE, 1));
+        assert coincident.state() != DisplayStateOwnership.State.READY && sameTick.writes == 0
+            : "an initial stamp equal to our armed time is still unchanged, not a causal wake witness";
+
+        Backend uncertain = new Backend(); uncertain.postWakeActivityDelay = 342; uncertain.completeGroupDump = true;
+        DisplayStateOwnership retiring = owner(uncertain); retiring.apply(true, DisplayStateOwnership.Policy.HIDE, 1);
+        int writes = uncertain.writes;
+        uncertain.afterNextRead = () -> { uncertain.virtualGroupPresent = true; uncertain.omitGroupWakefulness = true; };
+        reject(retiring::restore); retiring.restore();
+        assert uncertain.writes == writes && uncertain.sleeps == 0
+            : "awake-panel restoration must stop if scoped logical evidence becomes unknown between reads";
     }
 }
