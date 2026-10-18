@@ -43,9 +43,6 @@ struct ContentView: View {
                             Button { setupDevice = device } label: {
                                 Label("DEVICE_FEATURES_TITLE", systemImage: "slider.horizontal.3")
                             }
-                            Button(action: model.beginPairing) {
-                                Label("PAIR_DEVICE", systemImage: "qrcode")
-                            }
                             Button {
                                 mirrorWindows.present(device: device, model: model)
                             } label: {
@@ -280,10 +277,8 @@ struct ContentView: View {
                     Button { isWirelessSetupPresented = true } label: {
                         Label("WIFI_SETUP_TITLE", systemImage: "wifi")
                     }
-                    Button(action: model.beginNearbyPairing) {
-                        Label("NEARBY_PAIR", systemImage: "plus.circle")
-                    }
 #endif
+                    addDeviceButton
                     Button {
                         openWindow(id: "about")
                     } label: {
@@ -296,9 +291,7 @@ struct ContentView: View {
         }
         .navigationTitle("Galaxy Bridge")
         .toolbar {
-            Button(action: model.beginPairing) {
-                Image(systemName: "qrcode")
-            }
+            addDeviceButton
             Button(action: model.refresh) {
                 if model.isRefreshing {
                     ProgressView().controlSize(.small)
@@ -307,6 +300,19 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private var addDeviceButton: some View {
+#if !GALAXYBRIDGE_APP_STORE
+        Button(action: model.beginNearbyPairing) {
+            Label("NEARBY_PAIR", systemImage: "plus.circle")
+        }
+        .help(Text("NEARBY_PAIR"))
+#else
+        Button(action: model.beginPairing) {
+            Label("PAIR_DEVICE", systemImage: "qrcode")
+        }
+#endif
     }
 }
 
