@@ -69,6 +69,10 @@ final class ApplicationIconCache: @unchecked Sendable {
         try pruneIfNeeded()
     }
 
+    static func isSafeIconPNG(_ data: Data, maximumBytes: Int = 4 * 1_024 * 1_024) -> Bool {
+        data.count <= maximumBytes && hasSafePNGHeader(data)
+    }
+
     private static func hasSafePNGHeader(_ data: Data) -> Bool {
         let signature: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
         guard data.count >= 24,

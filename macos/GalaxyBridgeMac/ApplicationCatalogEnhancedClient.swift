@@ -78,13 +78,14 @@ struct ApplicationCatalogEnhancedClient: Sendable {
         packageName: String,
         export: [String: Data]
     ) -> Data? {
-        if let iconCache,
-           let cached = try? iconCache.iconPNG(deviceID: deviceID, packageName: packageName) {
-            return cached
+        let cached = try? iconCache?.iconPNG(deviceID: deviceID, packageName: packageName)
+        if let fresh = export[packageName], ApplicationIconCache.isSafeIconPNG(fresh) {
+            if fresh != cached {
+                try? iconCache?.store(fresh, deviceID: deviceID, packageName: packageName)
+            }
+            return fresh
         }
-        guard let iconData = export[packageName] else { return nil }
-        try? iconCache?.store(iconData, deviceID: deviceID, packageName: packageName)
-        return (try? iconCache?.iconPNG(deviceID: deviceID, packageName: packageName)) ?? iconData
+        return cached
     }
 }
 #endif

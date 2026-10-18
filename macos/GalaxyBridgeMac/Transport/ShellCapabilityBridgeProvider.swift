@@ -326,22 +326,37 @@ final class ShellCapabilityBridgeProvider: ObservableObject, ShellCapturePrepari
     }
 
     func fetchApplicationCatalog() async throws -> [ApplicationCatalogItem] {
-        let response = try await perform(operation: .listApplications, lease: "", generation: "", context: context())
+        try Task.checkCancellation()
+        let scopedContext = try context()
+        let response = try await perform(operation: .listApplications, lease: "", generation: "", context: scopedContext)
         let data = response.applicationCatalogJson
-        guard response.errorCode.isEmpty, !data.isEmpty, data.count <= 2 * 1024 * 1024 else { throw ShellCapabilityBridgeFailure.invalidResult }
-        let manifest = try ApplicationCatalogExportManifest.decode(data, maximumApplications: 512)
-        let raw = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        var icons: [String: Data] = [:]
-        for row in (raw?["applications"] as? [[String: Any]]) ?? [] {
-            guard let package = row["package"] as? String, let encoded = row["icon_png_base64"] as? String,
-                  encoded.utf8.count <= 87_384, let bytes = Data(base64Encoded: encoded), bytes.count <= 65_536,
-                  bytes.count >= 24, bytes.prefix(8) == Data([137,80,78,71,13,10,26,10]) else { continue }
-            let width = bytes[16..<20].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
-            let height = bytes[20..<24].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
-            if (1...256).contains(width), (1...256).contains(height) { icons[package] = bytes }
+        if ProcessInfo.processInfo.arguments.contains("--primary-media-diagnostics") {
+            Logger(subsystem: "com.xopmc.GalaxyBridge", category: "ApplicationCatalog")
+                .info("catalog_reply bytes=\(data.count) remote_error=\(!response.errorCode.isEmpty)")
         }
-        return manifest.applications.map { .init(packageName: $0.packageName, componentName: $0.componentName,
-            label: $0.label, iconPNG: icons[$0.packageName], isSystem: $0.isSystem) }
+        guard response.errorCode.isEmpty, !data.isEmpty, data.count <= 2 * 1024 * 1024 else { throw ShellCapabilityBridgeFailure.invalidResult }
+        try Task.checkCancellation()
+        let items = try await Task.detached(priority: .userInitiated) {
+            let manifest = try ApplicationCatalogExportManifest.decode(data, maximumApplications: 512)
+            let raw = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            var icons: [String: Data] = [:]
+            for row in (raw?["applications"] as? [[String: Any]]) ?? [] {
+                guard let package = row["package"] as? String, let encoded = row["icon_png_base64"] as? String,
+                      encoded.utf8.count <= 87_384, let bytes = Data(base64Encoded: encoded), bytes.count <= 65_536,
+                      bytes.count >= 24, bytes.prefix(8) == Data([137,80,78,71,13,10,26,10]) else { continue }
+                let width = bytes[16..<20].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+                let height = bytes[20..<24].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+                if (1...256).contains(width), (1...256).contains(height) { icons[package] = bytes }
+            }
+            return manifest.applications.map { ApplicationCatalogItem(packageName: $0.packageName, componentName: $0.componentName,
+                label: $0.label, iconPNG: icons[$0.packageName], isSystem: $0.isSystem) }
+                .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+        }.value
+        try Task.checkCancellation()
+        guard control() === scopedContext.control, control()?.authenticatedSessionID == scopedContext.sessionID else {
+            throw ShellCapabilityBridgeFailure.sessionChanged
+        }
+        return items
     }
 
     func prepare(configuration: ScrcpyLaunchConfiguration, operation: GBShellBridgeRequest.Operation = .startScrcpy,

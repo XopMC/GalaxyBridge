@@ -1729,7 +1729,7 @@ final class AppModel: ObservableObject {
     }
 
     func loadApplicationCatalog(deviceID: String, force: Bool = false) {
-        guard featureEnabled(.applications, deviceID: deviceID) else { return }
+        guard terminationAdmission.admitsWork, featureEnabled(.applications, deviceID: deviceID) else { return }
         guard applicationCatalogRequestsByDevice[deviceID] == nil else { return }
         if !force, case .available = applicationCatalogsByDevice[deviceID] { return }
         guard let device = row(id: deviceID) else { return }
@@ -1741,43 +1741,84 @@ final class AppModel: ObservableObject {
             return
         }
         let serial = device.adbSerial
-        let catalogProvider = serial == nil ? shellBridgeProvider(deviceID: deviceID) : nil
-        let catalogSession = companionControl(for: deviceID)?.authenticatedSessionID
+        let preparedCatalogProvider = availableShellProvider(deviceID: deviceID)
+            .flatMap { $0.currentRuntimeVerified ? $0 : nil }
+        let catalogProvider = preparedCatalogProvider ?? (serial == nil ? shellBridgeProvider(deviceID: deviceID) : nil)
+        let catalogControl = companionControl(for: deviceID)
+        let catalogSession = catalogControl?.authenticatedSessionID
         let requestID = UUID()
         applicationCatalogRequestsByDevice[deviceID] = requestID
         let previous = applicationCatalogsByDevice[deviceID]
         if case .available = previous {} else { applicationCatalogsByDevice[deviceID] = .loading }
+        let catalogStartedAt = ProcessInfo.processInfo.systemUptime
         Task {
+            var usedBroker = catalogProvider != nil
+            let loadUsingADB: @MainActor (String) async throws -> [ApplicationCatalogItem] = { [self] serial in
+                guard terminationAdmission.admitsWork, featureEnabled(.applications, deviceID: deviceID),
+                      applicationCatalogRequestsByDevice[deviceID] == requestID,
+                      row(id: deviceID)?.adbSerial == serial else { throw CancellationError() }
+                let client = ApplicationCatalogEnhancedClient(adb: try ADBClient())
+                return try await Task.detached(priority: .userInitiated) {
+                    try client.load(deviceID: deviceID, serial: serial)
+                }.value
+            }
             defer {
                 if applicationCatalogRequestsByDevice[deviceID] == requestID {
                     applicationCatalogRequestsByDevice.removeValue(forKey: deviceID)
+                    if case .loading = applicationCatalogsByDevice[deviceID] {
+                        applicationCatalogsByDevice[deviceID] = .idle
+                    }
                     if let current = row(id: deviceID), current.adbSerial != serial ||
-                        (serial == nil && companionControl(for: deviceID)?.authenticatedSessionID != catalogSession) {
+                        (usedBroker && (companionControl(for: deviceID) !== catalogControl ||
+                            companionControl(for: deviceID)?.authenticatedSessionID != catalogSession)) {
                         // A USB/Wi-Fi route change may have arrived while this
                         // request was running. Its view task could not start a
                         // second load until this owner had retired.
-                        if case .loading = applicationCatalogsByDevice[deviceID] {
-                            applicationCatalogsByDevice[deviceID] = .idle
-                        }
                         loadApplicationCatalog(deviceID: deviceID, force: true)
                     }
                 }
             }
+            guard terminationAdmission.admitsWork, featureEnabled(.applications, deviceID: deviceID),
+                  applicationCatalogRequestsByDevice[deviceID] == requestID else { return }
             do {
                 let items: [ApplicationCatalogItem]
-                if let serial {
-                    let client = ApplicationCatalogEnhancedClient(adb: try ADBClient())
-                    items = try await Task.detached(priority: .userInitiated) { try client.load(deviceID: deviceID, serial: serial) }.value
-                } else if let catalogProvider { items = try await catalogProvider.fetchApplicationCatalog() }
+                if let catalogProvider {
+                    do {
+                        items = try await catalogProvider.fetchApplicationCatalog()
+                    } catch let failure as ShellCapabilityBridgeFailure where failure == .unavailable || failure == .timeout {
+                        guard let serial, terminationAdmission.admitsWork, featureEnabled(.applications, deviceID: deviceID),
+                              applicationCatalogRequestsByDevice[deviceID] == requestID,
+                              row(id: deviceID)?.adbSerial == serial,
+                              companionControl(for: deviceID) === catalogControl,
+                              companionControl(for: deviceID)?.authenticatedSessionID == catalogSession else { throw CancellationError() }
+                        usedBroker = false
+                        items = try await loadUsingADB(serial)
+                    }
+                } else if let serial { items = try await loadUsingADB(serial) }
                 else { throw ShellCapabilityBridgeFailure.unavailable }
-                guard featureEnabled(.applications, deviceID: deviceID), applicationCatalogRequestsByDevice[deviceID] == requestID,
+                guard terminationAdmission.admitsWork, featureEnabled(.applications, deviceID: deviceID), applicationCatalogRequestsByDevice[deviceID] == requestID,
                       row(id: deviceID)?.adbSerial == serial,
-                      serial != nil || companionControl(for: deviceID)?.authenticatedSessionID == catalogSession else { return }
+                      !usedBroker || (companionControl(for: deviceID) === catalogControl &&
+                          companionControl(for: deviceID)?.authenticatedSessionID == catalogSession) else { return }
+                if primaryMediaDiagnosticsEnabled {
+                    let source = usedBroker ? "broker" : "adb"
+                    let elapsed = (ProcessInfo.processInfo.systemUptime - catalogStartedAt) * 1_000
+                    let icons = items.filter { $0.iconPNG != nil }.count
+                    Logger(subsystem: "com.xopmc.GalaxyBridge", category: "ApplicationCatalog")
+                        .info("catalog_ready source=\(source, privacy: .public) count=\(items.count) elapsed_ms=\(elapsed) icons=\(icons)")
+                }
                 applicationCatalogsByDevice[deviceID] = .available(items)
             } catch {
-                guard featureEnabled(.applications, deviceID: deviceID), applicationCatalogRequestsByDevice[deviceID] == requestID,
+                guard terminationAdmission.admitsWork, featureEnabled(.applications, deviceID: deviceID), applicationCatalogRequestsByDevice[deviceID] == requestID,
                       row(id: deviceID)?.adbSerial == serial,
-                      serial != nil || companionControl(for: deviceID)?.authenticatedSessionID == catalogSession else { return }
+                      !usedBroker || (companionControl(for: deviceID) === catalogControl &&
+                          companionControl(for: deviceID)?.authenticatedSessionID == catalogSession) else { return }
+                if primaryMediaDiagnosticsEnabled {
+                    let kind = (error as? ShellCapabilityBridgeFailure).map { String(describing: $0) }
+                        ?? String(reflecting: type(of: error))
+                    Logger(subsystem: "com.xopmc.GalaxyBridge", category: "ApplicationCatalog")
+                        .info("catalog_failed broker=\(usedBroker) error_type=\(kind, privacy: .public)")
+                }
                 if case .available = previous {
                     lastError = error.localizedDescription
                 } else {
