@@ -52,6 +52,9 @@ cached_start = execute.index('\n', execute.index('            if (request.bootGe
 admission_fixture = (root / 'scripts/fixtures/ShellCompositeStopAdmissionSpec.kt').read_text().replace(
     '        // ACTUAL_CHILD_ADMISSION', execute[admission_start:admission_end]).replace(
     '        // ACTUAL_CACHED_ADMISSION', execute[cached_start:admission_start])
+write_start = execute.index('                val writable = synchronized(lock) {')
+write_end = execute.index('                if (!writable)', write_start)
+admission_fixture = admission_fixture.replace('        // ACTUAL_WRITE_ADMISSION', execute[write_start:write_end])
 server = Path(os.environ.get('GB_SHELL_STOP_SERVER_SOURCE', root / 'android/app/src/main/java/com/xopmc/galaxybridge/transport/CompanionLanServer.kt')).read_text()
 lease_start = server.index('    private data class FeatureShellLease(')
 lease_end = server.index('    private val featureShellLeases', lease_start)

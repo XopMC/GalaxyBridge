@@ -35,6 +35,27 @@ import Foundation
     }
     @MainActor static func run() async throws {
         do {
+            let backend = InteractionBackend()
+            let coordinator = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+            var statuses: [PhoneDisplayInteractionCoordinator.Status] = []
+            coordinator.statusHandler = { statuses.append($0) }
+            let id = UUID(); try coordinator.reserve(id); try await coordinator.prepare(id)
+            try require(statuses == [.preparing], "Status must show preparation before usable video/control")
+            coordinator.ready(id); await coordinator.waitForSettlement()
+            try require(statuses.last == .hidden && coordinator.hasOutstandingOwnership, "Readiness confirms hidden state without releasing ownership")
+            await coordinator.poll(); await coordinator.poll()
+            try require(statuses == [.preparing, .hidden], "Steady STATUS polls cannot publish redundant UI changes")
+            coordinator.setManualPower(on: true); await coordinator.waitForSettlement()
+            try require(backend.events.last == "show" && statuses.last == .visible, "Manual display ON preserves the logical owner")
+            coordinator.setManualPower(on: false); await coordinator.waitForSettlement()
+            try require(backend.events.last == "hide" && statuses.last == .hidden, "Manual display OFF remains available")
+            coordinator.setPrivacyEnabled(false); await coordinator.waitForSettlement()
+            try require(backend.events.last == "show" && statuses.last == .visible, "Changing the preference clears a manual override")
+            coordinator.cancelAdmission(id); try await coordinator.release(id)
+            try require(statuses.suffix(2) == [.restoring, .idle] && !coordinator.hasOutstandingOwnership,
+                        "Final exact retirement reports restoration then idle")
+        }
+        do {
             let backend = InteractionBackend(); backend.failApply = true
             let coordinator = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
             var failures = 0

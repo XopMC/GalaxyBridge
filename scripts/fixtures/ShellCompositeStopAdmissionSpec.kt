@@ -6,9 +6,16 @@ import com.xopmc.galaxybridge.protocol.v1.ShellBridgeResult
 import org.junit.Assert.*
 import org.junit.Test
 
-private class ActualCompositeAdmission {
-    val leases = ShellStreamLeaseRegistry()
+internal class ActualCompositeAdmission(val leases: ShellStreamLeaseRegistry = ShellStreamLeaseRegistry()) {
     val pending = mutableSetOf<String>()
+    val lock = Any()
+    val owner = Any()
+    var generation = "f7ce5d25-497b-484f-bd5d-d1838a4d2978"
+    fun writable(peerID: String, sessionID: String, request: ShellBridgeRequest,
+                 boot: String = generation, socket: Any = owner): Boolean {
+        // ACTUAL_WRITE_ADMISSION
+        return writable
+    }
     fun admit(peerID: String, sessionID: String, request: ShellBridgeRequest): ShellBridgeResult {
         var newLease = false
         var compositeLease = false
@@ -27,6 +34,16 @@ class ShellCompositeStopAdmissionSpec {
         .setOperation(ShellBridgeRequest.Operation.STOP).setDisplayStateStop(true).build()
     private fun snapshot() = stop().toBuilder().clearDisplayStateStop().setOperation(ShellBridgeRequest.Operation.START_DISPLAY_STATE)
         .setDisplayState(DisplayStateCommand.getDefaultInstance()).build()
+    @Test fun legacyStopSealsPreviouslyAdmittedButNotYetWrittenStartup() {
+        val runtime = ActualCompositeAdmission()
+        val start = stop().toBuilder().clearDisplayStateStop().setOperation(ShellBridgeRequest.Operation.START_SCRCPY).build()
+        assertTrue(runtime.admit("peer", "session", start).available)
+        assertTrue(runtime.writable("peer", "session", start))
+        assertTrue(runtime.admit("peer", "session", stop().toBuilder().clearDisplayStateStop().build()).available)
+        assertFalse(runtime.writable("peer", "session", start))
+        assertFalse(runtime.admit("peer", "session", start).available)
+        assertFalse(runtime.leases.allows("peer", "session", "$id/control"))
+    }
     @Test fun cachedFreshIDBypassesCapacityButCannotReuseAnInflightRequestID() {
         val runtime = ActualCompositeAdmission()
         assertTrue(runtime.leases.admitCompositeStop("peer", "session", stop()))

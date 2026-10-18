@@ -35,6 +35,46 @@ class ShellStopOwnershipSpec {
         assertTrue(it.leases.admit("peer", "session", lease))
         assertTrue(it.leases.declare("peer", "session", lease, listOf("$lease/video", "$lease/control")))
     }
+    @Test fun lostSuccessfulCaptureStopResponseReplaysOnlyItsExactConfirmedReceipt() {
+        val runtime = runtime()
+        val completed = response()
+        runtime.complete("peer", "session", request(), completed, boot)
+        assertFalse(runtime.leases.owns("peer", "session", lease))
+        // The phone completed STOP, but its response never reached the Mac.
+        val admission = ActualCompositeAdmission(runtime.leases)
+        val retry = request(java.util.UUID.randomUUID().toString())
+        val replay = admission.admit("peer", "session", retry)
+        assertTrue("Lost STOP acknowledgement must remain recoverable", replay.available)
+        assertEquals(completed.toBuilder().setRequestId(retry.requestId).build(), replay)
+        assertFalse(admission.admit("other", "session", retry).available)
+        assertFalse(admission.admit("peer", "new-session", retry).available)
+        assertFalse(admission.admit("peer", "session", retry.toBuilder().setBootGeneration(lease).build()).available)
+        assertFalse(admission.admit("peer", "session", retry.toBuilder().setDisplayStateStop(true).build()).available)
+        assertFalse(runtime.leases.admit("peer", "session", lease))
+        assertFalse(admission.admit("peer", "session", retry.toBuilder()
+            .setOperation(ShellBridgeRequest.Operation.START_SCRCPY).build()).available)
+    }
+    @Test fun failedNativeStartupKeepsItsExactStopAuthority() {
+        val runtime = runtime()
+        val start = request().toBuilder().setOperation(ShellBridgeRequest.Operation.START_SCRCPY).build()
+        runtime.complete("peer", "session", start, response("failed", "shell_operation_failed"), boot, newLease = true)
+        assertTrue("Failed START may retain a partially started native child", runtime.leases.owns("peer", "session", lease))
+        runtime.complete("peer", "session", request(), response(), boot)
+        assertFalse(runtime.leases.owns("peer", "session", lease))
+    }
+    @Test fun lateReadyReplyCannotReopenStreamsAfterStopAdmission() {
+        val runtime = runtime()
+        assertTrue(runtime.leases.markProducerStopping("peer", "session", lease))
+        val start = request().toBuilder().setOperation(ShellBridgeRequest.Operation.START_SCRCPY).build()
+        val ready = response("ready").toBuilder().addStreamIds("$lease/video").addStreamIds("$lease/control").build()
+        val rejected = runtime.complete("peer", "session", start, ready, boot)
+        assertEquals("shell_lease_draining", rejected.errorCode)
+        assertTrue(runtime.leases.owns("peer", "session", lease))
+        assertFalse(runtime.leases.allows("peer", "session", "$lease/control"))
+        assertEquals(0, runtime.removals)
+        runtime.complete("peer", "session", request(), response(), boot)
+        assertFalse(runtime.leases.owns("peer", "session", lease))
+    }
     @Test fun typedUnknownStopCachesNativeReceiptBeforeRemovalAndPreservesSiblings() {
         val runtime = runtime()
         val stop = request().toBuilder().setLeaseId(boot).setDisplayStateStop(true).build()

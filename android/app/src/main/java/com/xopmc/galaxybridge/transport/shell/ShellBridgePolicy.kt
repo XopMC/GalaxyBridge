@@ -75,7 +75,7 @@ internal object ShellBridgePolicy {
 internal class ShellStreamLeaseRegistry {
     fun admitCompositeStop(peer: String, session: String, request: ShellBridgeRequest): Boolean {
         if (!ShellBridgePolicy.valid(request) || request.operation != ShellBridgeRequest.Operation.STOP || !request.displayStateStop ||
-            request.leaseId in retiredComposite) return false
+            request.leaseId in retiredComposite || request.leaseId in retiredProducers) return false
         val old = entry(request.leaseId)
         if (old != null) {
             if (old.peer != peer || old.session != session || !old.composite ||
@@ -96,19 +96,20 @@ internal class ShellStreamLeaseRegistry {
     private data class CompositeStop(val lease: Lease, val boot: String)
     private val compositeStops = linkedMapOf<String, CompositeStop>()
     private fun entry(id: String): Lease? = leases[id] ?: compositeStops[id]?.lease
-    private fun compositeIdentityCount(): Int = retiredComposite.size + leases.values.count { it.composite } + compositeStops.size
+    private fun compositeIdentityCount(): Int = retiredComposite.size + retiredProducers.size + leases.size + compositeStops.size
     private data class RetiredComposite(val peer: String, val session: String, val receipt: ShellBridgeResult? = null)
     private val retiredComposite = linkedMapOf<String, RetiredComposite>()
+    private val retiredProducers = linkedMapOf<String, RetiredComposite>()
     fun admit(peer: String, session: String, lease: String): Boolean {
-        if (!ShellBridgePolicy.uuid(lease) || lease in retiredComposite || lease in compositeStops) return false
-        leases[lease]?.let { return it.peer == peer && it.session == session && !it.composite }
-        if (leases.size >= 8) return false
+        if (!ShellBridgePolicy.uuid(lease) || lease in retiredComposite || lease in retiredProducers || lease in compositeStops) return false
+        leases[lease]?.let { return it.peer == peer && it.session == session && !it.composite && !it.draining }
+        if (leases.size >= 8 || compositeIdentityCount() >= 4096) return false
         leases[lease] = Lease(peer, session)
         return true
     }
     fun admitComposite(peer: String, session: String, request: ShellBridgeRequest): Boolean {
         if (!ShellBridgePolicy.valid(request) || request.operation != ShellBridgeRequest.Operation.START_DISPLAY_STATE ||
-            request.leaseId in retiredComposite || request.leaseId in compositeStops) return false
+            request.leaseId in retiredComposite || request.leaseId in retiredProducers || request.leaseId in compositeStops) return false
         val old = leases[request.leaseId]
         if (request.displayState.action == DisplayStateCommand.Action.SNAPSHOT) {
             if (old != null) return old.peer == peer && old.session == session && old.composite && !old.draining && !old.policyAttempted
@@ -146,6 +147,28 @@ internal class ShellStreamLeaseRegistry {
         entry(lease)!!.draining = true
         return true
     }
+    fun markProducerStopping(peer: String, session: String, lease: String): Boolean {
+        val entry = leases[lease] ?: return false
+        if (entry.peer != peer || entry.session != session || entry.composite) return false
+        entry.draining = true
+        return true
+    }
+    fun canWriteProducer(peer: String, session: String, lease: String): Boolean = leases[lease]?.let {
+        it.peer == peer && it.session == session && !it.composite && !it.draining
+    } == true
+    fun retainProducerRetirement(peer: String, session: String, lease: String, result: ShellBridgeResult): Boolean {
+        if (isComposite(peer, session, lease) || !confirmsStopped(peer, session, lease, result) ||
+            !ShellBridgePolicy.uuid(result.bootGeneration)) return false
+        retiredProducers[lease] = RetiredComposite(peer, session, result)
+        return true
+    }
+    fun cachedProducerStop(peer: String, session: String, request: ShellBridgeRequest): ShellBridgeResult? {
+        if (!ShellBridgePolicy.valid(request) || request.operation != ShellBridgeRequest.Operation.STOP || request.displayStateStop) return null
+        val retired = retiredProducers[request.leaseId] ?: return null
+        val receipt = retired.receipt ?: return null
+        if (retired.peer != peer || retired.session != session || receipt.bootGeneration != request.bootGeneration) return null
+        return receipt.toBuilder().setRequestId(request.requestId).build()
+    }
     fun isComposite(peer: String, session: String, lease: String): Boolean =
         entry(lease)?.let { it.peer == peer && it.session == session && it.composite } == true
     fun retainCompositeRetirement(peer: String, session: String, lease: String, result: ShellBridgeResult): Boolean {
@@ -180,14 +203,14 @@ internal class ShellStreamLeaseRegistry {
     }
     fun declare(peer: String, session: String, lease: String, streams: List<String>): Boolean {
         val entry = leases[lease] ?: return false
-        if (!owns(peer, session, lease) || streams.size > 4 || streams.toSet().size != streams.size ||
+        if (!owns(peer, session, lease) || entry.draining || streams.size > 4 || streams.toSet().size != streams.size ||
             streams.any { ShellBridgePolicy.stream(it)?.first != lease }) return false
         if (entry.composite && streams.isNotEmpty()) return false
         entry.streams.clear(); entry.streams.addAll(streams)
         return true
     }
     fun allows(peer: String, session: String, stream: String): Boolean = ShellBridgePolicy.stream(stream)?.let { (lease, _) ->
-        leases[lease]?.let { it.peer == peer && it.session == session && !it.composite && stream in it.streams } == true
+        leases[lease]?.let { it.peer == peer && it.session == session && !it.composite && !it.draining && stream in it.streams } == true
     } == true
     // Producers are created after the shared display owner, but must retire
     // before it. Stable sorting retains the existing producer cleanup order.
@@ -199,5 +222,5 @@ internal class ShellStreamLeaseRegistry {
             if (it.composite && lease !in retiredComposite) retiredComposite[lease] = RetiredComposite(it.peer, it.session)
         }
     }
-    fun clear() { leases.clear(); compositeStops.clear(); retiredComposite.clear() }
+    fun clear() { leases.clear(); compositeStops.clear(); retiredComposite.clear(); retiredProducers.clear() }
 }

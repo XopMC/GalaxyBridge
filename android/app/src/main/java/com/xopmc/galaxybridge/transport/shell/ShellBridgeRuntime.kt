@@ -139,6 +139,7 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
             if (request.bootGeneration.isNotEmpty() && request.bootGeneration != generation) return rejected(request, "shell_boot_generation_changed")
             if (request.requestId in pending) return rejected(request, "shell_request_busy")
             leases.cachedCompositeStop(peerID, sessionID, request)?.let { return it }
+            leases.cachedProducerStop(peerID, sessionID, request)?.let { return it }
             if (pending.size >= 32) return rejected(request, "shell_request_busy")
             if (ShellBridgePolicy.usesChildLease(request.operation)) {
                 if (request.operation == ShellBridgeRequest.Operation.STOP) {
@@ -148,6 +149,7 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
                     if (!leases.owns(peerID, sessionID, request.leaseId)) return rejected(request, "shell_lease_unknown")
                     compositeLease = leases.isComposite(peerID, sessionID, request.leaseId)
                     if (compositeLease) check(leases.markCompositeStopping(peerID, sessionID, request.leaseId))
+                    else check(leases.markProducerStopping(peerID, sessionID, request.leaseId))
                 } else {
                     newLease = !leases.owns(peerID, sessionID, request.leaseId)
                     val admitted = if (request.operation == ShellBridgeRequest.Operation.START_DISPLAY_STATE)
@@ -164,7 +166,12 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
             synchronized(writeLock) {
                 val writable = synchronized(lock) {
                     check(owner === socket && generation == boot)
-                    request.operation != ShellBridgeRequest.Operation.START_DISPLAY_STATE || leases.canWriteComposite(peerID, sessionID, request)
+                    when {
+                        request.operation == ShellBridgeRequest.Operation.START_DISPLAY_STATE -> leases.canWriteComposite(peerID, sessionID, request)
+                        ShellBridgePolicy.usesChildLease(request.operation) && request.operation != ShellBridgeRequest.Operation.STOP ->
+                            leases.canWriteProducer(peerID, sessionID, request.leaseId)
+                        else -> true
+                    }
                 }
                 if (!writable) return rejected(request, "shell_lease_draining")
                 try { ShellBridgeWire.write(socket.output, command.toString()) }
@@ -181,6 +188,7 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
                     // exact peer/session authority so a later STOP can retry.
                     if (leases.confirmsStopped(peerID, sessionID, request.leaseId, response)) {
                         if (compositeLease) check(leases.retainCompositeRetirement(peerID, sessionID, request.leaseId, response))
+                        else check(leases.retainProducerRetirement(peerID, sessionID, request.leaseId, response))
                         removeLeaseLocked(request.leaseId)
                     }
                 }
@@ -189,13 +197,19 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
                     // this lease. Its late startup reply cannot affect siblings.
                     if (!leases.owns(peerID, sessionID, request.leaseId)) return rejected(request, "shell_lease_retired")
                     if (response.available && response.errorCode.isEmpty()) {
+                        if (!compositeLease && !leases.canWriteProducer(peerID, sessionID, request.leaseId))
+                            return rejected(request, "shell_lease_draining")
                         if (request.operation == ShellBridgeRequest.Operation.START_DISPLAY_STATE &&
                             request.displayState.action == com.xopmc.galaxybridge.protocol.v1.DisplayStateCommand.Action.SNAPSHOT &&
                             leases.canWriteComposite(peerID, sessionID, request)) {
                             check(leases.confirmCompositeSnapshot(peerID, sessionID, request.leaseId, response)) { "shell_invalid_display_snapshot" }
                         }
                         check(leases.declare(peerID, sessionID, request.leaseId, response.streamIdsList)) { "shell_invalid_stream_declaration" }
-                    } else if (newLease && !compositeLease) leases.remove(request.leaseId)
+                    } else if (newLease && !compositeLease) {
+                        // Failed startup may still own a partially started
+                        // native child. Preserve its STOP authority until proof.
+                        leases.markProducerStopping(peerID, sessionID, request.leaseId)
+                    }
                 }
             }
             return response

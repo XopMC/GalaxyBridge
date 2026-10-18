@@ -67,11 +67,17 @@ final class ScrcpySession: ObservableObject {
     var clipboardTrustGeneration: UUID { preparationID }
     var clipboardTrustPeer: PairedPeer? { shellLease?.context.peer }
     private let adb: ADBClient
-    private let shellProvider: ShellCapabilityBridgeProvider?
+    private let shellProvider: (any ShellCapturePreparing)?
+    private let displayInteractionCoordinator: PhoneDisplayInteractionCoordinator?
+    private var displayInteractionLease: ScrcpyDisplayInteractionLease?
+    private var retiredDisplayInteractionLeases: [ScrcpyDisplayInteractionLease] = []
+    var usesCompositeDisplayInteraction: Bool { displayInteractionLease != nil }
     private let remoteAbsenceProof: EnhancedCaptureAbsenceProof?
     private var retiringADBLaunchers: [ObjectIdentifier: Process] = [:]
     private var shellLease: ShellCapabilityBridgeLease?
     private var retiredShellLeases: [ShellCapabilityBridgeLease] = []
+    private var shellPreparation: ProducerPreparationReservation<ShellCapabilityBridgeLease>?
+    private var retiredShellPreparations: [ProducerPreparationReservation<ShellCapabilityBridgeLease>] = []
     private let remoteRetirement: EnhancedRemoteRetirementFence
     private let physicalDisplayPolicy: ScrcpyPhysicalDisplayPolicy
     private var automaticDisplayManagement: Bool
@@ -189,8 +195,12 @@ final class ScrcpySession: ObservableObject {
             && (retiredQuicTransport?.physicallySettled ?? true)
             && retiringADBLaunchers.isEmpty
     }
-    var cleanupPhysicallySettled: Bool {
+    private var producerResourcesPhysicallySettled: Bool {
         hostResourcesPhysicallySettled && remoteRetirement.settled && retiredShellLeases.isEmpty
+            && shellPreparation == nil && retiredShellPreparations.isEmpty
+    }
+    var cleanupPhysicallySettled: Bool {
+        producerResourcesPhysicallySettled && displayInteractionLease == nil && retiredDisplayInteractionLeases.isEmpty
     }
 
     /// Actual prepare and host-native fixtures share this allocation seam.
@@ -202,7 +212,9 @@ final class ScrcpySession: ObservableObject {
         frameDelivery: @escaping NativeFrameDelivery = { action in Task { @MainActor in action() } }
     ) throws -> ScrcpyNativeMediaOwner {
         guard nativeOwner == nil,
+              displayInteractionLease == nil, retiredDisplayInteractionLeases.isEmpty,
               retiredShellLeases.isEmpty,
+              shellPreparation == nil, retiredShellPreparations.isEmpty,
               retiredQuicTransport?.physicallySettled ?? true,
               retiredNativeOwner?.attempt.snapshot.actuallySettled ?? true else { throw NativeMediaFailure.cleanupIncomplete }
         retiredNativeOwner = nil
@@ -286,16 +298,18 @@ final class ScrcpySession: ObservableObject {
             Task { @MainActor in action() }
         },
         nativePreparationBoundary: (@MainActor @Sendable (ScrcpyNativeMediaOwner, ScrcpyCodec) async throws -> Bool)? = nil,
-        shellProvider: ShellCapabilityBridgeProvider? = nil,
-        remoteAbsenceProof: EnhancedCaptureAbsenceProof? = nil
+        shellProvider: (any ShellCapturePreparing)? = nil,
+        remoteAbsenceProof: EnhancedCaptureAbsenceProof? = nil,
+        displayInteractionCoordinator: PhoneDisplayInteractionCoordinator? = nil
     ) {
         self.serial = serial
         self.adb = adb
         self.shellProvider = shellProvider
+        self.displayInteractionCoordinator = displayInteractionCoordinator
         self.remoteAbsenceProof = remoteAbsenceProof
         self.remoteRetirement = EnhancedRemoteRetirementFence(captureSerial: serial)
         self.physicalDisplayPolicy = physicalDisplayPolicy
-        self.automaticDisplayManagement = shellProvider == nil && automaticDisplayManagement
+        self.automaticDisplayManagement = shellProvider == nil && displayInteractionCoordinator == nil && automaticDisplayManagement
         self.primaryDiagnosticsEnabled = primaryDiagnosticsEnabled
         self.clipboardPollingEnabled = clipboardPollingEnabled
         self.audioCaptureEnabled = audioCaptureEnabled
@@ -396,9 +410,14 @@ final class ScrcpySession: ObservableObject {
     }
 
     func retryOwnedCleanup() {
-        if !retiredShellLeases.isEmpty { scheduleCleanup { [weak self] in await self?.retirePendingShellLeases() } }
+        if !retiredShellLeases.isEmpty || !retiredShellPreparations.isEmpty {
+            scheduleCleanup { [weak self] in await self?.retirePendingShellLeases() }
+        }
         scheduleCleanup { [weak self] in await self?.retirePendingRemoteServers() }
         if originalDisplayBrightness != nil, displayRestorationFailure != nil { restorePhysicalDisplay() }
+        if !retiredDisplayInteractionLeases.isEmpty {
+            scheduleCleanup { [weak self] in await self?.retirePendingDisplayInteractions() }
+        }
     }
 
     func waitForScheduledCleanup() async {
@@ -430,6 +449,15 @@ final class ScrcpySession: ObservableObject {
     }
 
     private func retirePendingShellLeases() async {
+        for reservation in Array(retiredShellPreparations) {
+            do {
+                try await reservation.retire()
+                retiredShellPreparations.removeAll { $0 === reservation }
+            } catch {
+                let reason = MediaFailureDiagnostics.reason(error)
+                logger.error("Enhanced shell startup retirement remains fenced reason=\(reason, privacy: .public)")
+            }
+        }
         guard let shellProvider else { return }
         for lease in Array(retiredShellLeases) {
             do {
@@ -564,6 +592,20 @@ final class ScrcpySession: ObservableObject {
     ) async throws {
         try checkPreparation(request)
         let owner = try beginNativeAttempt()
+        var interaction = displayInteractionCoordinator
+        if interaction == nil, let shellProvider, shellProvider.supportsCompositeDisplayState {
+            interaction = shellProvider.displayInteraction
+        }
+        if let interaction {
+            let attemptID = owner.attempt.id
+            let lease = try ScrcpyDisplayInteractionLease(coordinator: interaction, onFailure: { [weak self] in
+                guard let self, self.nativeOwner?.attempt.id == attemptID, self.preparationID == request else { return }
+                self.fail(ShellCapabilityBridgeFailure.operationFailed, component: "Display interaction")
+            })
+            displayInteractionLease = lease
+            try await lease.prepare()
+            try checkPreparation(request)
+        }
         if let nativePreparationBoundary {
             // Owned host fixture boundary; normal production always continues
             // directly below. No transport or codec operation is substituted.
@@ -762,10 +804,16 @@ final class ScrcpySession: ObservableObject {
         let outputObserver = try beginApplicationDisplayObservation(for: applicationTarget)
         let port: UInt16?
         if let shellProvider {
-            let lease = try await shellProvider.prepare(configuration: configuration, outputObserver: outputObserver)
+            let reservation = try await shellProvider.reserveProducer(configuration: configuration, outputObserver: outputObserver)
             guard preparationID == request, !Task.isCancelled else {
-                try? await shellProvider.retire(lease); throw CancellationError()
+                reservation.cancelAdmission()
+                retiredShellPreparations.append(reservation)
+                scheduleCleanup { [weak self] in await self?.retirePendingShellLeases() }
+                throw CancellationError()
             }
+            shellPreparation = reservation
+            let lease = try await reservation.value()
+            try checkPreparation(request)
             shellLease = lease
             if primaryDiagnosticsEnabled {
                 logger.notice("GBCAP route=shell-bridge fps=\(configuration.maxFPS, privacy: .public) bitrate=\(configuration.videoBitRate, privacy: .public) maxsize=\(configuration.maxSize, privacy: .public)")
@@ -1168,7 +1216,10 @@ final class ScrcpySession: ObservableObject {
     }
 
     private func updatePhonePrivacyReadiness(_ event: PhonePrivacySessionReadiness.Event) {
-        if phonePrivacyReadiness.receive(event) { phoneDisplayPrivacyReady = true }
+        if phonePrivacyReadiness.receive(event) {
+            displayInteractionLease?.ready()
+            phoneDisplayPrivacyReady = true
+        }
     }
 
     private func handleScreenInterlock(_ event: ScreenInterlockEvent) {
@@ -1231,7 +1282,7 @@ final class ScrcpySession: ObservableObject {
 
     /// Transfers panel ownership without racing detached legacy brightness writes.
     func setAutomaticDisplayManagement(_ enabled: Bool) async throws {
-        guard shellProvider == nil else { return }
+        guard shellProvider == nil, displayInteractionCoordinator == nil else { return }
         if !enabled {
             if automaticDisplayManagement { handleScreenInterlock(.stopped) }
             automaticDisplayManagement = false
@@ -1358,7 +1409,18 @@ final class ScrcpySession: ObservableObject {
     }
 
     private func stopResources() {
-        if let shellLease, shellProvider != nil {
+        if let lease = displayInteractionLease {
+            lease.cancelAdmission()
+            displayInteractionLease = nil
+            retiredDisplayInteractionLeases.append(lease)
+        }
+        if let reservation = shellPreparation {
+            shellPreparation = nil
+            reservation.cancelAdmission()
+            shellLease?.cancelLocal(); shellLease = nil
+            retiredShellPreparations.append(reservation)
+            scheduleCleanup { [weak self] in await self?.retirePendingShellLeases() }
+        } else if let shellLease, shellProvider != nil {
             self.shellLease = nil
             shellLease.cancelLocal()
             retiredShellLeases.append(shellLease)
@@ -1475,6 +1537,22 @@ final class ScrcpySession: ObservableObject {
             }
         }
         reverseTunnel = nil
+        if !retiredDisplayInteractionLeases.isEmpty {
+            scheduleCleanup { [weak self] in await self?.retirePendingDisplayInteractions() }
+        }
+    }
+
+    private func retirePendingDisplayInteractions() async {
+        guard producerResourcesPhysicallySettled else { return }
+        for lease in Array(retiredDisplayInteractionLeases) {
+            do {
+                try await lease.retire(producerPhysicallySettled: true)
+                retiredDisplayInteractionLeases.removeAll { $0 === lease }
+            } catch {
+                let reason = MediaFailureDiagnostics.reason(error)
+                logger.error("Display interaction retirement remains fenced reason=\(reason, privacy: .public)")
+            }
+        }
     }
 
     private func recordNativeRetirement(_ outcome: NativeMediaSettlement) {
@@ -1488,7 +1566,10 @@ final class ScrcpySession: ObservableObject {
     private func checkPreparation(_ request: UUID) throws {
         try Task.checkCancellation()
         guard preparationID == request else { throw CancellationError() }
-        guard remoteRetirement.settled, retiredShellLeases.isEmpty else { throw NativeMediaFailure.cleanupIncomplete }
+        guard remoteRetirement.settled, retiredShellLeases.isEmpty, retiredShellPreparations.isEmpty,
+              retiredDisplayInteractionLeases.isEmpty else {
+            throw NativeMediaFailure.cleanupIncomplete
+        }
         if let owner = nativeOwner, !owner.attempt.isAdmitted { throw NativeMediaFailure.cleanupIncomplete }
     }
 

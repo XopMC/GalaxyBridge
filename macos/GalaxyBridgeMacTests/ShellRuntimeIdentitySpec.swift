@@ -15,7 +15,7 @@ private struct GBShellBridgeResult {
     var authenticatedSessionID = "session"
     var supportsShellRuntimeIdentity = true
 }
-@MainActor private final class Cancellation { func cancel() {} }
+@MainActor private final class Cancellation { func cancel() {}; func cancelAdmission() {} }
 @MainActor private final class Completion {
     var completed = false
     func resume(returning: GBShellBridgeResult) { completed = true }
@@ -27,6 +27,7 @@ private struct ShellCapabilityBridgeContext {
     let sessionID: String
 }
 @MainActor private final class Lease {
+    let id = UUID().uuidString
     let context = Context()
     var clipboardPort: UInt16?
     func cancelLocal() {}
@@ -70,6 +71,7 @@ private struct ShellCapabilityBridgeContext {
     var runtimeUpgradeRequested: (() -> Void)?
     var pending: [String: Pending] = [:]
     var leases: [String: Lease] = [:]
+    var producerPreparations: [String: Cancellation] = [:]
     // ACTUAL_VERIFIED_RUNTIME
     // ACTUAL_IDENTITY_PREDICATE
     // ACTUAL_RECOVERY_ADMISSION

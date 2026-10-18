@@ -24,6 +24,15 @@ struct ShellCapabilityBridgeContext: @unchecked Sendable {
 }
 
 @MainActor
+protocol ShellCapturePreparing: AnyObject {
+    var supportsCompositeDisplayState: Bool { get }
+    var displayInteraction: PhoneDisplayInteractionCoordinator { get }
+    func reserveProducer(configuration: ScrcpyLaunchConfiguration,
+                         outputObserver: ScrcpyOwnedProcessOutputObserver?) async throws -> ProducerPreparationReservation<ShellCapabilityBridgeLease>
+    func retire(_ lease: ShellCapabilityBridgeLease) async throws
+}
+
+@MainActor
 final class ShellCapabilityBridgeLease {
     let id: String
     let diagnosticID = UInt64.random(in: 1...UInt64.max)
@@ -46,7 +55,7 @@ final class ShellCapabilityBridgeLease {
 /// Root forwards current-generation ShellBridgeResult envelopes to receive().
 /// An unknown START is never replayed: its unique lease is stopped explicitly.
 @MainActor
-final class ShellCapabilityBridgeProvider: ObservableObject {
+final class ShellCapabilityBridgeProvider: ObservableObject, ShellCapturePreparing {
     @Published private(set) var available = false
     private(set) var bootGeneration: String?
     private let control: () -> CompanionTLSClient?
@@ -62,6 +71,7 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
     }
     private var pending: [String: Pending] = [:]
     private var leases: [String: ShellCapabilityBridgeLease] = [:]
+    private var producerPreparations: [String: ProducerPreparationReservation<ShellCapabilityBridgeLease>] = [:]
     private enum AbsenceProofSupport { case unknown, supported, legacy, unavailable }
     private var absenceProofSupport: AbsenceProofSupport = .unknown
     private var absenceProofGeneration: String?
@@ -167,7 +177,9 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
         for (id, item) in pending where item.context.sessionID == authenticatedSessionID {
             pending.removeValue(forKey: id); item.timeout.cancel(); item.continuation.resume(throwing: ShellCapabilityBridgeFailure.sessionChanged)
         }
-        for lease in leases.values where lease.context.sessionID == authenticatedSessionID { lease.cancelLocal() }
+        for lease in leases.values where lease.context.sessionID == authenticatedSessionID {
+            lease.cancelLocal(); producerPreparations[lease.id]?.cancelAdmission()
+        }
         available = false
         bootGeneration = nil
         runtimeIdentityGeneration = nil
@@ -340,6 +352,53 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
                 Task { [weak self] in _ = try? await self?.perform(operation: .stop, lease: id, generation: generation, context: context) }
             }
         }
+        let lease = try await prepareStreams(configuration: configuration, operation: operation,
+            outputObserver: outputObserver, id: id, generation: generation, context: context)
+        committed = true
+        return lease
+    }
+
+    /// This factory is read-only. The caller stores its cleanup reservation
+    /// before value() may queue the first remote producer request.
+    func reserveProducer(configuration: ScrcpyLaunchConfiguration,
+                         outputObserver: ScrcpyOwnedProcessOutputObserver? = nil) async throws -> ProducerPreparationReservation<ShellCapabilityBridgeLease> {
+        let context = try context()
+        try reserveLeaseAdmission()
+        defer { pendingLeaseAdmissions -= 1; notifyRuntimeUpgradeIfIdle() }
+        let generation = try await refreshAdmittedRuntime(context: context)
+        try Task.checkCancellation()
+        let id = UUID().uuidString.lowercased()
+        // Also count pending startup against the existing child capacity and
+        // runtime-replacement barrier, even before relays have been returned.
+        leases[id] = ShellCapabilityBridgeLease(id: id, generation: generation, context: context,
+            relays: [], port: nil, clipboardPort: nil, log: nil, observer: nil)
+        let reservation = ProducerPreparationReservation<ShellCapabilityBridgeLease>(operation: { [self] owner in
+            try await prepareStreams(configuration: configuration, operation: .startScrcpy,
+                outputObserver: outputObserver, id: id, generation: generation, context: context,
+                beforeDispatch: { try owner.checkAdmission() }, didDispatch: { owner.markDispatched() })
+        }, cancelResource: { $0.cancelLocal() }, cleanup: { [self] in
+            // A generic missing-lease STATUS in a replacement session is not
+            // evidence that this preceding producer is gone. Keep it fenced.
+            guard control() === context.control, control()?.authenticatedSessionID == context.sessionID,
+                  bootGeneration == generation else { throw ShellCapabilityBridgeFailure.sessionChanged }
+            let result = try await perform(operation: .stop, lease: id, generation: generation, context: context)
+            guard result.available, result.errorCode.isEmpty, result.bootGeneration == generation,
+                  result.state == "stopped", result.streamIds.isEmpty else {
+                throw ShellCapabilityBridgeFailure.operationFailed
+            }
+        }, onRetired: { [self] in
+            leases.removeValue(forKey: id); producerPreparations.removeValue(forKey: id)
+            notifyRuntimeUpgradeIfIdle()
+        })
+        producerPreparations[id] = reservation
+        return reservation
+    }
+
+    private func prepareStreams(configuration: ScrcpyLaunchConfiguration, operation: GBShellBridgeRequest.Operation,
+                                outputObserver: ScrcpyOwnedProcessOutputObserver?, id: String,
+                                generation: String, context: ShellCapabilityBridgeContext,
+                                beforeDispatch: (() throws -> Void)? = nil,
+                                didDispatch: (() -> Void)? = nil) async throws -> ShellCapabilityBridgeLease {
         var options = GBShellCaptureOptions()
         options.scid = configuration.scid; options.maxSize = UInt32(configuration.maxSize); options.maxFps = UInt32(configuration.maxFPS)
         options.videoBitRate = UInt64(configuration.videoBitRate); options.codec = configuration.videoCodec == .h264 ? "h264" : "h265"
@@ -349,21 +408,24 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
         case let .virtualDisplay(width, height, _): options.width = UInt32(width); options.height = UInt32(height)
         }
         options.packageName = configuration.applicationTarget?.packageName ?? ""
-        let response = try await perform(operation: operation, lease: id, generation: generation, context: context, options: options)
+        let response = try await perform(operation: operation, lease: id, generation: generation, context: context,
+            options: options, beforeDispatch: beforeDispatch, didDispatch: didDispatch)
         guard response.available, response.errorCode.isEmpty, response.state == "ready" else { throw ShellCapabilityBridgeFailure.operationFailed }
         let types = operation == .startClipboard ? ["control"] : configuration.audioEnabled ? ["video", "audio", "control"] : ["video", "control"]
         let allowed = Set(types + (operation == .startClipboard ? ["clipboard"] : ["log"]))
         guard Set(response.streamIds) == Set(allowed.map { id + "/" + $0 }), response.streamIds.count == allowed.count else { throw ShellCapabilityBridgeFailure.invalidResult }
         var relays: [ShellCapabilityBridgeRelay] = []
+        var log: CompanionTLSClient?
         do {
+            try Task.checkCancellation(); try beforeDispatch?()
             let media = try await ShellCapabilityBridgeRelay.start(context: context, leaseID: id, types: types)
             relays.append(media)
+            try Task.checkCancellation(); try beforeDispatch?()
             var clipboardPort: UInt16?
             if operation == .startClipboard {
                 let clipboard = try await ShellCapabilityBridgeRelay.start(context: context, leaseID: id, types: ["clipboard"])
                 relays.append(clipboard); clipboardPort = clipboard.port
             }
-            let log: CompanionTLSClient?
             if let outputObserver, operation == .startScrcpy {
                 log = CompanionTLSClient(endpoint: context.endpoint, peer: context.peer, hostID: context.hostID,
                     sessionID: context.sessionID, channelKind: .enhancedStream, stateHandler: { state in
@@ -376,8 +438,9 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
             guard control()?.authenticatedSessionID == context.sessionID else { throw ShellCapabilityBridgeFailure.sessionChanged }
             let lease = ShellCapabilityBridgeLease(id: id, generation: generation, context: context, relays: relays,
                 port: media.port, clipboardPort: clipboardPort, log: log, observer: outputObserver)
-            leases[id] = lease; committed = true; return lease
-        } catch { relays.forEach { $0.cancel() }; throw error }
+            try beforeDispatch?()
+            leases[id] = lease; return lease
+        } catch { relays.forEach { $0.cancel() }; log?.cancel(); outputObserver?.cancel(); throw error }
     }
 
     func beginPanelOwnership() async throws -> ShellCapabilityBridgeLease {
@@ -415,6 +478,7 @@ final class ShellCapabilityBridgeProvider: ObservableObject {
     }
 
     func retire(_ lease: ShellCapabilityBridgeLease) async throws {
+        if let reservation = producerPreparations[lease.id] { try await reservation.retire(); return }
         if lease.displayState != nil { try await retireDisplayState(lease); return }
         lease.cancelLocal()
         if control()?.authenticatedSessionID != lease.context.sessionID {

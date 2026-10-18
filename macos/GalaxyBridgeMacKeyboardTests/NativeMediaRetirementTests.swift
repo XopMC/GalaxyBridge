@@ -7,8 +7,138 @@ import GalaxyBridgeEnhancedCore
 import Testing
 @testable import GalaxyBridgeMac
 
+@MainActor private final class DisplayInteractionFixtureBackend: PhoneDisplayInteractionBackend {
+    var events: [String] = []
+    var holdSnapshot = false
+    var snapshotWaiter: CheckedContinuation<Void, Never>?
+    var failRetirement = false
+    func beginSnapshot() async throws {
+        events.append("snapshot")
+        if holdSnapshot { await withCheckedContinuation { snapshotWaiter = $0 } }
+    }
+    func apply(_ policy: DisplayStateControllerAcknowledgement.PanelPolicy) async throws {
+        events.append(policy == .preserve ? "interactive" : policy == .hide ? "hide" : "show")
+    }
+    func poll() async throws { events.append("poll") }
+    func retire() async throws {
+        events.append("retire")
+        if failRetirement { throw PhoneDisplayInteractionCoordinator.Failure.cleanupIncomplete }
+    }
+}
+
+@MainActor private final class SuspendedShellProducer: ShellCapturePreparing {
+    let supportsCompositeDisplayState = true
+    let displayInteraction: PhoneDisplayInteractionCoordinator
+    var waiter: CheckedContinuation<Void, Never>?
+    var reservation: ProducerPreparationReservation<ShellCapabilityBridgeLease>?
+    var started = false
+    var stopAttempts = 0
+    var failStop = true
+    init(coordinator: PhoneDisplayInteractionCoordinator) { displayInteraction = coordinator }
+    func reserveProducer(configuration: ScrcpyLaunchConfiguration,
+                         outputObserver: ScrcpyOwnedProcessOutputObserver?) async throws -> ProducerPreparationReservation<ShellCapabilityBridgeLease> {
+        let owner = ProducerPreparationReservation<ShellCapabilityBridgeLease>(operation: { [self] owner in
+            try owner.checkAdmission(); owner.markDispatched(); started = true
+            await withCheckedContinuation { waiter = $0 }
+            // START may succeed remotely before stream preparation fails.
+            throw ShellCapabilityBridgeFailure.operationFailed
+        }, cancelResource: { $0.cancelLocal() }, cleanup: { [self] in
+            stopAttempts += 1
+            if failStop { throw ShellCapabilityBridgeFailure.operationFailed }
+        })
+        reservation = owner
+        return owner
+    }
+    func retire(_ lease: ShellCapabilityBridgeLease) async throws {
+        Issue.record("An unreturned START must retain its reservation")
+    }
+}
+
 @Suite(.serialized)
 struct NativeMediaRetirementTests {
+    @Test(arguments: [false, true]) @MainActor
+    func displayInteractionRetainsProducerThatStartedBeforeChannelsReturned(stopDuringStartup: Bool) async throws {
+        let backend = DisplayInteractionFixtureBackend()
+        let coordinator = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+        let producer = SuspendedShellProducer(coordinator: coordinator)
+        let session = try ScrcpySession(serial: "shell:synthetic-producer",
+            adb: ADBClient(testingExecutableURL: URL(fileURLWithPath: "/usr/bin/true")),
+            physicalDisplayPolicy: .leaveUnchanged, automaticDisplayManagement: false,
+            nativePreparationBoundary: { _, _ in true }, shellProvider: producer)
+        session.start(preferredCodec: .h264)
+        try await NativeFixtures.until { producer.waiter != nil }
+        #expect(producer.started && backend.events == ["snapshot", "interactive"])
+        if stopDuringStartup {
+            session.stop()
+            try await NativeFixtures.until { producer.reservation?.accepting == false }
+            #expect(!session.cleanupPhysicallySettled && producer.stopAttempts == 0)
+            #expect(!backend.events.contains("retire"), "Display cleanup must join producer startup, even without a returned lease")
+        }
+        producer.waiter!.resume(); producer.waiter = nil
+        if !stopDuringStartup {
+            try await NativeFixtures.until {
+                if case .failed = session.state { return true }; return false
+            }
+        }
+        await session.waitForScheduledCleanup()
+        #expect(producer.stopAttempts > 0 && !session.cleanupPhysicallySettled)
+        #expect(!backend.events.contains("retire"), "A failed STOP cannot restore the display")
+        producer.failStop = false
+        session.retryOwnedCleanup(); await session.waitForScheduledCleanup()
+        #expect(producer.reservation?.retired == true)
+        #expect(session.cleanupPhysicallySettled && backend.events.last == "retire")
+    }
+
+    @Test @MainActor func displayInteractionPrecedesProducerAndWaitsForRealNativeSettlement() async throws {
+        let backend = DisplayInteractionFixtureBackend()
+        let coordinator = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+        let owners = NativeFixtureBox<[ScrcpyNativeMediaOwner]>([])
+        let session = try ScrcpySession(serial: "display-interaction-no-adb",
+            adb: ADBClient(testingExecutableURL: URL(fileURLWithPath: "/usr/bin/true")),
+            physicalDisplayPolicy: .leaveUnchanged, automaticDisplayManagement: false,
+            nativePreparationBoundary: { owner, _ in
+                #expect(backend.events == ["snapshot", "interactive"], "Logical display readiness must precede every producer operation")
+                owners.update { $0.append(owner) }
+                return false
+            }, displayInteractionCoordinator: coordinator)
+        session.start(preferredCodec: .h264)
+        try await NativeFixtures.until { owners.value.count == 1 }
+        let owner = try #require(owners.value.first)
+        var held: NativeMediaWork? = try #require(owner.admit(.codec(.h264)))
+        await session.stopAndWaitForCleanup()
+        #expect(held != nil && !session.cleanupPhysicallySettled)
+        #expect(!backend.events.contains("retire"), "A native cleanup deadline cannot release the display owner")
+        await coordinator.poll()
+        #expect(backend.events.last == "poll")
+        held = nil
+        try await NativeFixtures.until { owner.attempt.snapshot.actuallySettled }
+        backend.failRetirement = true
+        session.retryOwnedCleanup(); await session.waitForScheduledCleanup()
+        #expect(!session.cleanupPhysicallySettled, "Display retirement uncertainty must continue fencing this session")
+        backend.failRetirement = false
+        session.retryOwnedCleanup(); await session.waitForScheduledCleanup()
+        #expect(session.cleanupPhysicallySettled && backend.events.last == "retire")
+    }
+
+    @Test @MainActor func displayInteractionCancelledPublicStartDoesNotWakeAfterLateSnapshot() async throws {
+        let backend = DisplayInteractionFixtureBackend(); backend.holdSnapshot = true
+        let coordinator = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+        let session = try ScrcpySession(serial: "display-interaction-cancel-no-adb",
+            adb: ADBClient(testingExecutableURL: URL(fileURLWithPath: "/usr/bin/true")),
+            physicalDisplayPolicy: .leaveUnchanged, automaticDisplayManagement: false,
+            nativePreparationBoundary: { _, _ in
+                Issue.record("A cancelled SNAPSHOT must not admit producer preparation")
+                return false
+            }, displayInteractionCoordinator: coordinator)
+        session.start(preferredCodec: .h264)
+        try await NativeFixtures.until { backend.snapshotWaiter != nil || session.state != .preparing }
+        let waiter = try #require(backend.snapshotWaiter)
+        session.stop()
+        waiter.resume(); backend.snapshotWaiter = nil
+        await session.waitForScheduledCleanup()
+        #expect(backend.events == ["snapshot", "retire"])
+        #expect(session.cleanupPhysicallySettled && session.state == .stopped)
+    }
     @Test @MainActor func disabledAudioNeverReachesTheActualProducerLaunch() async throws {
         for enabled in [false, true] {
             for application in [false, true] {

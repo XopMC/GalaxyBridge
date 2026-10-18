@@ -24,6 +24,10 @@ protocol PhoneDisplayInteractionBackend: AnyObject {
 final class PhoneDisplayInteractionCoordinator {
     typealias Policy = DisplayStateControllerAcknowledgement.PanelPolicy
     enum Failure: Error { case unavailable, cleanupIncomplete }
+    enum Status: Equatable { case idle, preparing, hidden, visible, restoring, failed }
+    private(set) var status = Status.idle
+    var statusHandler: ((Status) -> Void)?
+    var hasOutstandingOwnership: Bool { owner != nil || !demands.isEmpty }
     private let makeOwner: () throws -> any PhoneDisplayInteractionBackend
     private let heartbeat: (@Sendable () async throws -> Void)?
     private struct Demand {
@@ -41,6 +45,7 @@ final class PhoneDisplayInteractionCoordinator {
     private var hasPresentedProducer = false
     private var appliedPolicy: Policy?
     private var privacyEnabled = true
+    private var manualPower: Bool?
     private var failure: Error?
     private var tail: Task<Void, Never>?
     private var tailID: UUID?
@@ -71,7 +76,14 @@ final class PhoneDisplayInteractionCoordinator {
         // Keep readiness/ownership until this producer is physically settled.
         enqueue()
     }
-    func setPrivacyEnabled(_ enabled: Bool) { privacyEnabled = enabled; enqueue() }
+    func setPrivacyEnabled(_ enabled: Bool) {
+        guard privacyEnabled != enabled else { return }
+        privacyEnabled = enabled; manualPower = nil; enqueue()
+    }
+    func setManualPower(on: Bool?) {
+        guard manualPower != on else { return }
+        manualPower = on; enqueue()
+    }
     func poll() async { pollRequested = true; enqueue(); await waitForSettlement() }
     func release(_ id: UUID) async throws {
         demands.removeValue(forKey: id)
@@ -93,12 +105,14 @@ final class PhoneDisplayInteractionCoordinator {
     private func reconcile() async {
         if demands.isEmpty {
             heartbeatTask?.cancel(); heartbeatTask = nil; pollRequested = false
-            guard let owner else { failure = nil; return }
+            guard let owner else { failure = nil; manualPower = nil; publish(.idle); return }
             do {
+                publish(.restoring)
                 try await owner.retire()
                 self.owner = nil; snapshotComplete = false; interactive = false
                 hasPresentedProducer = false
-                appliedPolicy = nil; failure = nil
+                appliedPolicy = nil; failure = nil; manualPower = nil
+                publish(.idle)
             } catch { fail(error) }
             return
         }
@@ -109,7 +123,10 @@ final class PhoneDisplayInteractionCoordinator {
                 owner = try makeOwner()
             }
             guard let owner else { return }
-            if !snapshotComplete { try await owner.beginSnapshot(); snapshotComplete = true }
+            if !snapshotComplete {
+                publish(.preparing)
+                try await owner.beginSnapshot(); snapshotComplete = true
+            }
             // Closing during SNAPSHOT keeps cleanup authority, but must not
             // wake a phone for which no producer is still admitted/requested.
             guard interactive || demands.values.contains(where: { $0.active || $0.ready }) else { return }
@@ -119,20 +136,29 @@ final class PhoneDisplayInteractionCoordinator {
             }
             for id in Array(demands.keys) where demands[id]?.active == true { demands[id]?.admitted = true }
             hasPresentedProducer = hasPresentedProducer || demands.values.contains(where: { $0.ready })
-            let desired: Policy = hasPresentedProducer ? (privacyEnabled ? .hide : .show) : .preserve
+            let desired: Policy = hasPresentedProducer
+                ? (manualPower.map { $0 ? Policy.show : .hide } ?? (privacyEnabled ? .hide : .show)) : .preserve
             if appliedPolicy != desired { try await owner.apply(desired); appliedPolicy = desired }
+            switch desired { case .preserve: publish(.preparing)
+            case .hide: publish(.hidden)
+            case .show: publish(.visible) }
             if pollRequested { pollRequested = false; try await owner.poll() }
             armHeartbeat()
         } catch { fail(error) }
     }
     private func fail(_ error: Error) {
         failure = error; heartbeatTask?.cancel(); heartbeatTask = nil; pollRequested = false
+        publish(.failed)
         var callbacks: [() -> Void] = []
         for id in Array(demands.keys) where demands[id]?.failureDelivered == false {
             if let callback = demands[id]?.onFailure { callbacks.append(callback) }
             demands[id]?.failureDelivered = true
         }
         callbacks.forEach { $0() }
+    }
+    private func publish(_ value: Status) {
+        guard status != value else { return }
+        status = value; statusHandler?(value)
     }
     private func armHeartbeat() {
         guard let heartbeat, heartbeatTask == nil, failure == nil, interactive, !demands.isEmpty else { return }

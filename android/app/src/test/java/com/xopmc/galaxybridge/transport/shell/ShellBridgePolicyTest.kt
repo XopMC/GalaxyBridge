@@ -14,6 +14,25 @@ import org.junit.Test
 class ShellBridgePolicyTest {
     private val lease = "69830b65-6352-4b3a-8a21-70bcda45787e"
     private val request = "d5e1590c-47fb-4d73-9ac2-45988ba0a876"
+    @Test fun legacyRetirementReceiptsReserveBoundedIdentityCapacityAndSurviveFullAdmission() {
+        val registry = ShellStreamLeaseRegistry()
+        val ids = (0 until 4096).map { java.util.UUID.randomUUID().toString() }
+        ids.forEach { id ->
+            assertTrue(registry.admit("peer", "session", id))
+            val receipt = ShellBridgeResult.newBuilder().setRequestId(request).setLeaseId(id).setBootGeneration(request)
+                .setAvailable(true).setState("stopped").build()
+            assertTrue(registry.retainProducerRetirement("peer", "session", id, receipt))
+            registry.remove(id)
+        }
+        assertFalse(registry.admit("peer", "session", lease))
+        val stop = ShellBridgeRequest.newBuilder().setRequestId(request).setLeaseId(ids.first()).setBootGeneration(request)
+            .setOperation(ShellBridgeRequest.Operation.STOP).build()
+        assertNotNull(registry.cachedProducerStop("peer", "session", stop))
+        assertFalse(registry.admit("peer", "session", ids.first()))
+        registry.clear()
+        assertNull(registry.cachedProducerStop("peer", "session", stop))
+        assertTrue(registry.admit("peer", "session", lease))
+    }
     @Test fun explicitCompositeStopSealsUnknownStartupWithoutConsumingProducerCapacity() {
         val registry = ShellStreamLeaseRegistry()
         val producers = (0..7).map { java.util.UUID.randomUUID().toString() }
