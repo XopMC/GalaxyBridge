@@ -5,8 +5,22 @@ import GalaxyBridgeCore
 struct DeviceRow { let id: String; var isReady = true; var adbSerial: String? = "synthetic-usb" }
 @MainActor final class ScrcpySession {
     let serial = "synthetic-usb"
+    var usesCompositeDisplayInteraction = false
+    var nativeSession: ScrcpySession { self }
     var legacyAutomaticWrites: [Bool] = []
     func setAutomaticDisplayManagement(_ enabled: Bool) async throws { legacyAutomaticWrites.append(enabled) }
+}
+@MainActor final class CompositeOwner: PhoneDisplayInteractionBackend {
+    var writes: [DisplayStateControllerAcknowledgement.PanelPolicy] = []
+    var retired = false
+    func beginSnapshot() async throws {}
+    func apply(_ policy: DisplayStateControllerAcknowledgement.PanelPolicy) async throws { writes.append(policy) }
+    func poll() async throws {}
+    func retire() async throws { retired = true }
+}
+@MainActor final class ShellProvider {
+    let displayInteraction: PhoneDisplayInteractionCoordinator
+    init(_ interaction: PhoneDisplayInteractionCoordinator) { displayInteraction = interaction }
 }
 @MainActor final class PhysicalOwner: PhoneDisplayPowerOwner {
     var failureHandler: ((String) -> Void)?
@@ -36,6 +50,7 @@ struct DeviceRow { let id: String; var isReady = true; var adbSerial: String? = 
     var phonePrivacyUpdateTickets: [String: UUID] = [:]
     var phoneDisplayPrivacyStatuses: [String: PhoneDisplayPrivacyStatus] = [:]
     var scrcpySessions: [String: ScrcpySession] = [:]
+    var shellProviders: [String: ShellProvider] = [:]
     var preparingDirectDevices = Set<String>()
     var terminationAdmission = Admission()
     let owner = PhysicalOwner()
@@ -51,6 +66,70 @@ struct DeviceRow { let id: String; var isReady = true; var adbSerial: String? = 
 }
 @main enum PhonePrivacyEntryPointSpec {
     @MainActor static func main() async throws {
+        do {
+            let phone = "modern", model = AppModel(), session = ScrcpySession()
+            session.usesCompositeDisplayInteraction = true
+            model.scrcpySessions[phone] = session
+            model.primaryPhonePrivacyLeases[ObjectIdentifier(session)] = UUID()
+            model.publishPrimaryReadiness(true, session: session)
+            model.publishApplicationReadiness(true, session: session, deviceID: phone, lease: UUID())
+            await model.phonePrivacyUpdates[phone]?.value
+            precondition(model.phonePrivacyLeases.isEmpty && model.owner.starts == 0,
+                         "Modern primary/app readiness must not create a second legacy panel owner")
+        }
+        do {
+            let phone = "modern-settings", model = AppModel(), backend = CompositeOwner()
+            let interaction = PhoneDisplayInteractionCoordinator(makeOwner: { backend }, heartbeat: nil)
+            model.phonePrivacyPreferences[phone] = false
+            model.shellProviders[phone] = ShellProvider(interaction)
+            model.configurePhoneDisplayInteraction(interaction, deviceID: phone)
+            await interaction.waitForSettlement()
+            precondition(model.phoneDisplayPrivacyStatuses[phone] == .disabled)
+            let lease = UUID()
+            try interaction.reserve(lease); try await interaction.prepare(lease)
+            interaction.ready(lease); await interaction.waitForSettlement()
+            precondition(backend.writes == [.preserve, .show] && model.phoneDisplayPrivacyStatuses[phone] == .visible,
+                         "Saved OFF must apply before the first producer becomes ready")
+            model.setPhoneDisplayPrivacy(true, deviceID: phone)
+            await interaction.waitForSettlement()
+            precondition(backend.writes.last == .hide && model.phoneDisplayPrivacyStatuses[phone] == .hidden)
+            model.setDisplayPower(deviceID: phone, on: true)
+            await interaction.waitForSettlement()
+            precondition(backend.writes.last == .show && model.phoneDisplayPrivacyStatuses[phone] == .visible)
+            model.setDisplayPower(deviceID: phone, on: false)
+            await interaction.waitForSettlement()
+            precondition(backend.writes.last == .hide && interaction.hasOutstandingOwnership)
+            model.setPhoneDisplayPrivacy(false, deviceID: phone)
+            await interaction.waitForSettlement()
+            precondition(backend.writes.last == .show && interaction.hasOutstandingOwnership && !backend.retired,
+                         "Privacy OFF cannot retire the shared logical interaction owner")
+            precondition(model.owner.starts == 0 && model.owner.writes.isEmpty && model.phonePrivacyLeases.isEmpty,
+                         "Settings and manual power must never open a competing legacy owner")
+            interaction.cancelAdmission(lease); try await interaction.release(lease)
+            precondition(backend.retired && model.phoneDisplayPrivacyStatuses[phone] == .disabled)
+            model.setPhoneDisplayPrivacy(true, deviceID: phone)
+            await model.phonePrivacyUpdates[phone]?.value
+            let manualLease = UUID()
+            try interaction.reserve(manualLease); try await interaction.prepare(manualLease)
+            interaction.ready(manualLease); await interaction.waitForSettlement()
+            model.setDisplayPower(deviceID: phone, on: true); await interaction.waitForSettlement()
+            precondition(backend.writes.last == .show && model.phonePrivacyManualPower[phone] == true)
+            interaction.cancelAdmission(manualLease); try await interaction.release(manualLease)
+            precondition(model.phonePrivacyManualPower[phone] == nil,
+                         "Last confirmed composite cleanup must clear the root manual override")
+            let reopened = UUID()
+            try interaction.reserve(reopened); try await interaction.prepare(reopened)
+            interaction.ready(reopened); await interaction.waitForSettlement()
+            precondition(backend.writes.last == .hide,
+                         "Reopening after manual SHOW must honor default privacy ON")
+            interaction.cancelAdmission(reopened); try await interaction.release(reopened)
+            let replacement = PhoneDisplayInteractionCoordinator(makeOwner: { CompositeOwner() }, heartbeat: nil)
+            model.shellProviders[phone] = ShellProvider(replacement)
+            model.phoneDisplayPrivacyStatuses[phone] = .hidden
+            interaction.statusHandler?(.failed)
+            precondition(model.phoneDisplayPrivacyStatuses[phone] == .hidden,
+                         "A retired provider cannot overwrite replacement-device UI state")
+        }
         let phone = "phone", model = AppModel(), session = ScrcpySession(), lease = UUID()
         model.scrcpySessions[phone] = session; model.primaryPhonePrivacyLeases[ObjectIdentifier(session)] = lease
         let original = model.owner.current

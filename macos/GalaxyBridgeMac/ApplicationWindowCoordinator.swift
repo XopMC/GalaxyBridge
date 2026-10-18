@@ -185,8 +185,8 @@ final class ApplicationWindowCoordinator: NSObject, ObservableObject, NSWindowDe
             else { window.center() }
             let privacyLease = UUID()
             var privacySubscriptions = Set<AnyCancellable>()
-            session.nativeSession.$phoneDisplayPrivacyReady.sink { [weak model] ready in
-                if ready {
+            session.nativeSession.$phoneDisplayPrivacyReady.sink { [weak model, weak nativeSession = session.nativeSession] ready in
+                if ready, let nativeSession, !nativeSession.usesCompositeDisplayInteraction {
                     model?.phoneDisplaySessionReady(deviceID: identity.id, serial: serial, leaseID: privacyLease)
                 }
             }.store(in: &privacySubscriptions)

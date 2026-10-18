@@ -206,7 +206,8 @@ final class AppModel: ObservableObject {
                 })
         }
         coordinator.statusHandler = { [weak self] id, status in
-            self?.phoneDisplayPrivacyStatuses[id] = status
+            guard let self, self.activePhoneDisplayInteraction(deviceID: id) == nil else { return }
+            if self.phoneDisplayPrivacyStatuses[id] != status { self.phoneDisplayPrivacyStatuses[id] = status }
         }
         coordinator.observedPowerHandler = { [weak self] id, on in
             if on { self?.phonePrivacyManualPower[id] = true }
@@ -534,6 +535,7 @@ final class AppModel: ObservableObject {
             self.reconcileShellCapabilities()
         }
         shellProviders[deviceID] = provider
+        configurePhoneDisplayInteraction(provider.displayInteraction, deviceID: deviceID)
         shellProviderSubscriptions[deviceID] = provider.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         return provider
     }
@@ -1922,6 +1924,7 @@ final class AppModel: ObservableObject {
             }.store(in: &subscriptions)
             session.$phoneDisplayPrivacyReady.sink { [weak self, weak session] ready in
                 guard ready, !preservePhoneDisplay, let self, let session,
+                      !session.usesCompositeDisplayInteraction,
                       let targetID = self.activeEnhancedDeviceID(session),
                       let lease = self.primaryPhonePrivacyLeases[ObjectIdentifier(session)] else { return }
                 self.phoneDisplaySessionReady(deviceID: targetID, serial: session.serial, leaseID: lease)
@@ -2416,11 +2419,51 @@ final class AppModel: ObservableObject {
 #if !GALAXYBRIDGE_APP_STORE
         let id = canonicalPhonePrivacyID(deviceID)
         phonePrivacyManualPower[id] = on
+        if let interaction = activePhoneDisplayInteraction(deviceID: id) {
+            interaction.setManualPower(on: on)
+            return
+        }
         requestPhoneDisplayPrivacyUpdate(deviceID: id)
 #endif
     }
 
 #if !GALAXYBRIDGE_APP_STORE
+    private func activePhoneDisplayInteraction(deviceID: String) -> PhoneDisplayInteractionCoordinator? {
+        guard let interaction = shellProviders[deviceID]?.displayInteraction,
+              interaction.hasOutstandingOwnership else { return nil }
+        return interaction
+    }
+
+    private func configurePhoneDisplayInteraction(_ interaction: PhoneDisplayInteractionCoordinator, deviceID: String) {
+        interaction.setPrivacyEnabled(phoneDisplayPrivacyEnabled(deviceID: deviceID))
+        interaction.statusHandler = { [weak self, weak interaction] status in
+            guard let self, let interaction, self.shellProviders[deviceID]?.displayInteraction === interaction else { return }
+            if status == .preparing, let manual = self.phonePrivacyManualPower[deviceID] {
+                interaction.setManualPower(on: manual)
+            }
+            self.publishCompositePhoneDisplayStatus(status, deviceID: deviceID)
+        }
+        publishCompositePhoneDisplayStatus(interaction.status, deviceID: deviceID)
+    }
+
+    private func publishCompositePhoneDisplayStatus(_ status: PhoneDisplayInteractionCoordinator.Status, deviceID: String) {
+        let value: PhoneDisplayPrivacyStatus
+        switch status {
+        case .idle:
+            guard !phonePrivacyLeases.values.contains(where: { $0.deviceID == deviceID }) else { return }
+            if activePhoneDisplayInteraction(deviceID: deviceID) == nil, captureRouteHandoffTasks[deviceID] == nil {
+                phonePrivacyManualPower.removeValue(forKey: deviceID)
+            }
+            value = phoneDisplayPrivacyEnabled(deviceID: deviceID) ? .waitingForSession : .disabled
+        case .preparing: value = .preparing
+        case .hidden: value = .hidden
+        case .visible: value = .visible
+        case .restoring: value = .restoring
+        case .failed: value = .failed(String(localized: "ERROR_SCREEN_CONNECTION"))
+        }
+        if phoneDisplayPrivacyStatuses[deviceID] != value { phoneDisplayPrivacyStatuses[deviceID] = value }
+    }
+
     func phoneDisplayPrivacyEnabled(deviceID: String) -> Bool {
         phonePrivacyPreferences[canonicalPhonePrivacyID(deviceID)] ?? true
     }
@@ -2430,6 +2473,11 @@ final class AppModel: ObservableObject {
         phonePrivacyPreferences[id] = enabled
         UserDefaults.standard.set(phonePrivacyPreferences, forKey: "PhoneDisplayPrivacyByDevice")
         phonePrivacyManualPower.removeValue(forKey: id)
+        if let interaction = shellProviders[id]?.displayInteraction {
+            interaction.setPrivacyEnabled(enabled)
+            if interaction.hasOutstandingOwnership { return }
+            publishCompositePhoneDisplayStatus(interaction.status, deviceID: id)
+        }
         requestPhoneDisplayPrivacyUpdate(deviceID: id)
     }
 
@@ -2464,6 +2512,18 @@ final class AppModel: ObservableObject {
         phonePrivacyUpdates[deviceID] = Task { [weak self] in
             await preceding?.value
             guard let self, self.phonePrivacyUpdateTickets[deviceID] == ticket else { return }
+            defer {
+                if self.phonePrivacyUpdateTickets[deviceID] == ticket {
+                    self.phonePrivacyUpdates.removeValue(forKey: deviceID)
+                    self.phonePrivacyUpdateTickets.removeValue(forKey: deviceID)
+                }
+            }
+            if let interaction = self.activePhoneDisplayInteraction(deviceID: deviceID) {
+                interaction.setPrivacyEnabled(self.phoneDisplayPrivacyEnabled(deviceID: deviceID))
+                if let manual = self.phonePrivacyManualPower[deviceID] { interaction.setManualPower(on: manual) }
+                await interaction.waitForSettlement()
+                return
+            }
             let ready = self.row(id: deviceID)
             let ownedSerial = self.phonePrivacyLeases.values.first(where: { $0.deviceID == deviceID })?.serial
             let serial = ready.flatMap { self.enhancedContinuingRouteSerial(for: $0, ownerSerial: ownedSerial) } ?? ownedSerial
@@ -2483,10 +2543,6 @@ final class AppModel: ObservableObject {
                 if case .failed = self.phoneDisplayPrivacy.status(deviceID: deviceID) { return }
             } catch {
                 self.phoneDisplayPrivacyStatuses[deviceID] = .failed(String(describing: error))
-            }
-            if self.phonePrivacyUpdateTickets[deviceID] == ticket {
-                self.phonePrivacyUpdates.removeValue(forKey: deviceID)
-                self.phonePrivacyUpdateTickets.removeValue(forKey: deviceID)
             }
         }
     }
