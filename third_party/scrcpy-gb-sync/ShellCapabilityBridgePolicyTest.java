@@ -139,6 +139,17 @@ public final class ShellCapabilityBridgePolicyTest {
         Map<String, Object> off = new HashMap<>(); off.put("id", "20"); off.put("mode", "OFF"); awake.put("panels", java.util.Collections.singletonList(off));
         ready.put("event", "reply"); ready.put("state", "READY"); ready.put("revision", 7L); ready.put("current", awake);
         ShellCapabilityBridge.CompositeReceipt.parse(ready).policy(header, hide);
+        Map<String, Object> opaque = new HashMap<>(awake), opaqueReply = new HashMap<>(ready);
+        opaque.put("defaultWakefulness", null); opaqueReply.put("current", opaque);
+        ShellCapabilityBridge.CompositeReceipt parsedOpaque = ShellCapabilityBridge.CompositeReceipt.parse(opaqueReply);
+        assert parsedOpaque.current.group == null && parsedOpaque.current.interactive;
+        parsedOpaque.policy(header, hide);
+        Map<String, Object> opaqueInitial = new HashMap<>(opaqueReply); opaqueInitial.put("initial", opaque);
+        reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(opaqueInitial));
+        Map<String, Object> opaqueYield = new HashMap<>(opaqueReply);
+        opaqueYield.put("event", "retired"); opaqueYield.put("state", "YIELDED_EXTERNAL"); opaqueYield.put("draining", true);
+        ShellCapabilityBridge.CompositeReceipt.parse(opaqueYield).terminal(header, 7, 7);
+        opaqueYield.put("state", "RESTORED"); reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(opaqueYield));
         Map<String, Object> wrongPID = new HashMap<>(ready); wrongPID.put("pid", 124);
         reject(() -> ShellCapabilityBridge.CompositeReceipt.parse(wrongPID).policy(header, hide));
         Map<String, Object> rebase = new HashMap<>(ready), changed = compositeSnapshot(); changed.put("lastGlobalWakeTime", "101"); rebase.put("initial", changed);

@@ -33,6 +33,22 @@ public final class DisplayStateControllerTest {
             serve(new ByteArrayInputStream(commands(true)), System.out,
                 new DisplayStateController.Session(new DisplayStateOwnershipTest.Backend()), 10000, code -> {}); return;
         }
+        if (args.length == 1 && (args[0].equals("wire-opaque-current") || args[0].equals("wire-opaque-yield"))) {
+            final boolean keepVirtual = args[0].equals("wire-opaque-yield");
+            final DisplayStateOwnershipTest.Backend backend = new DisplayStateOwnershipTest.Backend();
+            backend.initiallyAwake(); backend.completeGroupDump = true;
+            final ByteArrayInputStream bytes = new ByteArrayInputStream(commands(true));
+            InputStream input = new InputStream() {
+                int offset;
+                public int read() {
+                    if (offset == 11) { backend.virtualGroupPresent = true; backend.omitGroupWakefulness = true; }
+                    if (offset == 34 && !keepVirtual) backend.virtualGroupPresent = false;
+                    offset++; return bytes.read();
+                }
+            };
+            serve(input, System.out, new DisplayStateController.Session(backend), 10000, code -> {});
+            return;
+        }
         assert DisplayStateController.diagnosticCode(new DisplayStateOwnership.Failure("display_operation_failed",
                 new DisplayStateSnapshot.Failure("display_snapshot_unsettled"))).equals("display_snapshot_unsettled");
         assert DisplayStateController.diagnosticCode(new IOException("private diagnostic payload must not be logged")).equals("IOException");

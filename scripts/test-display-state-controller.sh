@@ -29,6 +29,8 @@ platform="$sdk/platforms/${GB_ANDROID_PLATFORM:-android-37.0}/android.jar"
 "$jdk/bin/java" -ea -cp "$tmp:$platform:$classes" com.genymobile.scrcpy.DisplayStateControllerTest
 "$jdk/bin/java" -ea -cp "$tmp:$platform:$classes" com.genymobile.scrcpy.DisplayStateControllerTest wire > "$tmp/wire.jsonl"
 "$jdk/bin/java" -ea -cp "$tmp:$platform:$classes" com.genymobile.scrcpy.DisplayStateControllerTest wire-startup-failed > "$tmp/startup-failed.jsonl"
+"$jdk/bin/java" -ea -cp "$tmp:$platform:$classes" com.genymobile.scrcpy.DisplayStateControllerTest wire-opaque-current > "$tmp/opaque-current.jsonl"
+"$jdk/bin/java" -ea -cp "$tmp:$platform:$classes" com.genymobile.scrcpy.DisplayStateControllerTest wire-opaque-yield > "$tmp/opaque-yield.jsonl"
 python3 - "$tmp/wire.jsonl" <<'PY'
 import json,re,sys
 from pathlib import Path
@@ -56,7 +58,7 @@ xcrun swiftc -swift-version 6 \
   "$root/macos/GalaxyBridgeMac/Transport/DisplayStateLeaseState.swift" \
   "$root/macos/GalaxyBridgeMacTests/DisplayStateControllerProtocolSpec.swift" \
   -o "$tmp/swift-wire-spec"
-"$tmp/swift-wire-spec" "$tmp/wire.jsonl" "$tmp/startup-failed.jsonl"
+"$tmp/swift-wire-spec" "$tmp/wire.jsonl" "$tmp/startup-failed.jsonl" "$tmp/opaque-current.jsonl" "$tmp/opaque-yield.jsonl"
 python3 - "$root" "$tmp" <<'PY'
 from pathlib import Path
 import sys
@@ -95,6 +97,12 @@ from pathlib import Path
 directory = Path(sys.argv[1])
 frames = [json.loads(line) for line in (directory / 'wire.jsonl').read_text().splitlines()]
 failed = json.loads((directory / 'startup-failed.jsonl').read_text())
+opaque = [json.loads(line) for line in (directory / 'opaque-current.jsonl').read_text().splitlines()]
+opaque_yield = [json.loads(line) for line in (directory / 'opaque-yield.jsonl').read_text().splitlines()]
+assert len(opaque) == 6 and all(f['initial']['defaultWakefulness'] == 'AWAKE' for f in opaque)
+assert all(opaque[i]['current']['defaultWakefulness'] is None and opaque[i]['current']['defaultInteractive'] for i in [2, 3, 4])
+assert opaque[-1]['state'] == 'RESTORED' and opaque[-1]['current']['defaultWakefulness'] == 'AWAKE'
+assert len(opaque_yield) == 6 and opaque_yield[-1]['state'] == 'YIELDED_EXTERNAL' and opaque_yield[-1]['current']['defaultWakefulness'] is None
 def literal(value):
     if value is None: return 'null'
     if type(value) is bool: return 'Boolean.TRUE' if value else 'Boolean.FALSE'
@@ -123,13 +131,22 @@ public final class CompositeActualWireSpec {
    ShellCapabilityBridge.CompositeReceipt.parse(frames[i]).policy(header,command);
   }
   ShellCapabilityBridge.CompositeReceipt.parse(frames[frames.length-1]).terminal(header,3,3);
+  for(Map<String,Object>[] trace: new Map[][]{new Map[]{OPAQUEWIRE},new Map[]{OPAQUEYIELD}}) {
+   ShellCapabilityBridge.CompositeReceipt scopedHeader = ShellCapabilityBridge.CompositeReceipt.parse(trace[0]); scopedHeader.header();
+   for(int i=1;i<5;i++) {
+    long revision = i<=2?1:i==3?2:3; int mode = i==3?0:1;
+    ShellCapabilityBridge.CompositeReceipt.parse(trace[i]).policy(scopedHeader,
+     ShellCapabilityBridge.CompositeCommand.parse(fields("action",2,"interactive",true,"panel_policy",mode,"revision",revision)));
+   }
+   ShellCapabilityBridge.CompositeReceipt.parse(trace[5]).terminal(scopedHeader,3,3);
+  }
   ShellCapabilityBridge.CompositeReceipt startup = ShellCapabilityBridge.CompositeReceipt.parse(FAILED);
   assert startup.event.equals("startup_failed") && startup.initial==null && startup.settled;
   try {startup.header(); throw new AssertionError("startup failure admitted");} catch(IllegalArgumentException expected){}
   System.out.println("PASS actual native v2 lifecycle and startup failure accepted by independent broker receipt validator");
  }
 }
-'''.replace('FRAMES', ','.join(map(literal, frames))).replace('FAILED', literal(failed))
+'''.replace('FRAMES', ','.join(map(literal, frames))).replace('FAILED', literal(failed)).replace('OPAQUEWIRE', ','.join(map(literal, opaque))).replace('OPAQUEYIELD', ','.join(map(literal, opaque_yield)))
 (directory / 'CompositeActualWireSpec.java').write_text(source)
 PY
 "$jdk/bin/javac" -source 8 -target 8 -Xlint:-options -cp "$tmp:$platform:$classes" \

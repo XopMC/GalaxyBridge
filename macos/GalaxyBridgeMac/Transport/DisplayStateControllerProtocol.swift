@@ -27,8 +27,8 @@ private enum DisplayStateWireRules {
     }
 }
 
-/// Complete evidence, including raw panel modes and the scope of power stamps.
-/// A Boolean panel projection cannot substitute for this restoration baseline.
+/// Raw panels and scoped power evidence. Initial baselines require a known
+/// group state; current observations may explicitly report it unavailable.
 struct DisplayStateSnapshot: Codable, Equatable, Sendable {
     enum Mode: String, Codable, Sendable { case off = "OFF", on = "ON", doze = "DOZE", dozeSuspend = "DOZE_SUSPEND", onSuspend = "ON_SUSPEND" }
     enum Wakefulness: String, Codable, Sendable {
@@ -53,7 +53,7 @@ struct DisplayStateSnapshot: Codable, Equatable, Sendable {
     let panels: [Panel]
     let activeID: String
     let defaultInteractive: Bool
-    let defaultWakefulness: Wakefulness
+    let defaultWakefulness: Wakefulness?
     let globalWakefulness: Wakefulness
     let transitionScope: String
     let lastGlobalWakeTime: UInt64
@@ -71,7 +71,7 @@ struct DisplayStateSnapshot: Codable, Equatable, Sendable {
         let incoming = try values.decode([Panel].self, forKey: .panels)
         activeID = try values.decode(String.self, forKey: .activeID)
         defaultInteractive = try values.decode(Bool.self, forKey: .defaultInteractive)
-        defaultWakefulness = try values.decode(Wakefulness.self, forKey: .defaultWakefulness)
+        defaultWakefulness = try values.decodeIfPresent(Wakefulness.self, forKey: .defaultWakefulness)
         globalWakefulness = try values.decode(Wakefulness.self, forKey: .globalWakefulness)
         transitionScope = try values.decode(String.self, forKey: .transitionScope)
         func time(_ key: CodingKeys) throws -> UInt64 {
@@ -85,12 +85,16 @@ struct DisplayStateSnapshot: Codable, Equatable, Sendable {
         lastGlobalSleepTime = try time(.lastGlobalSleepTime)
         defaultActivityTime = try time(.defaultActivityTime)
         defaultActivityNoChangeLightsTime = try time(.defaultActivityNoChangeLightsTime)
+        if let known = defaultWakefulness {
+            guard defaultInteractive == known.interactive,
+                  known.aggregateRank <= globalWakefulness.aggregateRank else {
+                throw DisplayStateProtocolError.invalidAcknowledgement
+            }
+        }
         let selectedID = activeID
         guard (1...8).contains(incoming.count), Set(incoming.map(\.id)).count == incoming.count,
               incoming.contains(where: { $0.id == selectedID }), transitionScope == "GLOBAL",
-              defaultInteractive == defaultWakefulness.interactive,
-              (!defaultInteractive || globalWakefulness.interactive),
-              defaultWakefulness.aggregateRank <= globalWakefulness.aggregateRank else {
+              (!defaultInteractive || globalWakefulness.interactive) else {
             throw DisplayStateProtocolError.invalidAcknowledgement
         }
         panels = incoming.sorted { $0.id.count == $1.id.count ? $0.id < $1.id : $0.id.count < $1.id.count }
@@ -111,7 +115,8 @@ struct DisplayStateSnapshot: Codable, Equatable, Sendable {
     /// Restoration is scoped to the owned display group/panels. Historical
     /// timestamps advance, and another group's activity can change global state.
     func hasSameOwnedState(as other: Self) -> Bool {
-        panels == other.panels && activeID == other.activeID
+        defaultWakefulness != nil && other.defaultWakefulness != nil
+            && panels == other.panels && activeID == other.activeID
             && defaultInteractive == other.defaultInteractive && defaultWakefulness == other.defaultWakefulness
     }
 }
@@ -176,7 +181,8 @@ struct DisplayStateControllerAcknowledgement: Sendable {
                 throw DisplayStateProtocolError.invalidAcknowledgement
             }
         } else {
-            guard let initial = wire.initial, let current = wire.current, wire.state != .notStarted else {
+            guard let initial = wire.initial, initial.defaultWakefulness != nil,
+                  let current = wire.current, wire.state != .notStarted else {
                 throw DisplayStateProtocolError.invalidAcknowledgement
             }
             if wire.event == .ready {

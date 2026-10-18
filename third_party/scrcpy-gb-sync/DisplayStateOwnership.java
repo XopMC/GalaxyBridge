@@ -30,6 +30,7 @@ final class DisplayStateOwnership {
     private final Backend backend;
     private DisplayStateSnapshot current, awakeBaseline;
     private DisplayStateSnapshot.PowerEvidence reference;
+    private long referenceActivityTime;
     private Map<String, DisplayStateSnapshot.Mode> expected;
     private Map<String, DisplayStateSnapshot.Mode> confirmed;
     private State state = State.SNAPSHOTTED;
@@ -43,7 +44,8 @@ final class DisplayStateOwnership {
         this.backend = backend; initial = backend.read();
         if (initial == null) throw new Failure("display_initial_snapshot_missing");
         if (initial.power.defaultWakefulness == null) throw new Failure("display_default_wakefulness_unknown");
-        current = initial; reference = initial.power; expected = new LinkedHashMap<>(initial.panels);
+        current = initial; reference = initial.power; referenceActivityTime = reference.defaultActivityTime;
+        expected = new LinkedHashMap<>(initial.panels);
         confirmed = new LinkedHashMap<>(initial.panels);
         if (initial.power.defaultInteractive) awakeBaseline = initial;
     }
@@ -57,7 +59,20 @@ final class DisplayStateOwnership {
     private boolean powerAuthority(DisplayStateSnapshot value) {
         // Activity is a conservative invalidation witness, not a universal transition epoch.
         // The Android backend must additionally enforce the timestamp fence when requesting sleep.
-        return powerEpoch(value) && value.power.defaultActivityTime == reference.defaultActivityTime;
+        return powerEpoch(value) && value.power.defaultActivityTime == referenceActivityTime;
+    }
+    private boolean operatingEpoch(DisplayStateSnapshot value) {
+        if (powerEpoch(value)) return true;
+        return value.power.defaultWakefulness == null && value.power.completePowerGroupInventory
+            && awakeBaseline != null && awakeBaseline.power.defaultWakefulness == DisplayStateSnapshot.Wakefulness.AWAKE
+            && reference.defaultWakefulness == DisplayStateSnapshot.Wakefulness.AWAKE
+            && value.power.defaultInteractive && reference.defaultInteractive
+            && value.power.globalWakefulness == reference.globalWakefulness
+            && value.power.lastGlobalWakeTime == reference.lastGlobalWakeTime
+            && value.power.lastGlobalSleepTime == reference.lastGlobalSleepTime;
+    }
+    private boolean operatingAuthority(DisplayStateSnapshot value) {
+        return operatingEpoch(value) && value.power.defaultActivityTime == referenceActivityTime;
     }
     private boolean powerEpoch(DisplayStateSnapshot value) {
         return value.power.defaultInteractive == reference.defaultInteractive
@@ -66,11 +81,11 @@ final class DisplayStateOwnership {
             && value.power.lastGlobalSleepTime == reference.lastGlobalSleepTime;
     }
     private void observeActivity(DisplayStateSnapshot value) {
-        if (topology(value) && powerEpoch(value) && panelAuthority(value) && value.power.defaultInteractive
-                && value.power.defaultActivityTime > reference.defaultActivityTime) {
+        if (topology(value) && operatingEpoch(value) && panelAuthority(value) && value.power.defaultInteractive
+                && value.power.defaultActivityTime > referenceActivityTime) {
             // Injected primary-display touches advance this witness too. Keep
             // input alive, but never assume they authorize automatic sleep.
-            sleepAuthorityRevoked = true; reference = value.power;
+            sleepAuthorityRevoked = true; referenceActivityTime = value.power.defaultActivityTime;
         }
     }
     private void yieldAuthority(DisplayStateSnapshot value) {
@@ -85,7 +100,14 @@ final class DisplayStateOwnership {
     private DisplayStateSnapshot read() throws Exception {
         DisplayStateSnapshot value = backend.read();
         if (value == null) throw new Failure("display_snapshot_missing");
-        if (value.power.defaultWakefulness == null) throw new Failure("display_default_wakefulness_unknown");
+        if (value.power.defaultWakefulness == null) {
+            if (value.power.completePowerGroupInventory) sleepAuthorityRevoked = true;
+            if (!value.power.completePowerGroupInventory || awakeBaseline == null
+                    || awakeBaseline.power.defaultWakefulness != DisplayStateSnapshot.Wakefulness.AWAKE)
+                throw new Failure("display_default_wakefulness_unknown");
+            // Current interactivity can remain observable after an owned app
+            // creates another power group. It cannot prove a sleep baseline.
+        }
         if (current != null && (value.power.defaultActivityTime < current.power.defaultActivityTime
                 || value.power.defaultActivityNoChangeLightsTime < current.power.defaultActivityNoChangeLightsTime
                 || value.power.lastGlobalWakeTime < current.power.lastGlobalWakeTime
@@ -95,7 +117,7 @@ final class DisplayStateOwnership {
     }
     private void guardOwned(DisplayStateSnapshot value, boolean checkPanels) throws Failure {
         observeActivity(value);
-        if (!topology(value) || !powerAuthority(value) || (checkPanels && !expected.equals(value.panels))) {
+        if (!topology(value) || !operatingAuthority(value) || (checkPanels && !expected.equals(value.panels))) {
             yieldAuthority(value); throw new Failure("display_ownership_superseded");
         }
     }
@@ -115,7 +137,8 @@ final class DisplayStateOwnership {
             DisplayStateSnapshot value = read();
             if (!topology(value)) { yieldAuthority(value); throw new Failure("display_topology_superseded"); }
             if (ownedWake(value)) {
-                awakeBaseline = value; reference = value.power; expected = new LinkedHashMap<>(value.panels);
+                awakeBaseline = value; reference = value.power; referenceActivityTime = reference.defaultActivityTime;
+                expected = new LinkedHashMap<>(value.panels);
                 confirmed = new LinkedHashMap<>(value.panels); return;
             }
             if (value.power.defaultActivityTime != initial.power.defaultActivityTime || value.power.defaultInteractive) {
@@ -179,7 +202,7 @@ final class DisplayStateOwnership {
         try {
             DisplayStateSnapshot value = read();
             observeActivity(value);
-            if (!topology(value) || !powerAuthority(value) || !expected.equals(value.panels)) { yieldAuthority(value); return; }
+            if (!topology(value) || !operatingAuthority(value) || !expected.equals(value.panels)) { yieldAuthority(value); return; }
             if (interactiveDemand && value.power.defaultInteractive) { backend.activityWithoutLights(); backend.synchronizeMutations(); }
         } catch (Exception failure) { uncertain(); throw failure instanceof Failure ? (Failure) failure : new Failure("display_operation_failed", failure); }
     }
@@ -204,14 +227,14 @@ final class DisplayStateOwnership {
             if (!topology(value) || value.power.defaultActivityTime != wakeEventTime
                     || value.power.lastGlobalWakeTime != reference.lastGlobalWakeTime) { yieldAuthority(value); return false; }
             if (!value.power.defaultInteractive && value.power.defaultWakefulness == initial.power.defaultWakefulness
-                    && value.panels.equals(initial.panels)) { reference = value.power; return true; }
+                    && value.panels.equals(initial.panels)) { reference = value.power; referenceActivityTime = reference.defaultActivityTime; return true; }
             if (backend.uptimeMillis() >= deadline) break;
             backend.pause();
         }
         // Give the OS a bounded chance to restore ambient panels itself. A
         // newly observed mode never replaces the last confirmed/pending write.
         if (!current.power.defaultInteractive && current.power.defaultWakefulness == initial.power.defaultWakefulness) {
-            reference = current.power; return true;
+            reference = current.power; referenceActivityTime = reference.defaultActivityTime; return true;
         }
         throw new Failure("display_sleep_unconfirmed");
     }
@@ -229,7 +252,8 @@ final class DisplayStateOwnership {
             // Recover an interrupted wake only with the separately armed exact event-time witness.
             if (wakeAttempted && !sleepAttempted && ownedWake(before)) {
                 if (awakeBaseline == null) {
-                    awakeBaseline = before; reference = before.power; expected = new LinkedHashMap<>(before.panels);
+                    awakeBaseline = before; reference = before.power; referenceActivityTime = reference.defaultActivityTime;
+                    expected = new LinkedHashMap<>(before.panels);
                     confirmed = new LinkedHashMap<>(before.panels);
                 }
             }

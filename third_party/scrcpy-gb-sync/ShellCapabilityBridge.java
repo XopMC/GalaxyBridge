@@ -186,10 +186,11 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             exactFields(fields, "panels", "activeID", "defaultInteractive", "defaultWakefulness", "globalWakefulness", "transitionScope",
                 "lastGlobalWakeTime", "lastGlobalSleepTime", "defaultActivityTime", "defaultActivityNoChangeLightsTime");
             activeID = strictText(fields.get("activeID")); interactive = strictFlag(fields.get("defaultInteractive"));
-            group = DisplayStateSnapshot.Wakefulness.valueOf(strictText(fields.get("defaultWakefulness")));
+            group = fields.get("defaultWakefulness") == null ? null
+                : DisplayStateSnapshot.Wakefulness.valueOf(strictText(fields.get("defaultWakefulness")));
             global = DisplayStateSnapshot.Wakefulness.valueOf(strictText(fields.get("globalWakefulness")));
-            if (!"GLOBAL".equals(fields.get("transitionScope")) || interactive != group.interactive()
-                    || (interactive && !global.interactive()) || group.aggregateRank() > global.aggregateRank())
+            if (!"GLOBAL".equals(fields.get("transitionScope")) || (group != null && interactive != group.interactive())
+                    || (interactive && !global.interactive()) || (group != null && group.aggregateRank() > global.aggregateRank()))
                 throw new IllegalArgumentException("display_receipt_power");
             Object rawPanels = fields.get("panels");
             if (!(rawPanels instanceof List)) throw new IllegalArgumentException("display_receipt_panels");
@@ -211,7 +212,8 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             times = Collections.unmodifiableMap(stamps);
         }
         boolean sameOwnedState(CompositeSnapshot other) {
-            return other != null && panels.equals(other.panels) && activeID.equals(other.activeID)
+            return other != null && group != null && other.group != null
+                && panels.equals(other.panels) && activeID.equals(other.activeID)
                 && interactive == other.interactive && group == other.group;
         }
         boolean sameSnapshot(CompositeSnapshot other) {
@@ -245,6 +247,7 @@ public final class ShellCapabilityBridge implements AutoCloseable {
             } else {
                 if (state.equals("NOT_STARTED")) throw new IllegalArgumentException("display_receipt_startup");
                 initial = new CompositeSnapshot(fields.get("initial")); current = new CompositeSnapshot(fields.get("current"));
+                if (initial.group == null) throw new IllegalArgumentException("display_receipt_initial_power");
                 if (state.equals("RESTORED") && !current.sameOwnedState(initial)) throw new IllegalArgumentException("display_receipt_restoration");
                 if (event.equals("ready")) header();
                 if (event.equals("retired") && (!ok || !draining || !settled

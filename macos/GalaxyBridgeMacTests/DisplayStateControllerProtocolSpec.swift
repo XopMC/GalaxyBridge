@@ -34,6 +34,22 @@ enum DisplayStateControllerProtocolSpec {
         let decoded = try frames.map(DisplayStateControllerAcknowledgement.decode)
         let startup = decoded[0], first = decoded[1], terminal = decoded[5]
         let initial = startup.initial!
+        let opaqueCurrent = try snapshotChanged(frames[1]) { $0["defaultWakefulness"] = NSNull() }
+        let opaque = try DisplayStateControllerAcknowledgement.decode(opaqueCurrent)
+        try require(opaque.current?.defaultWakefulness == nil && opaque.current?.defaultInteractive == true,
+                    "A current group may be ambiguous without losing separately observed interactivity")
+        _ = try opaque.validatingPolicyReply(identity: startup.identity, initial: initial,
+            revision: first.revision, requiresInteractive: true, policy: .hide)
+        try rejects("Unknown initial group is never a restoration baseline") {
+            _ = try DisplayStateControllerAcknowledgement.decode(snapshotChanged(frames[0], name: "initial") { $0["defaultWakefulness"] = NSNull() })
+        }
+        let opaqueYield = try snapshotChanged(changed(frames[5]) { $0["state"] = "YIELDED_EXTERNAL" }) { $0["defaultWakefulness"] = NSNull() }
+        let opaqueTerminal = try DisplayStateControllerAcknowledgement.decode(opaqueYield)
+        _ = try opaqueTerminal.validatingTerminal(identity: startup.identity, initial: initial,
+            lastConfirmedRevision: terminal.revision, lastAttemptedRevision: terminal.revision)
+        try rejects("Unknown final state cannot claim exact restoration") {
+            _ = try DisplayStateControllerAcknowledgement.decode(snapshotChanged(frames[5]) { $0["defaultWakefulness"] = NSNull() })
+        }
         var localOnly = DisplayStateLeaseState()
         localOnly.beginDraining(); try localOnly.confirmNeverDispatched()
         try require(localOnly.retired && !localOnly.confirmedNotStarted,
@@ -268,9 +284,10 @@ enum DisplayStateControllerProtocolSpec {
                 _ = try DisplayStateControllerAcknowledgement.decode(changed(startupFailureBytes) { $0[key] = value })
             }
         }
-        try rejects("Unknown scoped wakefulness must not be inferred from global state") {
-            _ = try DisplayStateControllerAcknowledgement.decode(snapshotChanged(frames[1]) { $0["defaultWakefulness"] = NSNull() })
-        }
+        let encodedOpaque = try JSONEncoder().encode(opaque.current!)
+        let opaqueFields = try JSONSerialization.jsonObject(with: encodedOpaque) as! [String: Any]
+        try require(opaqueFields["defaultWakefulness"] is NSNull,
+                    "Re-encoding current ambiguity must preserve explicit null rather than invent a scoped state")
         for revision in [0, 1] {
             let recovered = try DisplayStateControllerAcknowledgement.decode(changed(frames[5]) { $0["revision"] = revision })
             _ = try recovered.validatingTerminal(identity: startup.identity, initial: initial,
@@ -289,5 +306,28 @@ enum DisplayStateControllerProtocolSpec {
                                                       lastConfirmedRevision: 3, lastAttemptedRevision: 3)
         print("PASS v2 admission, scoped raw state, identity/revision fences and conditional terminal dispositions")
         print("PASS actual native startup failure, unknown group rejection and partial first-policy retirement bounds")
+        for path in CommandLine.arguments.dropFirst(3) {
+            let actual = try String(contentsOfFile: path, encoding: .utf8).split(separator: "\n")
+                .map { try DisplayStateControllerAcknowledgement.decode(Data($0.utf8)) }
+            try require(actual.count == 6, "Actual nullable-current native lifecycle must have all six frames")
+            let scoped = actual[0], baseline = scoped.initial!
+            try require(baseline.defaultWakefulness == .awake, "Native nullable-current mode starts with authoritative AWAKE")
+            for index in 1..<5 {
+                let revision: UInt64 = index <= 2 ? 1 : index == 3 ? 2 : 3
+                _ = try actual[index].validatingPolicyReply(identity: scoped.identity, initial: baseline,
+                    revision: revision, requiresInteractive: true, policy: index == 3 ? .preserve : .hide)
+            }
+            try require(actual[2].current?.defaultWakefulness == nil && actual[2].current?.defaultInteractive == true,
+                        "Real native STATUS must preserve scoped interactivity without fabricating a group state")
+            _ = try actual[5].validatingTerminal(identity: scoped.identity, initial: baseline,
+                lastConfirmedRevision: 3, lastAttemptedRevision: 3)
+            if actual[5].state == .restored {
+                try require(actual[5].current!.hasSameOwnedState(as: baseline), "RESTORED still requires exact final evidence")
+            } else {
+                try require(actual[5].state == .yieldedExternal && actual[5].current?.defaultWakefulness == nil,
+                            "Actual unknown final state must terminate as an explicit yield")
+            }
+        }
+        print("PASS actual native nullable-current hold/privacy and exact-restored or yielded retirement accepted by Swift")
     }
 }

@@ -15,6 +15,7 @@ public final class DisplayStateOwnershipTest {
         long now = 1000, activity = 100, noLights = 80, wake = 100, sleep = 200, defaultWake = 100;
         int failedWrite = -1, writes, reads, wakes, sleeps, renewals;
         boolean failWakeAfterApply, failSleepAfterApply, failNextWriteBeforeApply, omitGroupWakefulness;
+        boolean completeGroupDump, virtualGroupPresent;
         Runnable afterNextRead;
         Exception failNextRead;
         DisplayStateSnapshot.Mode modeAfterSleep;
@@ -32,6 +33,8 @@ public final class DisplayStateOwnershipTest {
                 + "  mLastWakeTime=" + wake + "\n  mLastSleepTime=" + sleep + "\n\n"
                 + "Power Group User Activity:\ngroupId: 0\nlastUserActivityTime=" + activity
                 + "\nlastUserActivityTimeNoChangeLights=" + noLights + "\n" + (omitGroupWakefulness ? "" : "mWakefulness=" + wakefulness + "\n");
+            if (virtualGroupPresent) dump += "groupId: 1\nlastUserActivityTime=50\nlastUserActivityTimeNoChangeLights=40\nmWakefulness=1\n";
+            if (completeGroupDump) dump += "\nWireless Charger Detector State:\n";
             DisplayStateSnapshot snapshot = new DisplayStateSnapshot(panels, active, panels.keySet(), DisplayStateSnapshot.parsePower(dump, interactive));
             Runnable pending = afterNextRead; afterNextRead = null; if (pending != null) pending.run();
             return snapshot;
@@ -77,7 +80,66 @@ public final class DisplayStateOwnershipTest {
         catch (DisplayStateOwnership.Failure expected) {}
     }
     static DisplayStateOwnership owner(Backend backend) throws Exception { return new DisplayStateOwnership(backend); }
+    private static void testApplicationGroupAfterKnownAwake() throws Exception {
+        Backend backend = new Backend(); backend.initiallyAwake(); backend.completeGroupDump = true;
+        DisplayStateOwnership control = owner(backend);
+        control.apply(true, DisplayStateOwnership.Policy.HIDE, 1);
+        backend.virtualGroupPresent = true; backend.omitGroupWakefulness = true;
+        control.poll();
+        assert control.state() == DisplayStateOwnership.State.READY && backend.renewals == 1
+            : "creating an application display must not stop an already interactive phone";
+        assert control.current().power.defaultWakefulness == null
+            : "current ambiguity must remain truthful rather than manufacture AWAKE";
+        control.apply(true, DisplayStateOwnership.Policy.SHOW, 2);
+        assert backend.panels.get("20") == ON && backend.panels.get("10") == OFF;
+        control.apply(true, DisplayStateOwnership.Policy.HIDE, 3);
+        backend.virtualGroupPresent = false;
+        control.restore();
+        assert control.state() == DisplayStateOwnership.State.RESTORED && backend.wakes == 0 && backend.sleeps == 0;
+        assert backend.panels.get("20") == ON;
+    }
+    private static void testUnknownCurrentNeverGrantsSleepOrAnotherWake() throws Exception {
+        Backend sleeping = new Backend(); sleeping.completeGroupDump = true;
+        DisplayStateOwnership control = owner(sleeping);
+        control.apply(true, DisplayStateOwnership.Policy.HIDE, 1);
+        assert sleeping.wakes == 1 && control.current().power.defaultWakefulness == DisplayStateSnapshot.Wakefulness.AWAKE;
+        sleeping.virtualGroupPresent = true; sleeping.omitGroupWakefulness = true;
+        control.poll(); assert control.state() == DisplayStateOwnership.State.READY;
+        sleeping.activity += 10; control.poll(); // A remote touch must not erase the known logical reference.
+        control.apply(true, DisplayStateOwnership.Policy.SHOW, 2);
+        sleeping.virtualGroupPresent = false; control.restore();
+        assert sleeping.sleeps == 0 && sleeping.wakes == 1 && control.state() == DisplayStateOwnership.State.YIELDED_ACTIVITY;
+
+        Backend interrupted = new Backend(); interrupted.completeGroupDump = true;
+        DisplayStateOwnership pending = owner(interrupted);
+        interrupted.afterNextRead = () -> {
+            interrupted.virtualGroupPresent = true; interrupted.omitGroupWakefulness = true; interrupted.otherGroupAwake = true;
+        };
+        reject(() -> pending.apply(true, DisplayStateOwnership.Policy.HIDE, 1));
+        assert interrupted.wakes == 1 && pending.state() != DisplayStateOwnership.State.READY
+            : "an ambiguous observation cannot confirm the owned wake";
+        interrupted.virtualGroupPresent = false; interrupted.omitGroupWakefulness = false; interrupted.otherGroupAwake = false;
+        pending.restore();
+        assert interrupted.sleeps == 0 : "observed ambiguity permanently revokes automatic sleep, even after late recovery";
+
+        for (int change = 0; change < 3; change++) {
+            Backend external = new Backend(); external.initiallyAwake(); external.completeGroupDump = true;
+            DisplayStateOwnership active = owner(external); active.apply(true, DisplayStateOwnership.Policy.HIDE, 1);
+            external.virtualGroupPresent = true; external.omitGroupWakefulness = true;
+            active.poll(); int renewals = external.renewals, writes = external.writes;
+            if (change == 0) { external.interactive = false; external.wakefulness = "3"; external.otherGroupAwake = true; }
+            else if (change == 1) external.wake++;
+            else external.panels.put("20", ON);
+            active.poll();
+            assert active.state() != DisplayStateOwnership.State.READY && external.renewals == renewals;
+            active.restore();
+            assert external.wakes == 0 && external.sleeps == 0 && external.writes == writes
+                : "unknown group state must preserve user interactivity, epoch and panel changes";
+        }
+    }
     public static void main(String[] args) throws Exception {
+        testApplicationGroupAfterKnownAwake();
+        testUnknownCurrentNeverGrantsSleepOrAnotherWake();
         Backend diagnostic = new Backend(); diagnostic.initiallyAwake(); DisplayStateOwnership diagnosticOwner = owner(diagnostic);
         Exception original = new DisplayStateSnapshot.Failure("display_snapshot_unsettled"); diagnostic.failNextRead = original;
         try { diagnosticOwner.apply(true, DisplayStateOwnership.Policy.PRESERVE, 1); throw new AssertionError("read failure accepted"); }
