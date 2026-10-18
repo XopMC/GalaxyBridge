@@ -99,4 +99,8 @@ internal class CompanionSessionRegistry {
     internal fun socketCount(hostId: String, sessionId: String): Int = synchronized(lock) {
         sessionsByHost[hostId]?.takeIf { it.sessionId == sessionId }?.sockets?.size ?: 0
     }
+
+    fun contains(hostId: String, sessionId: String, socket: Closeable): Boolean = synchronized(lock) {
+        sessionsByHost[hostId]?.let { it.sessionId == sessionId && socket in it.sockets } == true
+    }
 }

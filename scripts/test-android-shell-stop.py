@@ -74,7 +74,7 @@ def body(text, marker):
 disable = body(server[server.index('featureShellLeases.values.filter'):], '.forEach { lease ->').split('->', 1)[1]
 late_offset = server.index('// A different CONTROL operation may have disabled this feature')
 late_start = server.rfind('\n', 0, server.index('bridge?.executeAuthenticated', late_offset)) + 1
-late_end = server.index('                                writeEnvelope(output, featureDisabled(incoming)); continue', late_start)
+late_end = server.index('                                writeEnvelope(output, featureDisabled(incoming)); return', late_start)
 upgrade_fixture = (root / 'scripts/fixtures/ShellRuntimeUpgradeAdmissionSpec.kt').read_text().replace(
     '        // ACTUAL_RUNTIME_PREPARE', body(source, 'fun prepare('))
 feature_fixture = (root / 'scripts/fixtures/FeatureShellStopOwnershipSpec.kt').read_text() \
