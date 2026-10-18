@@ -556,6 +556,11 @@ final class AppModel: ObservableObject {
         if shellPreferredDevices.contains(deviceID) { return provider }
         // A prepared broker can serve new owners on the existing paired LAN.
         // Existing raw captures retain their backend until ordinary retirement.
+#if GB_INPUT_REPLAY_QA
+        if device.transport == .wirelessADB,
+           PrimaryTouchReplayConfiguration.process?.prefersQuic(deviceID: deviceID,
+               arguments: ProcessInfo.processInfo.arguments) == true { return nil }
+#endif
         if QuicRuntimeArtifacts.explicitlyEnabled, device.transport == .wirelessADB { return nil }
         if let primary = scrcpySessions[deviceID], !primary.serial.hasPrefix("shell:") { return nil }
         if device.transport == .usbADB, device.adbSerial != nil,
@@ -572,6 +577,21 @@ final class AppModel: ObservableObject {
     }
     func enhancedCaptureRoute(for device: DeviceRow) -> (serial: String, shellProvider: ShellCapabilityBridgeProvider?)? {
         guard device.isReady, !preparingDirectDevices.contains(device.id), !captureRouteTransitionDevices.contains(device.id) else { return nil }
+#if GB_INPUT_REPLAY_QA
+        if PrimaryTouchReplayConfiguration.process?.prefersQuic(deviceID: device.id,
+            arguments: ProcessInfo.processInfo.arguments) == true {
+            guard !shellPreferredDevices.contains(device.id),
+                  scrcpySessions[device.id]?.serial.hasPrefix("shell:") != true,
+                  applicationWindowCoordinator?.hasOwnedShellCaptureWindows(deviceID: device.id) != true,
+                  !enhancedRetirements.keys.contains(where: { enhancedRetirementDeviceIDs[$0] == device.id }),
+                  !unsettledEnhancedRetirements.keys.contains(where: { enhancedRetirementDeviceIDs[$0] == device.id }),
+                  quicWirelessSelection(for: device) != nil else {
+                Logger(subsystem: "com.xopmc.GalaxyBridge", category: "PrimaryTouchReplay")
+                    .error("quic_replay_selection_rejected=incompatible_or_unvalidated_route")
+                return nil
+            }
+        }
+#endif
         if let provider = activeShellProvider(deviceID: device.id), let peer = companionControl(for: device.id)?.peer {
             return ("shell:" + peer.deviceID, provider)
         }
@@ -1818,7 +1838,14 @@ final class AppModel: ObservableObject {
 
     #if !GALAXYBRIDGE_APP_STORE
     func quicWirelessSelection(for device: DeviceRow) -> QuicWirelessSelection? {
-        guard QuicRuntimeArtifacts.explicitlyEnabled, device.transport == .wirelessADB, device.isReady,
+#if GB_INPUT_REPLAY_QA
+        let enabled = QuicRuntimeArtifacts.explicitlyEnabled ||
+            PrimaryTouchReplayConfiguration.process?.prefersQuic(deviceID: device.id,
+                arguments: ProcessInfo.processInfo.arguments) == true
+#else
+        let enabled = QuicRuntimeArtifacts.explicitlyEnabled
+#endif
+        guard enabled, device.transport == .wirelessADB, device.isReady,
               let serial = device.adbSerial, validatedWirelessSerials.contains(serial),
               let binding = try? ADBBindingStore().record(for: serial),
               device.id == "device:\(binding.deviceID)" else { return nil }

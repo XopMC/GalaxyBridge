@@ -23,6 +23,7 @@ fixture=fixture.replace('// ACTUAL_AVAILABLE_SHELL_POLICY',method(source,'    pr
 fixture=fixture.replace('// ACTUAL_SHELL_OWNER_LOOKUP',method(source,'    private func shellProviderForOwner('))
 fixture=fixture.replace('// ACTUAL_ENHANCED_CAPTURE_ROUTE',method(source,'    func enhancedCaptureRoute('))
 fixture=fixture.replace('// ACTUAL_CONTINUING_ROUTE',method(source,'    private func enhancedContinuingRouteSerial('))
+fixture=fixture.replace('// ACTUAL_QUIC_SELECTION',method(source,'    func quicWirelessSelection('))
 recovery=method(source,'    private func reconcileEnhancedPrimaryRoutes(')
 gate=re.search(r'else if (session.serial.hasPrefix\("shell:"\)[^{]+)\{\s*session.retryOwnedCleanup\(\)', recovery)
 assert gate, 'Missing actual shell retirement retry branch'
@@ -36,3 +37,10 @@ fixture=fixture.replace('// ACTUAL_OWNED_SHELL_APP_QUERY',method(windows,'    fu
 PY
 swiftc -swift-version 6 -parse-as-library "$tmp/ActualPreparedShellSelection.swift" -o "$tmp/spec"
 "$tmp/spec"
+swiftc -swift-version 6 -parse-as-library -DGB_INPUT_REPLAY_QA \
+    "$tmp/ActualPreparedShellSelection.swift" \
+    "$root/macos/GalaxyBridgeMac/Media/PrimaryMediaDiagnostics.swift" \
+    "$root/macos/GalaxyBridgeMac/Media/PrimaryTouchReplay.swift" \
+    -framework CoreVideo -o "$tmp/qa-spec"
+"$tmp/qa-spec" --primary-media-diagnostics --primary-input-marker-nonce=270544960 \
+    --qa-touch-replay-peer=device:qa-peer --qa-replay-quic

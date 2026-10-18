@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Binder
 import android.os.IBinder
 import android.os.SystemClock
+import android.os.Trace
 import com.xopmc.galaxybridge.BuildConfig
 import com.xopmc.galaxybridge.protocol.v1.Envelope
 import com.xopmc.galaxybridge.protocol.v1.ShellBridgeRequest
@@ -276,8 +277,8 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
             DataOutputStream(output).apply { writeInt(envelope.size); write(envelope); flush() }
             readinessSent = true
             socket.timeout(0)
-            val upload = relay.submit { try { pump(input, socket.output) } finally { runCatching { socket.shutdownOutput() } } }
-            try { pump(socket.input, output) } finally { upload.cancel(true) }
+            val upload = relay.submit { try { pump(input, socket.output, "$type/macToPhone") } finally { runCatching { socket.shutdownOutput() } } }
+            try { pump(socket.input, output, "$type/phoneToMac") } finally { upload.cancel(true) }
         } catch (_: Exception) {
             if (!readinessSent) runCatching {
                 val failure = Envelope.newBuilder().setProtocolMajor(1).setSessionId(sessionID)
@@ -363,11 +364,23 @@ class ShellBridgeRuntime(private val context: Context, private val isForegroundO
     private fun rejected(request: ShellBridgeRequest, error: String) = ShellBridgeResult.newBuilder()
         .setRequestId(request.requestId).setLeaseId(request.leaseId).setBootGeneration(generation).setAvailable(isAvailable)
         .setState("failed").setErrorCode(error).build()
-    private fun pump(input: InputStream, output: OutputStream) {
+    private fun pump(input: InputStream, output: OutputStream, traceRole: String) {
         val buffer = ByteArray(64 * 1024)
         while (!Thread.currentThread().isInterrupted) {
-            val count = input.read(buffer); if (count < 0) return; if (count == 0) continue
-            output.write(buffer, 0, count); output.flush()
+            // Atrace is off normally. Labels contain only the allowlisted
+            // stream kind, direction and byte count, never stream IDs or data.
+            val tracing = Trace.isEnabled()
+            if (tracing) Trace.beginSection("GBRelay/$traceRole/read")
+            val count = try { input.read(buffer) } finally { if (tracing) Trace.endSection() }
+            if (count < 0) return
+            if (count == 0) continue
+            if (tracing) Trace.beginSection("GBRelay/$traceRole/write/$count")
+            try {
+                output.write(buffer, 0, count)
+                output.flush()
+            } finally {
+                if (tracing) Trace.endSection()
+            }
         }
     }
     private fun removeLeaseLocked(lease: String) {

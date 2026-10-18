@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 enum TransportKind { case usbADB, wirelessADB, companionLAN }
 struct DeviceRow {
@@ -36,6 +37,16 @@ struct ApplicationWindowSession { let nativeSession: ScrcpySession }
 }
 enum CompanionConnectionState { case connected, disconnected }
 @MainActor enum QuicRuntimeArtifacts { static var explicitlyEnabled = false }
+struct QuicWirelessSelection { let targetToken: UInt64 }
+@MainActor struct ADBBindingStore {
+    struct Binding { let deviceID: String }
+    enum Failure: Error { case missing }
+    static var records: [String: Binding] = [:]
+    func record(for serial: String) throws -> Binding {
+        guard let record = Self.records[serial] else { throw Failure.missing }
+        return record
+    }
+}
 @MainActor final class AppModel {
     struct Admission { var admitsWork = true }
     var terminationAdmission = Admission()
@@ -51,6 +62,7 @@ enum CompanionConnectionState { case connected, disconnected }
     var applicationWindowCoordinator: ApplicationWindowCoordinator?
     var preparingDirectDevices = Set<String>()
     var captureRouteTransitionDevices = Set<String>()
+    var validatedWirelessSerials = Set<String>()
     // The actual policy must not depend on Nearby state or invoke preparation.
     var nearbyAutoConnectEnabled = false
     func row(id: String) -> DeviceRow? { devices[id] }
@@ -69,6 +81,7 @@ enum CompanionConnectionState { case connected, disconnected }
     // ACTUAL_SHELL_OWNER_LOOKUP
     // ACTUAL_ENHANCED_CAPTURE_ROUTE
     // ACTUAL_CONTINUING_ROUTE
+    // ACTUAL_QUIC_SELECTION
     func canRetryRetirement(deviceID: String, session: ScrcpySession) -> Bool {
         // ACTUAL_SHELL_RETIREMENT_GATE
     }
@@ -190,6 +203,49 @@ enum CompanionConnectionState { case connected, disconnected }
         model.shellPreferredDevices.remove(phone)
         QuicRuntimeArtifacts.explicitlyEnabled = false
         precondition(model.activeShellProvider(deviceID: phone) === provider)
+#if GB_INPUT_REPLAY_QA
+        let qa = PrimaryTouchReplayConfiguration.process!
+        let scoped = AppModel(), target = qa.peerID
+        let targetProvider = scoped.install(target)
+        scoped.devices[target]?.transport = .wirelessADB
+        scoped.devices[target]?.adbSerial = "synthetic-qa-adb:1"
+        scoped.validatedWirelessSerials.insert("synthetic-qa-adb:1")
+        ADBBindingStore.records["synthetic-qa-adb:1"] = .init(deviceID: String(target.dropFirst(7)))
+        precondition(scoped.enhancedCaptureRoute(for: scoped.devices[target]!)?.shellProvider == nil)
+        scoped.validatedWirelessSerials.removeAll()
+        precondition(scoped.enhancedCaptureRoute(for: scoped.devices[target]!) == nil)
+        scoped.validatedWirelessSerials.insert("synthetic-qa-adb:1")
+        ADBBindingStore.records["synthetic-qa-adb:1"] = .init(deviceID: "another-peer")
+        precondition(scoped.enhancedCaptureRoute(for: scoped.devices[target]!) == nil)
+        ADBBindingStore.records["synthetic-qa-adb:1"] = .init(deviceID: String(target.dropFirst(7)))
+        scoped.shellPreferredDevices.insert(target)
+        precondition(scoped.enhancedCaptureRoute(for: scoped.devices[target]!) == nil,
+            "An incompatible explicit shell preference must reject the QUIC comparison, not silently measure TLS")
+        scoped.shellPreferredDevices.remove(target)
+        let ownedSerial = "shell:" + String(target.dropFirst(7))
+        scoped.scrcpySessions[target] = ScrcpySession(ownedSerial)
+        precondition(scoped.enhancedCaptureRoute(for: scoped.devices[target]!) == nil,
+            "A QA route change cannot replace a live shell primary")
+        precondition(scoped.enhancedContinuingRouteSerial(for: scoped.devices[target]!, ownerSerial: ownedSerial) == ownedSerial)
+        scoped.scrcpySessions.removeAll()
+        let ownedWindows = ApplicationWindowCoordinator()
+        scoped.applicationWindowCoordinator = ownedWindows
+        ownedWindows.add(deviceID: target, serial: ownedSerial)
+        precondition(scoped.enhancedCaptureRoute(for: scoped.devices[target]!) == nil)
+        ownedWindows.records.removeAll()
+        let retirement = UUID()
+        scoped.enhancedRetirementDeviceIDs[retirement] = target
+        scoped.unsettledEnhancedRetirements[retirement] = ScrcpySession(ownedSerial)
+        precondition(scoped.enhancedCaptureRoute(for: scoped.devices[target]!) == nil)
+        scoped.unsettledEnhancedRetirements.removeAll()
+        precondition(scoped.enhancedCaptureRoute(for: scoped.devices[target]!)?.serial == "synthetic-qa-adb:1")
+        let unrelated = "device:unrelated-qa-peer", unrelatedProvider = scoped.install(unrelated)
+        scoped.devices[unrelated]?.transport = .wirelessADB
+        scoped.devices[unrelated]?.adbSerial = "synthetic-other-adb:1"
+        precondition(scoped.enhancedCaptureRoute(for: scoped.devices[unrelated]!)?.shellProvider === unrelatedProvider)
+        precondition(scoped.availableShellProvider(deviceID: target) === targetProvider)
+        print("PASS actual QA QUIC route: exact peer, shell preference conflict, live/retiring owners and continuation fences")
+#endif
         print("PASS actual prepared-shell policy: current paired LAN default without ADB/Nearby, availability fences, target-only raw primary/app/retirement deferral, native shell continuity, explicit preference and QUIC preservation")
     }
 }

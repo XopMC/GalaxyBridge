@@ -12,6 +12,12 @@ private final class Clock: @unchecked Sendable {
         let arguments = ["--primary-media-diagnostics", "--primary-input-marker-nonce=270544960", "--qa-touch-replay-peer=device:fixture"]
         let config = PrimaryTouchReplayConfiguration.parse(arguments)!
         precondition(config.peerID == "device:fixture" && config.nonce == 270544960)
+        precondition(!config.prefersQuic(deviceID: config.peerID, arguments: arguments))
+        let quicArguments = arguments + ["--qa-replay-quic"]
+        precondition(config.prefersQuic(deviceID: config.peerID, arguments: quicArguments))
+        precondition(!config.prefersQuic(deviceID: "device:other", arguments: quicArguments))
+        precondition(!config.prefersQuic(deviceID: config.peerID, arguments: quicArguments + ["--qa-replay-quic"]))
+        precondition(!config.prefersQuic(deviceID: config.peerID, arguments: arguments + ["--qa-replay-quic=unexpected"]))
         for invalid in [Array(arguments.dropFirst()), Array(arguments.dropLast()), arguments + [arguments.last!],
                         arguments + ["--primary-input-marker-nonce=7"],
                         [arguments[0], arguments[1], "--qa-touch-replay-peer=unscoped"],

@@ -7,6 +7,11 @@ struct PrimaryTouchReplayConfiguration: Sendable {
     let nonce: UInt32
     static let process = parse(ProcessInfo.processInfo.arguments)
 
+    func prefersQuic(deviceID: String, arguments: [String]) -> Bool {
+        let flags = arguments.filter { $0.hasPrefix("--qa-replay-quic") }
+        return peerID == deviceID && flags == ["--qa-replay-quic"]
+    }
+
     static func parse(_ arguments: [String]) -> Self? {
         let prefix = "--qa-touch-replay-peer"
         let matches = arguments.filter { $0.hasPrefix(prefix) }
