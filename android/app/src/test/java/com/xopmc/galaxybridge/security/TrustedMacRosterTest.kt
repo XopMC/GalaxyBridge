@@ -9,6 +9,7 @@ class TrustedMacRosterTest {
         "00000000-0000-4000-8000-%012d".format(number),
         Base64.getEncoder().encodeToString(ByteArray(65) { if (it == 0) 4 else key.toByte() }),
         "Mac $number", 1000L + number,
+        trustOccurrenceID = "10000000-0000-4000-8000-%012d".format(number),
     )
     private class Storage(var encoded: String? = null, val legacy: TrustedMac? = null) : TrustedMacStorage {
         var succeeds = true
@@ -130,5 +131,64 @@ class TrustedMacRosterTest {
         input.clear()
         assertEquals(1, roster.macs.size)
         assertThrows(UnsupportedOperationException::class.java) { (roster.macs as MutableList).clear() }
+    }
+
+    @Test fun inactiveForgetAndRePairInvalidateOldTrustEvenWithTheSameKeyAndTimestamp() {
+        val repository = TrustedMacRepository(Storage())
+        val old = mac(2)
+        repository.add(mac(1)); repository.add(old)
+        val epoch = repository.snapshot().epoch
+        repository.forget(old.hostID)
+        val next = old.copy(trustOccurrenceID = "20000000-0000-4000-8000-000000000002")
+        repository.add(next)
+        val restored = repository.snapshot().find(old.hostID)!!
+        assertEquals(epoch, repository.snapshot().epoch)
+        assertEquals(old.pairedAtMillis, restored.pairedAtMillis)
+        assertFalse(old.sameTrustAs(restored))
+        assertEquals(next.publicKeyBase64, restored.publicKeyBase64)
+        assertEquals(restored, TrustedMacRoster.decode(repository.snapshot().encode()).find(old.hostID))
+    }
+
+    @Test fun renameAndPairingRetryPreserveTheExistingTrustOccurrence() {
+        val repository = TrustedMacRepository(Storage())
+        repository.add(mac(1))
+        val original = repository.snapshot().find(mac(1).hostID)!!
+        repository.add(original.copy(displayName = "New name", pairedAtMillis = 9999,
+            trustOccurrenceID = "20000000-0000-4000-8000-000000000001"))
+        assertTrue(original.sameTrustAs(repository.snapshot().find(original.hostID)))
+        assertFalse(original.sameTrustAs(null))
+        assertFalse(original.sameTrustAs(original.copy(pairedAtMillis = 9999)))
+    }
+
+    @Test fun newlyConstructedTrustHasItsOwnOccurrenceEvenAtTheSameClockInstant() {
+        val fixture = mac(1)
+        val first = TrustedMac(fixture.hostID, fixture.publicKeyBase64, fixture.displayName, fixture.pairedAtMillis)
+        val second = TrustedMac(fixture.hostID, fixture.publicKeyBase64, fixture.displayName, fixture.pairedAtMillis)
+        assertNotEquals(first.trustOccurrenceID, second.trustOccurrenceID)
+    }
+
+    @Test fun versionOneSnapshotMigratesToAStableOccurrenceWithoutChangingTransferIdentity() {
+        val legacy = "R0JNMQAAAAAAAAAAACQwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEAAAABACQwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEAWEJBRUJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRRT0AA01hYwAAAAAAAAPp"
+        val first = TrustedMacRoster.decode(legacy)
+        val again = TrustedMacRoster.decode(legacy)
+        assertEquals(first.macs.single().trustOccurrenceID, again.macs.single().trustOccurrenceID)
+        assertEquals(mac(1).hostID, first.activeHostID)
+        assertEquals(mac(1).publicKeyBase64, first.macs.single().publicKeyBase64)
+        assertEquals(mac(1).pairedAtMillis, first.macs.single().pairedAtMillis)
+        assertNotEquals(legacy, first.encode())
+        assertEquals(first, TrustedMacRoster.decode(first.encode()))
+    }
+
+    @Test fun reusingAForgottenRecordCannotReviveItsOldAuthority() {
+        val repository = TrustedMacRepository(Storage())
+        repository.add(mac(1)); repository.add(mac(2))
+        val forgotten = repository.snapshot().find(mac(2).hostID)!!
+        val epoch = repository.snapshot().epoch
+        repository.forget(forgotten.hostID)
+        repository.add(forgotten)
+        val replacement = repository.snapshot().find(forgotten.hostID)!!
+        assertEquals(epoch, repository.snapshot().epoch)
+        assertEquals(forgotten.pairedAtMillis, replacement.pairedAtMillis)
+        assertFalse(forgotten.sameTrustAs(replacement))
     }
 }
