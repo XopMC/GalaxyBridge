@@ -35,6 +35,7 @@ public final class DisplayStateSnapshotTest {
             "Power Group User Activity:\n" + group(0, "1", activity)), interactive);
     }
     public static void main(String[] args) throws Exception {
+        testCurrentActivitySampling();
         for (String state : new String[]{"Asleep", "Awake", "Dreaming", "Dozing"}) {
             boolean interactive = state.equals("Awake") || state.equals("Dreaming");
             String singleton = power(state, 200, 100,
@@ -162,5 +163,47 @@ public final class DisplayStateSnapshotTest {
         }
         System.out.println("PASS exact raw panel modes, independent default interactivity, global/group isolation, strict bounded evidence and stable read-only sampling");
         if (args.length != 0) System.out.println("PASS private captured power schemas: " + args.length / 2 + "; contents not emitted or included in source fixtures");
+    }
+    static DisplayStateSnapshot.SampleSource pairedSource(final DisplayStateSnapshot.PowerEvidence before,
+            final DisplayStateSnapshot.PowerEvidence after, final DisplayStateSnapshot.PhysicalEvidence first,
+            final DisplayStateSnapshot.PhysicalEvidence second) {
+        return new DisplayStateSnapshot.SampleSource() {
+            int powerReads, panelReads;
+            public DisplayStateSnapshot.PowerEvidence power() { return powerReads++ % 2 == 0 ? before : after; }
+            public DisplayStateSnapshot.PhysicalEvidence physical() { return panelReads++ % 2 == 0 ? first : second; }
+        };
+    }
+    static void testCurrentActivitySampling() throws Exception {
+        Map<String, DisplayStateSnapshot.Mode> modes = new LinkedHashMap<>();
+        modes.put("10", DisplayStateSnapshot.Mode.OFF); modes.put("20", DisplayStateSnapshot.Mode.ON);
+        DisplayStateSnapshot.PhysicalEvidence panels = new DisplayStateSnapshot.PhysicalEvidence(modes, "20", modes.keySet());
+        DisplayStateSnapshot.PowerEvidence before = evidence(true, 90), after = evidence(true, 91);
+        assert DisplayStateSnapshot.sampleCurrent(pairedSource(before, after, panels, panels)).power == after;
+        reject(() -> DisplayStateSnapshot.sample(pairedSource(before, after, panels, panels)));
+        reject(() -> DisplayStateSnapshot.sampleCurrent(pairedSource(after, before, panels, panels)));
+        DisplayStateSnapshot.PowerEvidence laterNoLights = DisplayStateSnapshot.parsePower(power("Awake", 200, 100,
+            "Power Group User Activity:\n" + group(0, "1", 91).replace("NoChangeLights=123", "NoChangeLights=124")), true);
+        assert DisplayStateSnapshot.sampleCurrent(pairedSource(after, laterNoLights, panels, panels)).power == laterNoLights;
+        reject(() -> DisplayStateSnapshot.sampleCurrent(pairedSource(laterNoLights, after, panels, panels)));
+        DisplayStateSnapshot.PowerEvidence newWake = DisplayStateSnapshot.parsePower(power("Awake", 201, 100,
+            "Power Group User Activity:\n" + group(0, "1", 91)), true);
+        reject(() -> DisplayStateSnapshot.sampleCurrent(pairedSource(before, newWake, panels, panels)));
+        DisplayStateSnapshot.PowerEvidence newSleep = DisplayStateSnapshot.parsePower(power("Awake", 200, 101,
+            "Power Group User Activity:\n" + group(0, "1", 91)), true);
+        reject(() -> DisplayStateSnapshot.sampleCurrent(pairedSource(before, newSleep, panels, panels)));
+        DisplayStateSnapshot.PowerEvidence sleeping = DisplayStateSnapshot.parsePower(power("Dozing", 200, 100,
+            "Power Group User Activity:\n" + group(0, "3", 91)), false);
+        reject(() -> DisplayStateSnapshot.sampleCurrent(pairedSource(before, sleeping, panels, panels)));
+        DisplayStateSnapshot.PowerEvidence newGroup = DisplayStateSnapshot.parsePower(power("Awake", 200, 100,
+            "Power Group User Activity:\n" + group(0, "1", 91) + group(1, "1", 91)), true);
+        reject(() -> DisplayStateSnapshot.sampleCurrent(pairedSource(before, newGroup, panels, panels)));
+        Map<String, DisplayStateSnapshot.Mode> changed = new LinkedHashMap<>(modes); changed.put("10", DisplayStateSnapshot.Mode.ON);
+        DisplayStateSnapshot.PhysicalEvidence otherPanels = new DisplayStateSnapshot.PhysicalEvidence(changed, "20", changed.keySet());
+        reject(() -> DisplayStateSnapshot.sampleCurrent(pairedSource(before, after, panels, otherPanels)));
+        DisplayStateSnapshot.PhysicalEvidence otherActive = new DisplayStateSnapshot.PhysicalEvidence(modes, "10", modes.keySet());
+        reject(() -> DisplayStateSnapshot.sampleCurrent(pairedSource(before, after, panels, otherActive)));
+        Map<String, DisplayStateSnapshot.Mode> subset = Collections.singletonMap("10", DisplayStateSnapshot.Mode.OFF);
+        DisplayStateSnapshot.PhysicalEvidence otherInventory = new DisplayStateSnapshot.PhysicalEvidence(subset, "10", subset.keySet());
+        reject(() -> DisplayStateSnapshot.sampleCurrent(pairedSource(before, after, panels, otherInventory)));
     }
 }

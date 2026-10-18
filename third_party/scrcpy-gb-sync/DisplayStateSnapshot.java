@@ -90,10 +90,17 @@ final class DisplayStateSnapshot {
             defaultActivityTime = activity; defaultActivityNoChangeLightsTime = noChangeLights;
         }
         boolean sameObservation(PowerEvidence other) {
+            return sameEpoch(other) && defaultActivityTime == other.defaultActivityTime
+                && defaultActivityNoChangeLightsTime == other.defaultActivityNoChangeLightsTime;
+        }
+        boolean sameEpochWithActivityProgress(PowerEvidence other) {
+            return sameEpoch(other) && other.defaultActivityTime >= defaultActivityTime
+                && other.defaultActivityNoChangeLightsTime >= defaultActivityNoChangeLightsTime;
+        }
+        private boolean sameEpoch(PowerEvidence other) {
             return other != null && defaultInteractive == other.defaultInteractive && defaultWakefulness == other.defaultWakefulness
                 && globalWakefulness == other.globalWakefulness && lastGlobalWakeTime == other.lastGlobalWakeTime
-                && lastGlobalSleepTime == other.lastGlobalSleepTime && defaultActivityTime == other.defaultActivityTime
-                && defaultActivityNoChangeLightsTime == other.defaultActivityNoChangeLightsTime
+                && lastGlobalSleepTime == other.lastGlobalSleepTime
                 && completePowerGroupInventory == other.completePowerGroupInventory && powerGroupIDs.equals(other.powerGroupIDs);
         }
     }
@@ -135,11 +142,20 @@ final class DisplayStateSnapshot {
     }
     /** Source reads must themselves have bounded I/O. No mutable observation becomes a restoration baseline. */
     static DisplayStateSnapshot sample(SampleSource source) throws Exception {
+        return sample(source, false);
+    }
+    /** Current observations may span input. The final activity stamps remain
+     * evidence for revoking sleep authority, never a replacement baseline. */
+    static DisplayStateSnapshot sampleCurrent(SampleSource source) throws Exception {
+        return sample(source, true);
+    }
+    private static DisplayStateSnapshot sample(SampleSource source, boolean allowActivityProgress) throws Exception {
         for (int attempt = 0; attempt < SAMPLE_ATTEMPTS; ++attempt) {
             PowerEvidence before = source.power(); PhysicalEvidence first = source.physical();
             PhysicalEvidence second = source.physical(); PowerEvidence after = source.power();
             if (before != null && after != null && first != null && second != null
-                    && before.sameObservation(after) && first.samePhysicalState(second))
+                    && (allowActivityProgress ? before.sameEpochWithActivityProgress(after) : before.sameObservation(after))
+                    && first.samePhysicalState(second))
                 return new DisplayStateSnapshot(second.panels, second.activePhysicalID, second.physicalIDs, after);
         }
         throw new Failure("display_snapshot_unsettled");

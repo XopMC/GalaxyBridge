@@ -59,8 +59,14 @@ final class DisplayStateRuntimeBackend implements DisplayStateOwnership.Backend 
         if (platform.uptimeMillis() >= deadline) throw new Failure("display_read_deadline");
     }
     public DisplayStateSnapshot read() throws Exception {
+        return read(false);
+    }
+    public DisplayStateSnapshot readCurrent() throws Exception {
+        return read(true);
+    }
+    private DisplayStateSnapshot read(final boolean current) throws Exception {
         diagnosticReads.incrementAndGet();
-        return boundedRead(new Callable<DisplayStateSnapshot>() { public DisplayStateSnapshot call() throws Exception { return sample(); } });
+        return boundedRead(new Callable<DisplayStateSnapshot>() { public DisplayStateSnapshot call() throws Exception { return sample(current); } });
     }
     long diagnosticReadCount() { return diagnosticReads.get(); }
     private synchronized <T> T boundedRead(Callable<T> operation) throws Exception {
@@ -83,7 +89,7 @@ final class DisplayStateRuntimeBackend implements DisplayStateOwnership.Backend 
             if (task.isDone()) pendingRead = null;
         }
     }
-    private DisplayStateSnapshot sample() throws Exception {
+    private DisplayStateSnapshot sample(boolean current) throws Exception {
         final long deadline = platform.uptimeMillis() + readTimeoutMillis;
         DisplayStateSnapshot.SampleSource source = new DisplayStateSnapshot.SampleSource() {
             public DisplayStateSnapshot.PowerEvidence power() throws Exception {
@@ -114,7 +120,7 @@ final class DisplayStateRuntimeBackend implements DisplayStateOwnership.Backend 
         // partial observation or extend this read's original deadline.
         for (int attempt = 0; attempt < 64; ++attempt) {
             within(deadline);
-            try { return DisplayStateSnapshot.sample(source); }
+            try { return current ? DisplayStateSnapshot.sampleCurrent(source) : DisplayStateSnapshot.sample(source); }
             catch (DisplayStateSnapshot.Failure transientState) {
                 if (!transientObservation(transientState.code)) throw transientState;
             } catch (Failure transientState) {

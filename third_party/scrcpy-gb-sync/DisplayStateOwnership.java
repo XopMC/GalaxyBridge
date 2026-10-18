@@ -14,6 +14,9 @@ final class DisplayStateOwnership {
     interface Backend {
         /** Stable observation with independently bounded I/O; never mutates Android state. */
         DisplayStateSnapshot read() throws Exception;
+        /** Current-state reads may observe monotonic input activity within the
+         * same power epoch. The initial snapshot always uses strict read(). */
+        default DisplayStateSnapshot readCurrent() throws Exception { return read(); }
         long uptimeMillis();
         void pause() throws Exception;
         void wake(long eventTime) throws Exception;
@@ -106,7 +109,7 @@ final class DisplayStateOwnership {
         expected = new LinkedHashMap<>(value.panels); confirmed = new LinkedHashMap<>(value.panels);
     }
     private DisplayStateSnapshot read() throws Exception {
-        DisplayStateSnapshot value = backend.read();
+        DisplayStateSnapshot value = backend.readCurrent();
         if (value == null) throw new Failure("display_snapshot_missing");
         if (value.power.defaultWakefulness == null) {
             if (value.power.completePowerGroupInventory) sleepAuthorityRevoked = true;

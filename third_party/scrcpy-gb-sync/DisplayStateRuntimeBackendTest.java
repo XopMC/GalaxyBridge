@@ -63,6 +63,7 @@ public final class DisplayStateRuntimeBackendTest {
         catch (DisplayStateSnapshot.Failure | IOException expected) {}
     }
     public static void main(String[] args) throws Exception {
+        testContinuousActivityObservation();
         testTransientWakeObservation();
         Platform platform = new Platform(); DisplayStateRuntimeBackend backend = new DisplayStateRuntimeBackend(platform);
         DisplayStateSnapshot initial = backend.read();
@@ -172,6 +173,36 @@ public final class DisplayStateRuntimeBackendTest {
         assert DisplayStateRuntimeBackend.powerMode(DisplayStateSnapshot.Mode.DOZE_SUSPEND) == 3;
         assert DisplayStateRuntimeBackend.powerMode(DisplayStateSnapshot.Mode.ON_SUSPEND) == 4;
         System.out.println("PASS actual backend on synthetic platform: stable inventory, focused fallback, interactivity, raw modes, lifecycle, one bounded reader, discarded late preparation and unknown mutations quarantined");
+    }
+    static void testContinuousActivityObservation() throws Exception {
+        final boolean[] moving = {false};
+        final int[] powerReads = {0};
+        Platform input = new Platform() {
+            public String powerDump(long deadline) throws Exception {
+                powerReads[0]++;
+                if (moving[0]) { ordinary++; noLights++; }
+                return super.powerDump(deadline);
+            }
+        };
+        DisplayStateOwnership owner = new DisplayStateOwnership(new DisplayStateRuntimeBackend(input));
+        owner.apply(true, DisplayStateOwnership.Policy.HIDE, 1);
+        moving[0] = true;
+        int before = powerReads[0];
+        try { owner.poll(); }
+        catch (Exception failure) {
+            throw new AssertionError("Continuous input must not turn a current-state poll into repeated snapshots; power reads="
+                + (powerReads[0] - before), failure);
+        }
+        assert owner.state() == DisplayStateOwnership.State.READY && input.mode.equals("OFF");
+        assert powerReads[0] - before == 2 : "One stable power epoch needs only its before/after observations";
+        moving[0] = false;
+        owner.restore();
+        assert owner.state() == DisplayStateOwnership.State.YIELDED_ACTIVITY && input.interactive && input.mode.equals("ON")
+            : "Later activity must revoke cleanup sleep and release only our blackout";
+        moving[0] = true;
+        int mutations = input.mutations;
+        reject(() -> new DisplayStateOwnership(new DisplayStateRuntimeBackend(input)));
+        assert input.mutations == mutations : "A moving initial snapshot must still be rejected without writes";
     }
     static void testTransientWakeObservation() throws Exception {
         final int[] transitionReads = {0}, pauses = {0};
